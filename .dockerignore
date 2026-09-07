@@ -1,0 +1,15 @@
+.git
+.gitignore
+.worktrees
+backend/.venv
+backend/evals/artifacts
+node_modules
+**/node_modules
+**/.next
+__pycache__
+*.pyc
+*.pyo
+*.log
+data
+.pytest_cache
+.env

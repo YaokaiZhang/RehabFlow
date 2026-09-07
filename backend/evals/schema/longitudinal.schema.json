@@ -1,0 +1,932 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rehabflow.local/evals/schema/longitudinal.schema.json",
+  "title": "RehabFlow longitudinal engineering scenario",
+  "description": "Versioned synthetic multi-session contract; engineering diagnostic only, not clinical validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scenario_id",
+    "initial_state",
+    "timeline",
+    "oracles"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "scenario_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "initial_state": {
+      "$ref": "#/$defs/initial_state"
+    },
+    "timeline": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/timeline_step"
+      }
+    },
+    "script": {
+      "type": "object",
+      "additionalProperties": false,
+      "propertyNames": {
+        "not": {
+          "enum": [
+            "tools",
+            "evidence",
+            "tool_results",
+            "evidence_results"
+          ]
+        }
+      },
+      "patternProperties": {
+        "^[a-z_]+$": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "oracles": {
+      "$ref": "#/$defs/oracles"
+    },
+    "rubric_applicability": {
+      "description": "Optional diagnostic echo; the loader derives and validates this mapping from oracle fields.",
+      "$ref": "#/$defs/rubric_applicability"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.:-]*$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 12000
+    },
+    "memory_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "content",
+        "status",
+        "source_id",
+        "provenance"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "content": {
+          "$ref": "#/$defs/text"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "deleted",
+            "archived",
+            "inactive"
+          ]
+        },
+        "source_id": {
+          "$ref": "#/$defs/id"
+        },
+        "provenance": {
+          "enum": [
+            "patient",
+            "saved_triage_summary",
+            "memory_agent",
+            "system",
+            "synthetic"
+          ]
+        },
+        "scope": {
+          "enum": [
+            "patient",
+            "episode"
+          ]
+        },
+        "care_episode_id": {
+          "$ref": "#/$defs/id"
+        },
+        "level2_content": {
+          "$ref": "#/$defs/text"
+        },
+        "session_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "uniqueItems": true
+        },
+        "recorded_at": {
+          "type": "string"
+        },
+        "supersedes": {
+          "$ref": "#/$defs/id"
+        },
+        "superseded_by": {
+          "$ref": "#/$defs/id"
+        },
+        "stale": {
+          "type": "boolean"
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "care_episode_id",
+        "messages"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "care_episode_id": {
+          "$ref": "#/$defs/id"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "role",
+              "content"
+            ],
+            "properties": {
+              "role": {
+                "enum": [
+                  "user",
+                  "assistant",
+                  "context"
+                ]
+              },
+              "content": {
+                "$ref": "#/$defs/text"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              }
+            }
+          }
+        },
+        "generated_context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "target_tokens",
+            "critical_fact"
+          ],
+          "properties": {
+            "target_tokens": {
+              "type": "integer",
+              "minimum": 256001
+            },
+            "critical_fact": {
+              "$ref": "#/$defs/text"
+            },
+            "report_capture": {
+              "enum": [
+                "bounded"
+              ]
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "open",
+            "closed",
+            "inactive"
+          ]
+        }
+      }
+    },
+    "initial_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "patient_id",
+        "current_time",
+        "care_episodes",
+        "sessions",
+        "patient_memory",
+        "episode_memory",
+        "triage_summaries",
+        "evidence",
+        "catalog"
+      ],
+      "properties": {
+        "patient_id": {
+          "$ref": "#/$defs/id"
+        },
+        "current_time": {
+          "type": "string"
+        },
+        "care_episodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "status",
+              "body_area"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "inactive",
+                  "closed",
+                  "archived"
+                ]
+              },
+              "body_area": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          }
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/session"
+          }
+        },
+        "patient_memory": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/memory_item"
+          }
+        },
+        "episode_memory": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/memory_item"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "care_episode_id"
+                ]
+              }
+            ]
+          }
+        },
+        "triage_summaries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "care_episode_id",
+              "version",
+              "status",
+              "content"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "care_episode_id": {
+                "$ref": "#/$defs/id"
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "status": {
+                "enum": [
+                  "saved",
+                  "draft",
+                  "deleted",
+                  "archived"
+                ]
+              },
+              "content": {
+                "$ref": "#/$defs/text"
+              },
+              "recorded_at": {
+                "type": "string"
+              },
+              "supersedes": {
+                "$ref": "#/$defs/id"
+              }
+            }
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "content",
+              "authorized",
+              "observed"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "content": {
+                "$ref": "#/$defs/text"
+              },
+              "authorized": {
+                "type": "boolean"
+              },
+              "observed": {
+                "type": "boolean"
+              },
+              "care_episode_id": {
+                "$ref": "#/$defs/id"
+              },
+              "stale": {
+                "type": "boolean"
+              },
+              "recorded_at": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "catalog": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "name": {
+                "$ref": "#/$defs/text"
+              },
+              "content": {
+                "type": "string"
+              },
+              "authorized": {
+                "type": "boolean"
+              },
+              "exercise_id": {
+                "$ref": "#/$defs/id"
+              },
+              "title": {
+                "$ref": "#/$defs/text"
+              },
+              "instructions": {
+                "type": "string"
+              },
+              "indications": {
+                "type": "string"
+              },
+              "contraindications": {
+                "type": "string"
+              },
+              "difficulty": {
+                "type": "string"
+              },
+              "duration_seconds": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "version": {
+                "type": "string"
+              },
+              "stale": {"type": "boolean"},
+              "care_episode_id": {"$ref": "#/$defs/id"},
+              "provenance": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "timeline_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op"
+      ],
+      "properties": {
+        "op": {
+          "enum": [
+            "start_session",
+            "turn",
+            "advance_time",
+            "restart",
+            "resume",
+            "save_triage_summary",
+            "memory_edit",
+            "memory_delete",
+            "memory_archive",
+            "memory_supersede",
+            "correct_fact",
+            "memory_create"
+          ]
+        },
+        "session_id": {
+          "$ref": "#/$defs/id"
+        },
+        "selected_session_id": {
+          "$ref": "#/$defs/id"
+        },
+        "care_episode_id": {
+          "$ref": "#/$defs/id"
+        },
+        "message": {
+          "$ref": "#/$defs/text"
+        },
+        "seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 31536000
+        },
+        "memory_id": {
+          "$ref": "#/$defs/id"
+        },
+        "superseding_memory_id": {
+          "$ref": "#/$defs/id"
+        },
+        "superseded_by": {
+          "$ref": "#/$defs/id"
+        },
+        "new_memory_id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "content": {
+          "$ref": "#/$defs/text"
+        },
+        "source_id": {
+          "$ref": "#/$defs/id"
+        },
+        "provenance": {
+          "type": "string"
+        },
+        "summary_id": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "risk_signal": {
+          "type": "string"
+        },
+        "script_key": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "scope": {
+          "enum": [
+            "patient",
+            "episode"
+          ]
+        }
+      }
+    },
+    "oracles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required_source_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "forbidden_source_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "forbidden_catalog_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "stale_source_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "required_fact_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "forbidden_fact_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "user_goal": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "expected_actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expected_route": {
+          "enum": [
+            "urgent",
+            "clarify",
+            "consultant",
+            "unsupported"
+          ]
+        },
+        "expected_nodes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "forbidden_nodes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence_manifest": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "evidence_claims": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/text"
+            }
+          }
+        },
+        "claim_sources": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "expected_catalog_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "risk_signals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missing_context": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ambiguous_fact_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "evidence_unavailable": {
+          "type": "boolean"
+        },
+        "case_condition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "information_need": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "target_boundary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "tool_failure": {
+          "type": "boolean"
+        },
+        "forbidden_raw_prior_session": {
+          "type": "boolean"
+        },
+        "privacy_boundary": {
+          "type": "boolean"
+        },
+        "urgent_routing_boundary": {
+          "type": "boolean"
+        },
+        "user_facing": {
+          "type": "boolean"
+        },
+        "expected_checkpoint": {
+          "enum": [
+            "none",
+            "interrupted",
+            "resumed",
+            "restarted",
+            "restart_resumed"
+          ]
+        },
+        "expected_repair_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "packet_budgets": {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z_]+$": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            }
+          }
+        },
+        "summary_required_fact_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "summary_forbidden_fact_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "memory_writes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "scope",
+              "action",
+              "provenance"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "scope": {
+                "enum": [
+                  "patient",
+                  "episode"
+                ]
+              },
+              "action": {
+                "enum": [
+                  "create",
+                  "update",
+                  "delete",
+                  "archive",
+                  "none"
+                ]
+              },
+              "provenance": {
+                "type": "string"
+              },
+              "care_episode_id": {
+                "$ref": "#/$defs/id"
+              }
+            }
+          }
+        },
+        "expected_reviewer_outcomes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "safety": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "approve",
+                  "reject",
+                  "error",
+                  "timeout"
+                ]
+              }
+            },
+            "grounding": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "approve",
+                  "reject",
+                  "error",
+                  "timeout"
+                ]
+              }
+            }
+          }
+        },
+        "expected_persistence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expected_idempotency": {
+          "enum": [
+            "none",
+            "replayed",
+            "not_replayed"
+          ]
+        },
+        "expected_response_contains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expected_response_omits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "planner_failure": {
+          "type": "boolean"
+        },
+        "unknown_planner_source_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "summary_required_phrases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary_forbidden_phrases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_context_source_ids": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        }
+      }
+    },
+    "rubric_applicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "context_fidelity",
+        "temporal_reasoning",
+        "grounding",
+        "memory_appropriateness",
+        "risk_handling",
+        "uncertainty_calibration",
+        "action_quality",
+        "tool_use_quality",
+        "communication_quality"
+      ],
+      "properties": {
+        "context_fidelity": {
+          "enum": [
+            "primary",
+            "secondary",
+            "hard_gate",
+            "not_applicable"
+          ]
+        },
+        "temporal_reasoning": {
+          "enum": [
+            "primary",
+            "secondary",
+            "hard_gate",
+            "not_applicable"
+          ]
+        },
+        "grounding": {
+          "enum": [
+            "primary",
+            "secondary",
+            "hard_gate",
+            "not_applicable"
+          ]
+        },
+        "memory_appropriateness": {
+          "enum": [
+            "primary",
+            "secondary",
+            "hard_gate",
+            "not_applicable"
+          ]
+        },
+        "risk_handling": {
+          "enum": [
+            "primary",
+            "secondary",
+            "hard_gate",
+            "not_applicable"
+          ]
+        },
+        "uncertainty_calibration": {
+          "enum": [
+            "primary",
+            "secondary",
+            "hard_gate",
+            "not_applicable"
+          ]
+        },
+        "action_quality": {
+          "enum": [
+            "primary",
+            "secondary",
+            "hard_gate",
+            "not_applicable"
+          ]
+        },
+        "tool_use_quality": {
+          "enum": [
+            "primary",
+            "secondary",
+            "hard_gate",
+            "not_applicable"
+          ]
+        },
+        "communication_quality": {
+          "enum": [
+            "primary",
+            "secondary",
+            "hard_gate",
+            "not_applicable"
+          ]
+        }
+      }
+    }
+  }
+}

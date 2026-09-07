@@ -1,0 +1,35 @@
+{
+  "name": "rehab-platform",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/product",
+    "apps/console",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev:product": "npm run dev --workspace @rehab/product",
+    "dev:console": "npm run dev --workspace @rehab/console",
+    "dev:backend": "node scripts/dev-backend.mjs",
+    "dev": "./start-dev.sh",
+    "build:product": "npm run build --workspace @rehab/product",
+    "build:console": "npm run build --workspace @rehab/console",
+    "test:console-ai-chat-contract": "node apps/console/scripts/test_ai_chat_transport_contract.mjs",
+    "test:console-ai-chat-proxy-contract": "node apps/console/scripts/test_ai_chat_proxy_runtime_contract.mjs",
+    "test:console-ai-chat-retry-contract": "node apps/console/scripts/test_ai_chat_retry_contract.mjs",
+    "test:product-patient-stream-ticket-contract": "node apps/product/scripts/test_patient_stream_ticket_contract.mjs",
+    "test:product-live-monitor-contract": "node apps/product/scripts/test_professional_care_live_monitor_contract.mjs",
+    "test:console-stream-transport-contract": "node apps/console/scripts/test_stream_transport_contract.mjs",
+    "verify:frontend": "./scripts/verify_frontend_workspaces.sh",
+    "verify:agent-quality": "./scripts/verify_agent_quality.sh",
+    "eval:llm-judge": "./scripts/run_llm_judge_eval.sh",
+    "test:root-env": "node scripts/test-root-env-contract.mjs",
+    "test:backend-env-launcher": "node scripts/test-dev-backend.mjs",
+    "test:frontend-ports": "node scripts/test-frontend-ports.mjs"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.15"
+    }
+  }
+}

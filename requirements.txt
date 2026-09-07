@@ -1,0 +1,2 @@
+# Backend runtime dependencies are pinned in the authoritative backend manifest.
+-r backend/requirements.txt

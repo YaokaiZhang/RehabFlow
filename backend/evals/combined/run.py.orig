@@ -1,0 +1,1408 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import signal
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Callable, Mapping, Protocol
+
+from app.ai.workflow_state import WORKFLOW_VERSION
+from evals.longitudinal.adapter import run_scenario_v2
+from evals.corpus import DEFAULT_CASES_PATH, load_longitudinal_cases
+from evals.longitudinal.contract import RUBRIC_DIMENSIONS, ScenarioV2
+from evals.longitudinal.judge import evaluate_with_repair
+from evals.longitudinal.report import build_case_report
+from evals.trace import TraceRecorder
+from evals.real_model.run import (
+    _OpenAICompatibleProvider,
+    _content,
+    _conversation_messages,
+    _metadata,
+    _tokens,
+    build_generation_prompt,
+)
+from evals.combined.report import (
+    LONGITUDINAL_SCENARIO_COUNT,
+    REAL_MODEL_CASE_COUNT,
+    CombinedReport,
+    build_combined_report,
+)
+from evals.combined.service import BackendHealth, ServiceHarness, ServiceHarnessConfig, validate_backend_health
+from evals.combined.service_runner import ServiceCaseRunner, provision_service_identity
+from evals.combined.tool_metrics import ToolCallRecord, aggregate_tool_metrics, group_tool_metrics
+from evals.combined.progress import LedgerRejected, ProgressLedger, configuration_fingerprint
+
+DEFAULT_CASES = Path("evals/real_model/cases/v2.json")
+DEFAULT_SCENARIO_DIR = DEFAULT_CASES_PATH
+DEFAULT_ARTIFACT_DIR = Path("evals/artifacts")
+REAL_MODEL_APPLICABILITY = {dimension: "primary" for dimension in RUBRIC_DIMENSIONS}
+
+
+class DiagnosticProvider(Protocol):
+    def invoke(self, prompt: str, *, model: str) -> object: ...
+
+
+@dataclass(frozen=True)
+class _RealModelScenario:
+    scenario_id: str
+    rubric_applicability: dict[str, str]
+    oracles: dict[str, Any]
+
+
+def _response_text(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Mapping):
+        if "content" in value or "response" in value:
+            return str(value.get("content", value.get("response", "")) or "")
+        return json.dumps(dict(value), sort_keys=True)
+    content = getattr(value, "content", None)
+    if isinstance(content, str):
+        return content
+    return str(value or "")
+
+
+def _invoke_judge(provider: object, prompt: str, *, model: str) -> object:
+    if callable(provider):
+        return provider(prompt)
+    for method_name in ("judge", "invoke"):
+        method = getattr(provider, method_name, None)
+        if callable(method):
+            return method(prompt, model=model) if method_name == "invoke" else method(prompt)
+    raise TypeError("configured judge must be callable or expose judge(payload) or invoke(prompt, model=)")
+
+
+def _transcript_message(
+    *,
+    role: str,
+    stage: str,
+    content: str,
+) -> dict[str, str]:
+    return {"role": role, "stage": stage, "content": content}
+
+
+def _real_model_case(
+    case: Mapping[str, Any],
+    *,
+    generator: DiagnosticProvider,
+    judge: object | None,
+    generation_model: str,
+    judge_model: str,
+) -> dict[str, Any]:
+    case_id = str(case.get("case_id") or "synthetic-case")
+    input_dialog = _conversation_messages(dict(case))
+    transcript = [
+        _transcript_message(
+            role=message["role"],
+            stage=f"synthetic_turn_{index}",
+            content=message["content"],
+        )
+        for index, message in enumerate(input_dialog, start=1)
+    ]
+    recorder = TraceRecorder(
+        case_id,
+        run_configuration={
+            "suite": "real_model_v2",
+            "runner_mode": "real-model-provider",
+            "source_revision": "79436e06495a730aafe99393a765d66ff66d7474",
+            "prompt_version": "real-model-diagnostic-prompt-v4",
+            "rubric_version": "v2",
+            "provider": "configured-provider",
+            "generation_model": generation_model,
+            "judge_model": judge_model,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "effective_budgets": {
+                "model_calls": 2,
+                "tool_calls": 0,
+                "repairs": 1,
+            },
+        },
+    )
+    recorder.start_turn(
+        f"{case_id}:turn-1",
+        input_dialog=input_dialog,
+        payload={"case_id": case_id},
+    )
+    generation_prompt = ""
+    generation_response = ""
+    judge_prompt = ""
+    judge_response = ""
+    generated_metadata: dict[str, Any] = {}
+    generation_error: str | None = None
+
+    try:
+        generation_prompt = build_generation_prompt(dict(case))
+        recorder.record(
+            "model_request",
+            {
+                "agent": "generation",
+                "model": generation_model,
+                "messages": input_dialog,
+                "prompt": generation_prompt,
+            },
+        )
+        transcript.append(
+            _transcript_message(
+                role="user",
+                stage="generation_prompt",
+                content=generation_prompt,
+            )
+        )
+        generated = generator.invoke(generation_prompt, model=generation_model)
+        generation_response = _content(generated)
+        generated_metadata = _metadata(generated)
+        input_tokens, output_tokens = _tokens(generated)
+        recorder.record(
+            "model_response",
+            {
+                "agent": "generation",
+                "model": generation_model,
+                "response": generation_response,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "metadata": generated_metadata,
+            },
+        )
+        transcript.append(
+            _transcript_message(
+                role="assistant",
+                stage="generation_response",
+                content=generation_response,
+            )
+        )
+        for index, outcome in enumerate(generated_metadata.get("review_outcomes", ()) or (), start=1):
+            recorder.record(
+                "review_finished",
+                {"stage": "generation", "review_index": index, "outcome": str(outcome)},
+            )
+        for index in range(int(generated_metadata.get("repair_count", 0) or 0)):
+            recorder.record(
+                "repair",
+                {"stage": "generation", "repair_index": index + 1, "source": "provider_metadata"},
+            )
+    except Exception as exc:
+        generation_error = f"{type(exc).__name__}: {exc}"
+
+    if generation_error is not None:
+        return {
+            "suite": "real_model",
+            "case_id": case_id,
+            "execution_mode": "real-model-provider",
+            "provider_free": False,
+            "status": "generation_error",
+            "deterministic_status": "error",
+            "judge_status": "not_attempted",
+            "judge_error": generation_error,
+            "generation_model": generation_model,
+            "judge_model": judge_model,
+            "rubric_applicability": dict(REAL_MODEL_APPLICABILITY),
+            "generation_prompt": generation_prompt,
+            "generation_response": generation_response,
+            "judge_prompt": judge_prompt,
+            "judge_response": judge_response,
+            "conversation": transcript,
+            "trace": recorder.finalize(
+                summary={
+                    "model_calls": 1,
+                    "tool_calls": 0,
+                    "repair_count": 0,
+                    "total_tokens": 0,
+                    "elapsed_ms": None,
+                },
+                final_dialog=transcript,
+                unavailable_reasons={
+                    "judge": "generation_failed_before_judge",
+                    "graph_transitions": "real_model_provider_contract_exposes_text_generation_only",
+                    "tool_invocations": "real_model_provider_contract_exposes_no_product_tool_calls",
+                    "elapsed_ms": "combined_case_wrapper_does_not_measure_provider_latency",
+            "model_retries": "provider_response_exposes_no_retry_trace",
+                },
+            ),
+        }
+
+    judge_result: Any = None
+    rubric_summary: Any = None
+    judge_status = "not_configured" if judge is None else "error"
+    judge_error: str | None = None
+    judge_input_tokens: int | None = None
+    judge_output_tokens: int | None = None
+    judge_attempts: tuple[Any, ...] = ()
+    if judge is not None:
+        try:
+            scenario = _RealModelScenario(
+                scenario_id=case_id,
+                rubric_applicability=dict(REAL_MODEL_APPLICABILITY),
+                oracles={},
+            )
+            manifest = [
+                {"id": str(source_id), "authorized": True}
+                for source_id in case.get("authorized_evidence", []) or []
+            ]
+            manifest.append({"id": "response", "content": generation_response, "authorized": True})
+            evaluation = evaluate_with_repair(
+                scenario=scenario,
+                response=generation_response,
+                evidence_manifest=manifest,
+                invoke=lambda payload: _invoke_judge(
+                    judge,
+                    payload,
+                    model=judge_model,
+                ),
+            )
+            judge_attempts = evaluation.attempts
+            for attempt_index, attempt in enumerate(judge_attempts):
+                attempt_response = _response_text(attempt.raw_output)
+                stage_suffix = "" if attempt_index == 0 else "_repair"
+                recorder.record(
+                    "judge_request",
+                    {
+                        "attempt": attempt_index + 1,
+                        "model": judge_model,
+                        "prompt": attempt.payload,
+                        "authorized_evidence_manifest": manifest,
+                    },
+                )
+                transcript.append(
+                    _transcript_message(
+                        role="user",
+                        stage=f"judge{stage_suffix}_prompt",
+                        content=attempt.payload,
+                    )
+                )
+                judge_response_payload: dict[str, Any] = {
+                    "attempt": attempt_index + 1,
+                    "model": judge_model,
+                    "raw_output": attempt.raw_output,
+                    "response": attempt_response,
+                }
+                if attempt.error is not None:
+                    judge_response_payload["error"] = attempt.error
+                if attempt.usage_metadata:
+                    judge_response_payload.update(
+                        {
+                            key: attempt.usage_metadata[key]
+                            for key in ("input_tokens", "output_tokens")
+                            if isinstance(attempt.usage_metadata.get(key), int)
+                        }
+                    )
+                recorder.record("judge_response", judge_response_payload)
+                transcript.append(
+                    _transcript_message(
+                        role="assistant",
+                        stage=f"judge{stage_suffix}_response",
+                        content=attempt_response,
+                    )
+                )
+            if judge_attempts:
+                final_attempt = judge_attempts[-1]
+                judge_prompt = final_attempt.payload
+                judge_response = _response_text(final_attempt.raw_output)
+                judge_input_tokens, judge_output_tokens = _tokens(final_attempt.raw_output)
+            judge_result = evaluation.result
+            rubric_summary = evaluation.summary
+            judge_error = evaluation.error
+            if rubric_summary is not None:
+                judge_status = "passed" if rubric_summary.passed else "failed"
+        except Exception as exc:
+            judge_status = "error"
+            judge_error = f"{type(exc).__name__}: {exc}"
+
+    deterministic_status = "passed"
+    if judge_status == "not_configured":
+        status = "completed_unjudged"
+    elif judge_status == "error":
+        status = "completed_with_judge_error"
+    else:
+        status = "passed" if judge_status == "passed" else "failed"
+
+    generated_input_tokens, generated_output_tokens = _tokens(generated)
+    judge_trace = None
+    if judge_result is not None:
+        judge_trace = {
+            "input": judge_prompt,
+            "raw_output": judge_response,
+            "parsed_scores": judge_result.to_dict(),
+            "rubric_summary": rubric_summary.to_dict() if rubric_summary is not None else None,
+            "rationale": judge_result.to_dict(),
+        }
+    trace = recorder.finalize(
+        summary={
+            "model_calls": 1 + len(judge_attempts) if judge is not None else 1,
+            "tool_calls": 0,
+            "repair_count": int(generated_metadata.get("repair_count", 0) or 0),
+            "total_tokens": (
+                sum(
+                    token
+                    for token in (
+                        generated_input_tokens,
+                        generated_output_tokens,
+                        *((
+                            judge_input_tokens,
+                            judge_output_tokens,
+                        ) if judge is not None else ()),
+                    )
+                    if token is not None
+                )
+                if all(
+                    token is not None
+                    for token in (
+                        generated_input_tokens,
+                        generated_output_tokens,
+                        *((
+                            judge_input_tokens,
+                            judge_output_tokens,
+                        ) if judge is not None else ()),
+                    )
+                )
+                else None
+            ),
+            "elapsed_ms": None,
+        },
+        final_dialog=transcript,
+        judge=judge_trace,
+        unavailable_reasons={
+            "graph_transitions": "real_model_provider_contract_exposes_text_generation_only",
+            "tool_invocations": "real_model_provider_contract_exposes_no_product_tool_calls",
+            "elapsed_ms": "combined_case_wrapper_does_not_measure_provider_latency",
+            **({"judge": "judge_not_configured"} if judge is None else {}),
+        },
+    )
+    return {
+        "suite": "real_model",
+        "case_id": case_id,
+        "execution_mode": "real-model-provider",
+        "provider_free": False,
+        "status": status,
+        "deterministic_status": deterministic_status,
+        "judge_status": judge_status,
+        "judge_error": judge_error,
+        "generation_model": generation_model,
+        "judge_model": judge_model,
+        "rubric_applicability": dict(REAL_MODEL_APPLICABILITY),
+        "generation_prompt": generation_prompt,
+        "generation_response": generation_response,
+        "judge_prompt": judge_prompt,
+        "judge_response": judge_response,
+        "conversation": transcript,
+        "route": str(generated_metadata.get("route") or "") or None,
+        "review_outcomes": [
+            str(item) for item in generated_metadata.get("review_outcomes", ()) or ()
+        ],
+        "repair_count": int(generated_metadata.get("repair_count", 0) or 0),
+        "judge_repair_count": max(0, len(judge_attempts) - 1),
+        "input_tokens": generated_input_tokens,
+        "output_tokens": generated_output_tokens,
+        "judge": judge_result.to_dict() if judge_result is not None else None,
+        "rubric_summary": rubric_summary.to_dict() if rubric_summary is not None else None,
+        "trace": trace,
+    }
+
+
+class _InvokeOnlyJudgeAdapter:
+    def __init__(self, provider: object, model: str) -> None:
+        self._provider = provider
+        self._model = model
+
+    def __call__(self, payload: str) -> object:
+        return self._provider.invoke(payload, model=self._model)
+
+
+def _adapt_longitudinal_judge(judge: object | None, model: str) -> object | None:
+    if judge is None or callable(judge) or callable(getattr(judge, "judge", None)):
+        return judge
+    if callable(getattr(judge, "invoke", None)):
+        return _InvokeOnlyJudgeAdapter(judge, model)
+    return judge
+
+def _longitudinal_case(
+    scenario: ScenarioV2,
+    *,
+    judge: object | None,
+    judge_model: str = "qwen-plus",
+) -> dict[str, Any]:
+    result = run_scenario_v2(scenario)
+    applicable = any(
+        level != "not_applicable"
+        for level in scenario.rubric_applicability.values()
+    )
+    case = build_case_report(
+        scenario,
+        result,
+        judge=_adapt_longitudinal_judge(judge, judge_model) if judge is not None and applicable else None,
+    )
+    payload = case.to_dict()
+    if not applicable:
+        judge_status = "not_applicable"
+    elif judge is None:
+        judge_status = "not_configured"
+    elif case.judge_error is not None:
+        judge_status = "error"
+    elif case.rubric_summary is not None:
+        judge_status = "passed" if case.rubric_summary.passed else "failed"
+    else:
+        judge_status = "error"
+    payload.update(
+        {
+            "suite": "longitudinal",
+            "execution_mode": "provider-free-scripted",
+            "provider_free": True,
+            "model_provider": None,
+            "deterministic_status": case.status,
+            "judge_status": judge_status,
+        }
+    )
+    if judge_status == "error" and payload.get("judge_error") is None:
+        payload["judge_error"] = "judge did not produce a complete v2 result"
+    return payload
+
+
+def _load_real_model_cases(path: Path) -> list[dict[str, Any]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise ValueError("real-model v2 fixture must contain a list")
+    if not all(isinstance(item, Mapping) for item in payload):
+        raise ValueError("real-model v2 fixture entries must be objects")
+    cases = [dict(item) for item in payload]
+    if len(cases) != REAL_MODEL_CASE_COUNT:
+        raise RuntimeError(
+            f"real-model v2 fixture requires exactly {REAL_MODEL_CASE_COUNT} cases; "
+            f"received {len(cases)}"
+        )
+    ids = [str(case.get("case_id") or "") for case in cases]
+    if any(not case_id for case_id in ids) or len(set(ids)) != len(ids):
+        raise RuntimeError("real-model v2 fixture contains missing or duplicate case IDs")
+    return cases
+
+
+def _load_longitudinal_scenarios() -> list[ScenarioV2]:
+    scenarios = load_longitudinal_cases(DEFAULT_SCENARIO_DIR)
+    if len(scenarios) != LONGITUDINAL_SCENARIO_COUNT:
+        raise RuntimeError(
+            f"longitudinal v2 fixture requires exactly {LONGITUDINAL_SCENARIO_COUNT} scenarios; "
+            f"received {len(scenarios)}"
+        )
+    ids = [scenario.scenario_id for scenario in scenarios]
+    if len(set(ids)) != len(ids):
+        raise RuntimeError("longitudinal v2 fixture contains duplicate scenario IDs")
+    return scenarios
+
+
+def run_combined(
+    real_model_cases: list[dict[str, Any]],
+    longitudinal_scenarios: list[ScenarioV2],
+    *,
+    generator: DiagnosticProvider,
+    judge: object | None,
+    generation_model: str,
+    judge_model: str,
+    include_conversation: bool = True,
+    generated_at: str | None = None,
+    redaction_secrets: tuple[str, ...] = (),
+) -> CombinedReport:
+    if len(real_model_cases) != REAL_MODEL_CASE_COUNT:
+        raise RuntimeError("combined runner received an incomplete real-model suite")
+    if len(longitudinal_scenarios) != LONGITUDINAL_SCENARIO_COUNT:
+        raise RuntimeError("combined runner received an incomplete longitudinal suite")
+    real_reports = [
+        _real_model_case(
+            case,
+            generator=generator,
+            judge=judge,
+            generation_model=generation_model,
+            judge_model=judge_model,
+        )
+        for case in real_model_cases
+    ]
+    if not include_conversation:
+        for report in real_reports:
+            report["conversation"] = None
+    longitudinal_reports = [
+        _longitudinal_case(scenario, judge=judge, judge_model=judge_model)
+        for scenario in longitudinal_scenarios
+    ]
+    return build_combined_report(
+        real_model_cases=real_reports,
+        longitudinal_cases=longitudinal_reports,
+        generated_at=generated_at,
+        redaction_secrets=redaction_secrets,
+    )
+
+
+def write_artifacts(
+    report: CombinedReport,
+    artifact_dir: Path,
+) -> tuple[Path, Path]:
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    json_path = artifact_dir / f"combined-{stamp}.json"
+    markdown_path = artifact_dir / f"combined-{stamp}.md"
+    json_path.write_text(report.to_json() + "\n", encoding="utf-8")
+    markdown_path.write_text(report.to_markdown(), encoding="utf-8")
+    return json_path, markdown_path
+
+
+def write_diagnostic_artifacts(
+    *,
+    artifact_dir: Path,
+    phase: str,
+    error: BaseException,
+    run_metadata: Mapping[str, Any],
+    cleanup: Mapping[str, Any],
+    artifact_paths: tuple[Path, Path] | None = None,
+) -> tuple[Path, Path]:
+    """Write a privacy-safe failure artifact without requiring complete suite counts."""
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    if artifact_paths is None:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        artifact_paths = (
+            artifact_dir / f"combined-diagnostic-{stamp}.json",
+            artifact_dir / f"combined-diagnostic-{stamp}.md",
+        )
+    json_path, markdown_path = artifact_paths
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "report_version": "combined-v2-diagnostic",
+        "status": "failed",
+        "diagnostic": {
+            "phase": phase,
+            "error_type": type(error).__name__,
+        },
+        "counts": {
+            "real_model_cases": 0,
+            "longitudinal_scenarios": 0,
+            "total": 0,
+        },
+        "run_metadata": dict(run_metadata),
+        "cleanup": dict(cleanup),
+    }
+    rendered_json = json.dumps(payload, sort_keys=True, indent=2)
+    rendered_markdown = (
+        "# Combined v2 diagnostic artifact\n\n"
+        f"- Status: {payload['status']}\n"
+        f"- Failure phase: {phase}\n"
+        f"- Failure type: {type(error).__name__}\n"
+        "- No complete 8 + 26 case report was available.\n"
+        f"- Cleanup status: {cleanup.get('status', 'unknown')}\n"
+        f"- Cleanup failures: {', '.join(str(item) for item in cleanup.get('failures', [])) or 'none'}\n\n"
+        "JSON payload:\n\n"
+        f"{rendered_json}\n"
+    )
+    json_path.write_text(rendered_json + "\n", encoding="utf-8")
+    markdown_path.write_text(rendered_markdown, encoding="utf-8")
+    return json_path, markdown_path
+
+
+def _finalize_failed_run(
+    *,
+    artifact_dir: Path,
+    run_manifest: Any,
+    application_database_url: str,
+    checkpoint_database_url: str,
+    qdrant_url: str,
+    qdrant_api_key: str | None,
+    qdrant_path: str | None = None,
+    database_bootstrap: Any | None,
+    phase: str,
+    error: BaseException,
+    cleanup_fn: Callable[..., Any],
+    bootstrap_cleanup: Any | None = None,
+) -> tuple[Path, Path, Any]:
+    """Persist a safe diagnostic before exact cleanup and rewrite it with cleanup status."""
+    run_metadata = {
+        "execution_mode": "real-backend-service",
+        "evaluator_revision": os.getenv("REHAB_EVAL_EVALUATOR_REVISION", "unknown"),
+        "evaluator_dirty_state": os.getenv("REHAB_EVAL_DIRTY_STATE", "unreported"),
+        "manifest": run_manifest.privacy_safe(),
+        "bootstrap_cleanup": (
+            bootstrap_cleanup.to_dict()
+            if bootstrap_cleanup is not None and hasattr(bootstrap_cleanup, "to_dict")
+            else None
+        ),
+    }
+    pending_cleanup = {"status": "pending", "failures": []}
+    json_path, markdown_path = write_diagnostic_artifacts(
+        artifact_dir=artifact_dir,
+        phase=phase,
+        error=error,
+        run_metadata={**run_metadata, "cleanup": pending_cleanup},
+        cleanup=pending_cleanup,
+    )
+
+    def no_op_cleanup(_manifest: Any) -> tuple[int, int]:
+        return 0, 0
+
+    cleanup = cleanup_fn(
+        run_manifest,
+        application_database_url=application_database_url,
+        checkpoint_database_url=checkpoint_database_url,
+        qdrant_url=qdrant_url,
+        qdrant_api_key=qdrant_api_key,
+        qdrant_path=qdrant_path,
+        database_bootstrap=database_bootstrap,
+        application_cleanup=None if application_database_url else no_op_cleanup,
+        checkpoint_cleanup=None if checkpoint_database_url else no_op_cleanup,
+        qdrant_cleanup=None if qdrant_url or qdrant_path else no_op_cleanup,
+    )
+    if bootstrap_cleanup is not None and not getattr(bootstrap_cleanup, "ok", True):
+        bootstrap_failures = list(getattr(bootstrap_cleanup, "failures", ()))
+        cleanup.failures.extend(
+            f"bootstrap_{failure}" for failure in bootstrap_failures
+        )
+        cleanup.status = "failed"
+    cleanup_payload = cleanup.to_dict()
+    write_diagnostic_artifacts(
+        artifact_dir=artifact_dir,
+        phase=phase,
+        error=error,
+        run_metadata={**run_metadata, "cleanup": cleanup_payload},
+        cleanup=cleanup_payload,
+        artifact_paths=(json_path, markdown_path),
+    )
+    return json_path, markdown_path, cleanup
+
+
+def _enabled() -> bool:
+    return os.getenv("REHAB_REAL_MODEL_ENABLED", "").strip().lower() in {"1", "true", "yes"}
+
+
+class _EvaluatorInterrupted(RuntimeError):
+    def __init__(self, signal_number: int) -> None:
+        super().__init__(f"evaluator interrupted by signal {signal_number}")
+        self.signal_number = int(signal_number)
+
+
+def _case_key(suite: str, identifier: str) -> str:
+    return f"{suite}:{identifier}"
+
+
+def _run_configuration_fingerprint(
+    args: argparse.Namespace,
+    *,
+    judge_key: str,
+    real_model_cases: list[dict[str, Any]],
+    longitudinal_scenarios: list[ScenarioV2],
+) -> str:
+    configuration = dict(vars(args))
+    configuration.update(
+        {
+            "judge_key": judge_key,
+            "real_model_case_ids": [str(item["case_id"]) for item in real_model_cases],
+            "longitudinal_scenario_ids": [scenario.scenario_id for scenario in longitudinal_scenarios],
+            "workflow_version": args.workflow_version,
+        }
+    )
+    return configuration_fingerprint(configuration)
+
+
+def _child_exit_code(harness: ServiceHarness, error: BaseException | None = None) -> int | None:
+    return_code = getattr(harness, "process_returncode", None)
+    if isinstance(return_code, int):
+        return return_code
+    if error is not None:
+        match = re.search(r"code\s+(-?\d+)", str(error))
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _merge_database_ownership(current: Any, recorded: Mapping[str, Any] | None) -> Any:
+    if not isinstance(recorded, Mapping):
+        return current
+    try:
+        application_record = recorded.get("application")
+        checkpoint_record = recorded.get("checkpoint")
+        application = replace(
+            current.application,
+            created_by_run=bool(application_record.get("created_by_run")),
+            ownership_state=str(application_record.get("ownership_state") or current.application.ownership_state),
+        )
+        checkpoint = replace(
+            current.checkpoint,
+            created_by_run=bool(checkpoint_record.get("created_by_run")),
+            ownership_state=str(checkpoint_record.get("ownership_state") or current.checkpoint.ownership_state),
+        )
+        return replace(current, application=application, checkpoint=checkpoint)
+    except (AttributeError, TypeError):
+        return current
+
+
+def _incomplete_ledger_paths(artifact_dir: Path) -> list[Path]:
+    paths: list[Path] = []
+    for path in sorted(
+        artifact_dir.glob("evaluator-run-*.ledger.json"),
+        key=lambda item: item.stat().st_mtime_ns,
+        reverse=True,
+    ):
+        try:
+            state = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            paths.append(path)
+            continue
+        if not isinstance(state, Mapping) or not bool(state.get("terminal")):
+            paths.append(path)
+    return paths
+
+def main(argv: list[str] | None = None) -> int:
+    from evals.combined.cleanup import cleanup_exact_manifest
+    from evals.combined.database_bootstrap import (
+        EvaluatorDatabaseConfig,
+        bootstrap_evaluator_databases,
+    )
+    from evals.combined.fixture_store import FixtureStore
+    from evals.combined.preflight import (
+        PreflightConfig,
+        PreflightResult,
+        validate_preflight_config,
+        verify_application_schema,
+        verify_checkpoint_tables,
+        verify_qdrant_capabilities,
+        writable_probe,
+    )
+    from evals.combined.resource_manifest import RunManifest, privacy_hash
+    from evals.combined.service import FAULT_PROFILES
+
+    parser = argparse.ArgumentParser(
+        description="Run the 34-case service-backed real-model and longitudinal v2 evaluator."
+    )
+    parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
+    parser.add_argument("--artifact-dir", type=Path, default=DEFAULT_ARTIFACT_DIR)
+    parser.add_argument("--backend-dir", type=Path, default=Path(os.getenv("REHAB_EVAL_BACKEND_DIR", "backend")))
+    parser.add_argument("--python-bin", type=Path, default=Path(os.getenv("REHAB_EVAL_PYTHON", os.sys.executable)))
+    parser.add_argument("--backend-host", default=os.getenv("REHAB_EVAL_BACKEND_HOST", "127.0.0.1"))
+    parser.add_argument("--backend-port", type=int, default=int(os.getenv("REHAB_EVAL_BACKEND_PORT", "8010")))
+    parser.add_argument("--service-environment", default=os.getenv("REHAB_EVAL_SERVICE_ENVIRONMENT", "evaluation"))
+    parser.add_argument("--backend-revision", default=os.getenv("REHAB_EVAL_BACKEND_REVISION", ""))
+    parser.add_argument("--application-schema-revision", default=os.getenv("REHAB_EVAL_SCHEMA_REVISION", ""))
+    parser.add_argument("--workflow-version", default=os.getenv("REHAB_EVAL_WORKFLOW_VERSION", WORKFLOW_VERSION))
+    parser.add_argument("--evaluator-sql-admin-url", default=os.getenv("REHAB_EVAL_SQL_ADMIN_URL", ""))
+    parser.add_argument("--evaluator-sql-namespace", default=os.getenv("REHAB_EVAL_SQL_NAMESPACE", ""))
+    parser.add_argument("--evaluator-application-database-name", default=os.getenv("REHAB_EVAL_APPLICATION_DATABASE_NAME", ""))
+    parser.add_argument("--evaluator-checkpoint-database-name", default=os.getenv("REHAB_EVAL_CHECKPOINT_DATABASE_NAME", ""))
+    parser.add_argument("--evaluator-sql-allowlist", default=os.getenv("REHAB_EVAL_SQL_SERVER_ALLOWLIST", ""))
+    parser.add_argument("--evaluator-sql-owner-role", default=os.getenv("REHAB_EVAL_SQL_OWNER_ROLE", ""))
+    parser.add_argument("--database-url", default=os.getenv("REHAB_EVAL_DATABASE_URL", ""))
+    parser.add_argument("--checkpoint-database-url", default=os.getenv("REHAB_EVAL_CHECKPOINT_DATABASE_URL", ""))
+    parser.add_argument("--qdrant-url", default=os.getenv("REHAB_EVAL_QDRANT_URL", ""))
+    parser.add_argument("--qdrant-path", type=Path, default=Path(os.getenv("REHAB_EVAL_QDRANT_PATH")) if os.getenv("REHAB_EVAL_QDRANT_PATH") else None)
+    parser.add_argument("--qdrant-owner-identity", default=os.getenv("REHAB_EVAL_QDRANT_OWNER_IDENTITY", ""))
+    parser.add_argument("--qdrant-allowlist", default=os.getenv("REHAB_EVAL_QDRANT_ALLOWLIST", ""))
+    parser.add_argument("--qdrant-api-key", default=os.getenv("REHAB_EVAL_QDRANT_API_KEY", ""))
+    parser.add_argument("--catalog-dir", type=Path, default=Path(os.getenv("REHAB_EVAL_CATALOG_DIR", "")))
+    parser.add_argument("--embedding-provider", default=os.getenv("REHAB_EVAL_EMBEDDING_PROVIDER", os.getenv("REHAB_EMBEDDING_PROVIDER", "hash")))
+    parser.add_argument("--backend-generation-provider", default=os.getenv("REHAB_EVAL_BACKEND_GENERATION_PROVIDER", "qwen"))
+    parser.add_argument("--backend-generation-key", default=os.getenv("QWEN_API_KEY", ""))
+    parser.add_argument("--baseline", type=Path, help="Accepted for wrapper compatibility; ignored by combined-v2.")
+    parser.add_argument("--generation-model", default=os.getenv("REAL_MODEL_GENERATION_MODEL", "qwen-plus"))
+    parser.add_argument("--judge-model", default=os.getenv("REAL_MODEL_JUDGE_MODEL", "qwen-plus"))
+    parser.add_argument("--include-conversation", action="store_true", default=True)
+    parser.add_argument("--no-conversation", action="store_false", dest="include_conversation")
+    args = parser.parse_args(argv)
+    _ = args.baseline
+    _ = args.generation_model
+    if not _enabled():
+        parser.error("set REHAB_REAL_MODEL_ENABLED=1 explicitly to run service-backed evaluation")
+    judge_key = os.getenv("QWEN_JUDGE_API_KEY", "").strip()
+    if not judge_key:
+        parser.error("QWEN_JUDGE_API_KEY is required for judging")
+    if not args.backend_revision.strip():
+        parser.error("REHAB_EVAL_BACKEND_REVISION or --backend-revision is required")
+    if not args.application_schema_revision.strip():
+        parser.error("REHAB_EVAL_SCHEMA_REVISION or --application-schema-revision is required")
+    if not args.evaluator_sql_admin_url.strip():
+        parser.error("separate evaluator SQL administrator connection is required")
+    if not args.evaluator_sql_namespace.strip():
+        parser.error("exact evaluator SQL namespace is required")
+    if not args.evaluator_application_database_name.strip() or not args.evaluator_checkpoint_database_name.strip():
+        parser.error("exact evaluator application and checkpoint database names are required")
+    if not args.qdrant_url.strip() and args.qdrant_path is None:
+        parser.error("REHAB_EVAL_QDRANT_URL, REHAB_EVAL_QDRANT_PATH, or an evaluator local resource is required")
+    if args.qdrant_path and not args.qdrant_path.is_absolute():
+        parser.error("REHAB_EVAL_QDRANT_PATH or --qdrant-path must be absolute")
+    if not args.catalog_dir.is_absolute():
+        parser.error("REHAB_EVAL_CATALOG_DIR or --catalog-dir must be absolute")
+
+    real_model_cases = _load_real_model_cases(args.cases)
+    longitudinal_scenarios = _load_longitudinal_scenarios()
+    expected_case_ids = tuple(
+        [
+            *(_case_key("real_model", str(case["case_id"])) for case in real_model_cases),
+            *(_case_key("longitudinal", scenario.scenario_id) for scenario in longitudinal_scenarios),
+        ]
+    )
+    run_fingerprint = _run_configuration_fingerprint(
+        args,
+        judge_key=judge_key,
+        real_model_cases=real_model_cases,
+        longitudinal_scenarios=longitudinal_scenarios,
+    )
+    args.artifact_dir.mkdir(parents=True, exist_ok=True)
+    incomplete_ledgers = _incomplete_ledger_paths(args.artifact_dir)
+    progress: ProgressLedger | None = None
+    prior_progress: ProgressLedger | None = None
+    if incomplete_ledgers:
+        try:
+            progress = ProgressLedger.discover(
+                args.artifact_dir,
+                fingerprint=run_fingerprint,
+                expected_case_ids=expected_case_ids,
+                catalog_dir=args.catalog_dir,
+            )
+        except LedgerRejected as exc:
+            if "fingerprint" not in str(exc):
+                raise
+            prior_progress = ProgressLedger.load_unmatched(
+                incomplete_ledgers[0],
+                catalog_dir=args.catalog_dir,
+            )
+    if progress is None:
+        progress = ProgressLedger.create(
+            args.artifact_dir,
+            fingerprint=run_fingerprint,
+            expected_case_ids=expected_case_ids,
+        )
+        run_manifest = RunManifest(run_id=progress.run_id)
+        progress.attach_manifest(run_manifest)
+    else:
+        run_manifest = progress.manifest
+        if run_manifest is None:
+            raise LedgerRejected("matching evaluator ledger has no cleanup manifest")
+    database_bootstrap = None
+    application_database_url = ""
+    checkpoint_database_url = ""
+    try:
+        database_bootstrap = bootstrap_evaluator_databases(
+            EvaluatorDatabaseConfig(
+                admin_url=args.evaluator_sql_admin_url,
+                namespace=args.evaluator_sql_namespace,
+                application_database_name=args.evaluator_application_database_name,
+                checkpoint_database_name=args.evaluator_checkpoint_database_name,
+                expected_application_schema_revision=args.application_schema_revision,
+                repo_root=Path(args.backend_dir).resolve().parent,
+                application_url=args.database_url.strip() or None,
+                checkpoint_url=args.checkpoint_database_url.strip() or None,
+                owner_role=args.evaluator_sql_owner_role.strip() or None,
+                allowlisted_hosts=tuple(
+                    host.strip() for host in args.evaluator_sql_allowlist.split(",") if host.strip()
+                ),
+            )
+        )
+        if prior_progress is not None:
+            prior_manifest = prior_progress.manifest
+            if prior_manifest is None:
+                raise LedgerRejected("prior evaluator ledger has no cleanup manifest")
+            recovery_bootstrap = _merge_database_ownership(
+                database_bootstrap,
+                prior_manifest.database_bootstrap,
+            )
+            recovery_cleanup = cleanup_exact_manifest(
+                prior_manifest,
+                application_database_url=database_bootstrap.application.url,
+                checkpoint_database_url=database_bootstrap.checkpoint.url,
+                qdrant_url=args.qdrant_url,
+                qdrant_api_key=args.qdrant_api_key or None,
+                qdrant_path=str(args.qdrant_path) if args.qdrant_path else None,
+                database_bootstrap=recovery_bootstrap,
+            )
+            prior_progress.record_recovery_cleanup(recovery_cleanup.to_dict())
+            if not recovery_cleanup.ok:
+                raise RuntimeError("exact recovery cleanup failed")
+            prior_progress.mark_terminal()
+            database_bootstrap = bootstrap_evaluator_databases(
+                EvaluatorDatabaseConfig(
+                    admin_url=args.evaluator_sql_admin_url,
+                    namespace=args.evaluator_sql_namespace,
+                    application_database_name=args.evaluator_application_database_name,
+                    checkpoint_database_name=args.evaluator_checkpoint_database_name,
+                    expected_application_schema_revision=args.application_schema_revision,
+                    repo_root=Path(args.backend_dir).resolve().parent,
+                    application_url=args.database_url.strip() or None,
+                    checkpoint_url=args.checkpoint_database_url.strip() or None,
+                    owner_role=args.evaluator_sql_owner_role.strip() or None,
+                    allowlisted_hosts=tuple(
+                        host.strip() for host in args.evaluator_sql_allowlist.split(",") if host.strip()
+                    ),
+                )
+            )
+        if run_manifest.database_bootstrap is None:
+            run_manifest.record_database_bootstrap(database_bootstrap.manifest_record())
+        else:
+            database_bootstrap = _merge_database_ownership(
+                database_bootstrap,
+                run_manifest.database_bootstrap,
+            )
+        progress.persist_manifest()
+        application_database_url = database_bootstrap.application.url
+        checkpoint_database_url = database_bootstrap.checkpoint.url
+        application_schema_revision = (
+            database_bootstrap.application.schema_revision or args.application_schema_revision
+        )
+        preflight = validate_preflight_config(PreflightConfig(
+            application_database_url=application_database_url,
+            checkpoint_database_url=checkpoint_database_url,
+            qdrant_url=args.qdrant_url,
+            qdrant_path=args.qdrant_path,
+            catalog_dir=args.catalog_dir,
+            backend_revision=args.backend_revision,
+            application_schema_revision=application_schema_revision,
+            workflow_version=args.workflow_version,
+            backend_generation_provider=args.backend_generation_provider,
+            backend_generation_key=args.backend_generation_key,
+            judge_key=judge_key,
+            environment=args.service_environment,
+            evaluator_mode=True,
+            embedding_provider=args.embedding_provider,
+            qdrant_owner_identity=args.qdrant_owner_identity,
+            qdrant_allowlisted_hosts=tuple(
+                host.strip() for host in args.qdrant_allowlist.split(",") if host.strip()
+            ),
+        ))
+        writable_probe(args.catalog_dir)
+        verify_application_schema(
+            application_database_url,
+            expected_revision=application_schema_revision,
+        )
+        from qdrant_client import QdrantClient
+        qdrant_client = (
+            QdrantClient(path=str(args.qdrant_path), force_disable_check_same_thread=True)
+            if args.qdrant_path
+            else QdrantClient(url=args.qdrant_url, api_key=args.qdrant_api_key or None)
+        )
+        try:
+            verify_qdrant_capabilities(
+                qdrant_client,
+                probe_collection=f"rehab_eval_preflight_{privacy_hash(args.backend_revision)}",
+                ownership_verified=True,
+            )
+        finally:
+            qdrant_client.close()
+        from langgraph.checkpoint.postgres import PostgresSaver
+        with PostgresSaver.from_conn_string(checkpoint_database_url) as saver:
+            verify_checkpoint_tables(saver)
+        preflight = PreflightResult(
+            status=preflight.status,
+            checks={
+                **dict(preflight.checks),
+                "database_bootstrap": "passed",
+                "application_schema": "passed",
+                "checkpoint_tables": "passed",
+            },
+            safe_identity={
+                **dict(preflight.safe_identity),
+                "evaluator_sql_server": privacy_hash(
+                    f"{database_bootstrap.server_host}:{database_bootstrap.server_port}"
+                ),
+                "application_schema_revision": application_schema_revision,
+            },
+        )
+    except Exception as exc:
+        bootstrap_failure = getattr(exc, "partial_result", None)
+        bootstrap_cleanup = getattr(exc, "cleanup_result", None)
+        if bootstrap_failure is not None:
+            database_bootstrap = bootstrap_failure
+            run_manifest.record_database_bootstrap(
+                bootstrap_failure.manifest_record()
+            )
+            # The bootstrap may have created only one database or may not have
+            # applied its schema. Retry exact database cleanup without opening
+            # incomplete application/checkpoint phases.
+            application_database_url = ""
+            checkpoint_database_url = ""
+        json_path, markdown_path, cleanup = _finalize_failed_run(
+            artifact_dir=args.artifact_dir,
+            run_manifest=run_manifest,
+            application_database_url=application_database_url,
+            checkpoint_database_url=checkpoint_database_url,
+            qdrant_url=args.qdrant_url,
+            qdrant_api_key=args.qdrant_api_key or None,
+            qdrant_path=str(args.qdrant_path) if args.qdrant_path else None,
+            database_bootstrap=database_bootstrap,
+            phase="preflight",
+            error=exc,
+            cleanup_fn=cleanup_exact_manifest,
+            bootstrap_cleanup=bootstrap_cleanup,
+        )
+        progress.record_cleanup(cleanup.to_dict())
+        progress.mark_terminal()
+        print(json.dumps({
+            "status": "blocked" if cleanup.ok else "failed_cleanup",
+            "blocker": type(exc).__name__,
+            "json_artifact": str(json_path),
+            "markdown_artifact": str(markdown_path),
+            "cleanup": cleanup.to_dict(),
+        }, sort_keys=True))
+        return 2 if cleanup.ok else 1
+
+    judge = _OpenAICompatibleProvider(
+        api_key=judge_key,
+        base_url=os.getenv(
+            "QWEN_JUDGE_API_BASE",
+            os.getenv("QWEN_API_BASE", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        ),
+        model_name=args.judge_model,
+    )
+    config = ServiceHarnessConfig(
+        backend_dir=args.backend_dir,
+        python_bin=args.python_bin,
+        host=args.backend_host,
+        port=args.backend_port,
+        environment=args.service_environment,
+        expected_revision=args.backend_revision,
+        database_url=application_database_url,
+        checkpoint_database_url=checkpoint_database_url,
+        qdrant_url=args.qdrant_url or None,
+        qdrant_api_key=args.qdrant_api_key or None,
+        qdrant_path=args.qdrant_path,
+        catalog_dir=args.catalog_dir,
+        embedding_provider=args.embedding_provider,
+        backend_generation_key=args.backend_generation_key or None,
+    )
+    if args.qdrant_path:
+        os.environ["QDRANT_PATH"] = str(args.qdrant_path)
+        os.environ.pop("QDRANT_URL", None)
+    else:
+        os.environ["QDRANT_URL"] = args.qdrant_url
+        os.environ.pop("QDRANT_PATH", None)
+    if args.qdrant_api_key:
+        os.environ["QDRANT_API_KEY"] = args.qdrant_api_key
+    else:
+        os.environ.pop("QDRANT_API_KEY", None)
+    os.environ["REHAB_EMBEDDING_PROVIDER"] = args.embedding_provider
+    harness = ServiceHarness(config)
+    fixture_store = FixtureStore(
+        harness=harness,
+        manifest=run_manifest,
+        database_url=application_database_url,
+        catalog_dir=args.catalog_dir,
+        progress_hook=progress.persist_manifest,
+    )
+    health: BackendHealth | None = None
+    all_reports: list[dict[str, Any]] = []
+
+    def declared_fault(source: Mapping[str, Any]) -> str | None:
+        explicit = str(source.get("fault_profile") or "").strip().lower()
+        if explicit:
+            return explicit
+        for profile in FAULT_PROFILES:
+            if source.get(profile) is True:
+                return profile
+        return None
+
+    def run_case(
+        call: Any,
+        *,
+        suite: str,
+        id_field: str,
+        identifier: str,
+        fault_profile: str | None,
+    ) -> dict[str, Any]:
+        profile = fault_profile or "none"
+        result: dict[str, Any] | None = None
+        try:
+            harness.set_fault_profile(None if profile == "none" else profile)
+            result = call()
+            result["fault_profile"] = profile
+        except _EvaluatorInterrupted:
+            raise
+        except Exception as exc:
+            result = {
+                "suite": suite,
+                id_field: identifier,
+                "execution_mode": "real-backend-service",
+                "provider_free": False,
+                "status": "failed",
+                "deterministic_status": "error",
+                "judge_status": "not_attempted",
+                "fault_profile": profile,
+                "failures": [type(exc).__name__],
+            }
+        finally:
+            try:
+                harness.set_fault_profile(None)
+            except Exception as exc:
+                result = result or {
+                    "suite": suite,
+                    id_field: identifier,
+                    "execution_mode": "real-backend-service",
+                    "provider_free": False,
+                    "status": "failed",
+                    "deterministic_status": "error",
+                    "judge_status": "not_attempted",
+                    "fault_profile": profile,
+                    "failures": [],
+                }
+                result.setdefault("failures", []).append(f"fault_profile_reset_{type(exc).__name__}")
+                result["deterministic_status"] = "error"
+                result["status"] = "failed"
+        final_result = result or {
+            "suite": suite,
+            id_field: identifier,
+            "execution_mode": "real-backend-service",
+            "provider_free": False,
+            "status": "failed",
+            "deterministic_status": "error",
+            "judge_status": "not_attempted",
+            "fault_profile": profile,
+            "failures": ["case_result_missing"],
+        }
+        progress.checkpoint_case(_case_key(suite, identifier), final_result)
+        return final_result
+
+    service_failure: Exception | None = None
+    failure_phase = "backend_startup"
+    interruption: _EvaluatorInterrupted | None = None
+    previous_signal_handlers = {
+        signal_number: signal.getsignal(signal_number)
+        for signal_number in (signal.SIGINT, signal.SIGTERM)
+    }
+
+    def handle_signal(signal_number: int, _frame: Any) -> None:
+        raise _EvaluatorInterrupted(signal_number)
+
+    for signal_number in previous_signal_handlers:
+        signal.signal(signal_number, handle_signal)
+    try:
+        health = harness.start()
+        validate_backend_health(health, expected_revision=args.backend_revision, expected_workflow_version=args.workflow_version, require_restart=True)
+        failure_phase = "service_execution"
+        runner = ServiceCaseRunner(
+            harness,
+            lambda active_harness, case_id, scenario: provision_service_identity(
+                active_harness, case_id, scenario, fixture_store=fixture_store
+            ),
+        )
+        for case in real_model_cases:
+            identifier = str(case["case_id"])
+            if _case_key("real_model", identifier) in progress.completed_case_ids:
+                continue
+            run_case(
+                lambda case=case: runner.run_real_model_case(
+                    case, judge=judge, judge_model=args.judge_model, workflow_version=health.workflow_version
+                ),
+                suite="real_model",
+                id_field="case_id",
+                identifier=identifier,
+                fault_profile=declared_fault(case),
+            )
+        for scenario in longitudinal_scenarios:
+            identifier = scenario.scenario_id
+            if _case_key("longitudinal", identifier) in progress.completed_case_ids:
+                continue
+            run_case(
+                lambda scenario=scenario: runner.run_longitudinal_case(
+                    scenario, judge=judge, judge_model=args.judge_model, workflow_version=health.workflow_version
+                ),
+                suite="longitudinal",
+                id_field="scenario_id",
+                identifier=identifier,
+                fault_profile=declared_fault(scenario.oracles),
+            )
+        all_reports = progress.load_case_results()
+    except _EvaluatorInterrupted as exc:
+        interruption = exc
+    except Exception as exc:
+        service_failure = exc
+    finally:
+        try:
+            harness.stop()
+        except Exception as exc:
+            service_failure = service_failure or exc
+            failure_phase = "backend_stop"
+
+    if interruption is not None:
+        try:
+            fixture_store.close()
+        finally:
+            progress.write_interrupted_diagnostic(
+                reason=f"signal_{interruption.signal_number}",
+                exit_code=128 + interruption.signal_number,
+            )
+        print(json.dumps({
+            "status": "interrupted",
+            "signal": interruption.signal_number,
+            "ledger": str(progress.ledger_path),
+            "completed_case_count": len(progress.completed_case_ids),
+        }, sort_keys=True))
+        return 128 + interruption.signal_number
+
+    child_exit_code = _child_exit_code(harness, service_failure)
+    if child_exit_code == 137:
+        try:
+            fixture_store.close()
+        finally:
+            progress.write_interrupted_diagnostic(reason="child_exit_137", exit_code=137)
+        print(json.dumps({
+            "status": "interrupted",
+            "reason": "child_exit_137",
+            "ledger": str(progress.ledger_path),
+            "completed_case_count": len(progress.completed_case_ids),
+        }, sort_keys=True))
+        return 137
+
+    if service_failure is not None:
+        try:
+            fixture_store.close()
+        except Exception as exc:
+            service_failure = exc
+            failure_phase = "fixture_store_close"
+        json_path, markdown_path, cleanup = _finalize_failed_run(
+            artifact_dir=args.artifact_dir,
+            run_manifest=run_manifest,
+            application_database_url=application_database_url,
+            checkpoint_database_url=checkpoint_database_url,
+            qdrant_url=args.qdrant_url,
+            qdrant_api_key=args.qdrant_api_key or None,
+            qdrant_path=str(args.qdrant_path) if args.qdrant_path else None,
+            database_bootstrap=database_bootstrap,
+            phase=failure_phase,
+            error=service_failure,
+            cleanup_fn=cleanup_exact_manifest,
+        )
+        progress.record_cleanup(cleanup.to_dict())
+        progress.mark_terminal()
+        print(json.dumps({
+            "status": "failed_cleanup" if not cleanup.ok else "failed",
+            "json_artifact": str(json_path),
+            "markdown_artifact": str(markdown_path),
+            "cleanup": cleanup.to_dict(),
+        }, sort_keys=True))
+        return 1
+
+    if not args.include_conversation:
+        for report in all_reports:
+            report["conversation"] = None
+            report["transcript"] = None
+    deterministic_passed = sum(
+        1 for report in all_reports
+        if report.get("deterministic_status", report.get("status")) == "passed"
+    )
+    deterministic_by_suite: dict[str, dict[str, int]] = {}
+    for entry in all_reports:
+        suite = str(entry.get("suite") or "unknown")
+        bucket = deterministic_by_suite.setdefault(suite, {"passed": 0, "total": 0})
+        bucket["total"] += 1
+        if entry.get("deterministic_status", entry.get("status")) == "passed":
+            bucket["passed"] += 1
+    judge_status_counts: dict[str, int] = {}
+    for report in all_reports:
+        status = str(report.get("judge_status") or "unknown")
+        judge_status_counts[status] = judge_status_counts.get(status, 0) + 1
+    required_judge_failures = sum(
+        1
+        for report in all_reports
+        if report.get("deterministic_status", report.get("status")) == "passed"
+        and report.get("judge_status") not in {"passed", "not_applicable"}
+    )
+    normalized_records: list[ToolCallRecord] = []
+    records_by_suite: dict[str, list[ToolCallRecord]] = {}
+    for entry in all_reports:
+        suite_records: list[ToolCallRecord] = []
+        for raw_record in entry.get("tool_calls", []) or []:
+            if not isinstance(raw_record, Mapping):
+                continue
+            try:
+                record = ToolCallRecord(**dict(raw_record))
+            except (TypeError, ValueError):
+                continue
+            normalized_records.append(record)
+            suite_records.append(record)
+        records_by_suite.setdefault(str(entry.get("suite") or "unknown"), []).extend(suite_records)
+    tool_metrics = aggregate_tool_metrics(normalized_records)
+    tool_metrics_by_tool = group_tool_metrics(normalized_records, key="tool_name")
+    tool_metrics_by_suite = {
+        suite: aggregate_tool_metrics(records)
+        for suite, records in sorted(records_by_suite.items())
+    }
+    budget_reports = [
+        report.get("budget_comparison") if isinstance(report.get("budget_comparison"), Mapping) else None
+        for report in all_reports
+    ]
+    budget_compliant = sum(
+        1 for item in budget_reports
+        if isinstance(item, Mapping) and item.get("compliant") is True and item.get("unavailable") is not True
+    )
+    budget_unavailable = sum(
+        1 for item in budget_reports
+        if not isinstance(item, Mapping) or item.get("unavailable") is True
+    )
+    fault_profiles: dict[str, int] = {}
+    for entry in all_reports:
+        profile = str(entry.get("fault_profile") or "none")
+        fault_profiles[profile] = fault_profiles.get(profile, 0) + 1
+    run_metadata = {
+        "execution_mode": "real-backend-service",
+        "evaluator_revision": os.getenv("REHAB_EVAL_EVALUATOR_REVISION", "unknown"),
+        "evaluator_dirty_state": os.getenv("REHAB_EVAL_DIRTY_STATE", "unreported"),
+        "backend": health.sanitized() if health is not None else {},
+        "preflight": preflight.to_dict(),
+        "manifest": run_manifest.privacy_safe(),
+        "database_bootstrap": run_manifest.privacy_safe().get("database_bootstrap"),
+        "deterministic": {"passed": deterministic_passed, "total": len(all_reports), "by_suite": deterministic_by_suite},
+        "judge": {
+            "status_counts": judge_status_counts,
+            "required_failures": required_judge_failures,
+        },
+        "tool_metrics": tool_metrics,
+        "tool_metrics_by_tool": tool_metrics_by_tool,
+        "tool_metrics_by_suite": tool_metrics_by_suite,
+        "budgets": {"compliant": budget_compliant, "unavailable": budget_unavailable, "total": len(all_reports)},
+        "fault_profiles": fault_profiles,
+        "cleanup": {"status": "pending"},
+    }
+    report = build_combined_report(
+        real_model_cases=[item for item in all_reports if item.get("suite") == "real_model"],
+        longitudinal_cases=[item for item in all_reports if item.get("suite") == "longitudinal"],
+        redaction_secrets=(judge_key, args.backend_generation_key),
+        run_metadata=run_metadata,
+    )
+    json_path, markdown_path = write_artifacts(report, args.artifact_dir)
+    progress.mark_cleanup_pending()
+    harness.stop()
+    fixture_store.close()
+    cleanup = cleanup_exact_manifest(
+        run_manifest,
+        application_database_url=application_database_url,
+        checkpoint_database_url=checkpoint_database_url,
+        qdrant_url=args.qdrant_url,
+        qdrant_api_key=args.qdrant_api_key or None,
+        qdrant_path=str(args.qdrant_path) if args.qdrant_path else None,
+        database_bootstrap=database_bootstrap,
+    )
+    run_metadata["cleanup"] = cleanup.to_dict()
+    run_metadata["manifest"] = run_manifest.privacy_safe()
+    report = build_combined_report(
+        real_model_cases=[item for item in all_reports if item.get("suite") == "real_model"],
+        longitudinal_cases=[item for item in all_reports if item.get("suite") == "longitudinal"],
+        redaction_secrets=(judge_key, args.backend_generation_key),
+        run_metadata=run_metadata,
+    )
+    json_path.write_text(report.to_json() + "\n", encoding="utf-8")
+    markdown_path.write_text(report.to_markdown(), encoding="utf-8")
+    payload = report.to_dict()
+    progress.record_cleanup(cleanup.to_dict())
+    progress.mark_terminal()
+    print(json.dumps({
+        "status": "combined" if cleanup.ok else "failed_cleanup",
+        "json_artifact": str(json_path),
+        "markdown_artifact": str(markdown_path),
+        "real_model_case_count": payload["counts"]["real_model_cases"],
+        "longitudinal_scenario_count": payload["counts"]["longitudinal_scenarios"],
+        "backend_revision": health.backend_revision if health else None,
+        "cleanup": cleanup.to_dict(),
+    }, sort_keys=True))
+    return 0 if (
+        cleanup.ok
+        and len(all_reports) == REAL_MODEL_CASE_COUNT + LONGITUDINAL_SCENARIO_COUNT
+        and all(
+            entry.get("status") == "passed"
+            and entry.get("deterministic_status", entry.get("status")) == "passed"
+            and entry.get("judge_status") in {"passed", "not_applicable"}
+            for entry in all_reports
+        )
+    ) else 1
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,209 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900;
+}
+
+.card,
+.panel {
+  @apply rounded-lg border border-slate-200 bg-white p-5 shadow-sm;
+}
+
+.section-title {
+  @apply text-base font-semibold text-slate-950;
+}
+
+.btn {
+  @apply inline-flex min-h-10 items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-primary {
+  @apply btn bg-emerald-600 text-white hover:bg-emerald-700;
+}
+
+.btn-secondary {
+  @apply btn bg-slate-200 text-slate-900 hover:bg-slate-300;
+}
+
+.input {
+  @apply mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100;
+}
+
+.textarea {
+  @apply w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100;
+}
+
+.field-label {
+  @apply mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500;
+}
+
+.result-box {
+  @apply max-h-[520px] overflow-auto rounded-md border border-slate-200 bg-slate-950 p-3 text-xs leading-relaxed text-slate-100;
+}
+
+.tab-button {
+  @apply min-h-10 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100;
+}
+
+.tab-button-active {
+  @apply border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700;
+}
+
+.segmented {
+  @apply inline-grid grid-cols-2 overflow-hidden rounded-md border border-slate-300;
+}
+
+.segmented button {
+  @apply min-h-10 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100;
+}
+
+.segmented button.selected {
+  @apply bg-slate-900 text-white hover:bg-slate-800;
+}
+
+.chat-bubble {
+  @apply max-w-3xl rounded-lg border p-3;
+}
+
+.chat-user {
+  @apply ml-auto border-emerald-200 bg-emerald-50;
+}
+
+.chat-assistant {
+  @apply mr-auto border-slate-200 bg-white;
+}
+
+.nav-link {
+  @apply rounded-md px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-100 hover:text-emerald-700;
+}
+
+.status-pill {
+  @apply inline-flex min-h-7 items-center rounded-md px-2.5 py-1 text-xs font-semibold;
+}
+
+.status-ok {
+  @apply bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200;
+}
+
+.status-alert {
+  @apply bg-rose-50 text-rose-700 ring-1 ring-rose-200;
+}
+
+.status-neutral {
+  @apply bg-slate-100 text-slate-700 ring-1 ring-slate-200;
+}
+
+.metric-tile {
+  @apply rounded-md border border-slate-200 bg-slate-50 p-3;
+}
+
+.metric-tile span {
+  @apply inline-flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-xs font-semibold text-white;
+}
+
+.metric-tile p {
+  @apply mt-2 text-sm font-medium text-slate-700;
+}
+
+.route-badge {
+  @apply inline-flex min-h-8 items-center rounded-md px-3 py-1 text-xs font-semibold capitalize ring-1;
+}
+
+.route-slate {
+  @apply bg-slate-50 text-slate-700 ring-slate-200;
+}
+
+.route-emerald {
+  @apply bg-emerald-50 text-emerald-700 ring-emerald-200;
+}
+
+.route-amber {
+  @apply bg-amber-50 text-amber-700 ring-amber-200;
+}
+
+.route-rose {
+  @apply bg-rose-50 text-rose-700 ring-rose-200;
+}
+
+.chat-card {
+  @apply max-w-3xl rounded-lg border p-3 shadow-sm;
+}
+
+.chat-card-user {
+  @apply ml-auto border-emerald-200 bg-emerald-50 text-slate-900;
+}
+
+.chat-card-assistant {
+  @apply mr-auto border-slate-200 bg-white text-slate-800;
+}
+
+.agent-progress-card {
+  @apply border-emerald-200 bg-emerald-50;
+}
+
+.agent-progress-dot {
+  @apply h-2 w-2 rounded-full bg-emerald-600;
+  animation: agent-progress-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes agent-progress-pulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.chat-card-system {
+  @apply border-rose-200 bg-rose-50 text-rose-800;
+}
+
+.suggestion-chip {
+  @apply rounded-md border border-slate-200 bg-white px-3 py-1.5 text-left text-xs font-medium text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.next-step-card {
+  @apply block rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:border-emerald-300 hover:shadow;
+}
+
+.next-step-primary {
+  @apply border-emerald-200 bg-emerald-50;
+}
+
+
+:root {
+  --rf-app-bg: #f4f8f6;
+}
+
+.product-logo-mark {
+  @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-sm font-bold text-white shadow-[0_2px_0_#047857];
+}
+
+.product-nav-link {
+  @apply inline-flex min-h-10 items-center rounded-md border border-transparent px-3 py-2 font-semibold text-slate-600 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-emerald-800;
+}
+
+.product-nav-link-active {
+  @apply border-emerald-200 bg-emerald-50 text-emerald-800 shadow-[0_2px_0_#a7f3d0];
+}
+
+.product-signout-button {
+  @apply inline-flex min-h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100;
+}
+
+.product-auth-link {
+  @apply inline-flex min-h-9 w-full items-center justify-center rounded-md border border-emerald-700 bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-[0_2px_0_#047857] transition hover:bg-emerald-700;
+}
+
+.product-auth-link-secondary {
+  @apply border-emerald-200 bg-emerald-50 text-emerald-800 shadow-[0_2px_0_#a7f3d0] hover:bg-emerald-100;
+}

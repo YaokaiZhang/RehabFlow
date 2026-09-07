@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900;
+}
+
+.card,
+.panel {
+  @apply rounded-lg border border-slate-200 bg-white p-5 shadow-sm;
+}
+
+.section-title {
+  @apply text-base font-semibold text-slate-950;
+}
+
+.btn {
+  @apply inline-flex min-h-10 items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-primary {
+  @apply btn bg-blue-600 text-white hover:bg-blue-700;
+}
+
+.btn-secondary {
+  @apply btn bg-slate-200 text-slate-900 hover:bg-slate-300;
+}
+
+.input {
+  @apply mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100;
+}
+
+.textarea {
+  @apply w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100;
+}
+
+.field-label {
+  @apply mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500;
+}
+
+.result-box {
+  @apply max-h-[520px] overflow-auto rounded-md border border-slate-200 bg-slate-950 p-3 text-xs leading-relaxed text-slate-100;
+}
+
+.tab-button {
+  @apply min-h-10 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100;
+}
+
+.tab-button-active {
+  @apply border-blue-600 bg-blue-600 text-white hover:bg-blue-700;
+}
+
+.segmented {
+  @apply inline-grid grid-cols-2 overflow-hidden rounded-md border border-slate-300;
+}
+
+.segmented button {
+  @apply min-h-10 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100;
+}
+
+.segmented button.selected {
+  @apply bg-slate-900 text-white hover:bg-slate-800;
+}
+
+.chat-bubble {
+  @apply max-w-3xl rounded-lg border p-3;
+}
+
+.chat-user {
+  @apply ml-auto border-blue-200 bg-blue-50;
+}
+
+.chat-assistant {
+  @apply mr-auto border-slate-200 bg-white;
+}

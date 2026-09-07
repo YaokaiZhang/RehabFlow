@@ -1,0 +1,389 @@
+"""Evaluator-owned non-production backend service harness and provenance contracts."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import time
+import urllib.error
+import urllib.request
+from urllib.parse import urlsplit
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Mapping
+
+_EVAL_ENVS = frozenset({"evaluation", "test", "dev", "development"})
+_REQUIRED_CAPABILITIES = ("evaluation_telemetry", "evaluation_fixture_control")
+FAULT_PROFILES = frozenset({
+    "planner_failure",
+    "provider_failure",
+    "tool_failure",
+    "evidence_unavailable",
+    "reviewer_failure",
+    "timeout",
+    "service_unavailable",
+})
+
+
+def _env_value(value: object) -> str:
+    return str(value).strip().lower()
+
+
+def _mapping_value(value: object, key: str, default: object = None) -> object:
+    if isinstance(value, Mapping):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _validate_isolated_database_url(value: str, label: str) -> None:
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"postgresql", "postgresql+psycopg2", "postgresql+asyncpg"}:
+        raise ValueError(f"{label} must use an isolated PostgreSQL URL")
+    identity = f"{parsed.hostname or ''}:{parsed.port or ''}/{parsed.path or ''}".lower()
+    if any(marker in identity for marker in ("prod", "production", "staging", "live")):
+        raise ValueError(f"{label} appears to target a production database")
+    if not any(marker in identity for marker in ("eval", "evaluator", "test", "ci", "dev")):
+        raise ValueError(f"{label} is not recognizably evaluator-isolated")
+
+
+def _database_target(value: str) -> tuple[str, str, int, str]:
+    parsed = urlsplit(value)
+    return (parsed.scheme.lower(), (parsed.hostname or "").lower(), parsed.port or 5432, (parsed.path or "").rstrip("/").lower())
+
+@dataclass(frozen=True)
+class ServiceHarnessConfig:
+    backend_dir: Path
+    python_bin: Path
+    host: str
+    port: int
+    environment: str
+    expected_revision: str
+    extra_environment: Mapping[str, str] = field(default_factory=dict)
+    database_url: str | None = None
+    checkpoint_database_url: str | None = None
+    qdrant_url: str | None = None
+    qdrant_api_key: str | None = None
+    qdrant_path: Path | None = None
+    catalog_dir: Path | None = None
+    embedding_provider: str | None = None
+    backend_generation_key: str | None = None
+    startup_timeout_seconds: float = 30.0
+
+    def __post_init__(self) -> None:
+        if not self.backend_dir.is_dir():
+            raise ValueError("backend_dir must be an existing directory")
+        if not self.python_bin.is_file():
+            raise ValueError("python_bin must be an existing executable")
+        if not self.host.strip():
+            raise ValueError("host is required")
+        if not 1 <= int(self.port) <= 65535:
+            raise ValueError("port must be between 1 and 65535")
+        if _env_value(self.environment) not in _EVAL_ENVS:
+            raise ValueError("service harness only permits evaluation/test/development environments")
+        if not self.expected_revision.strip():
+            raise ValueError("expected_revision is required")
+        if self.database_url:
+            _validate_isolated_database_url(self.database_url, "application database")
+        if self.checkpoint_database_url:
+            _validate_isolated_database_url(self.checkpoint_database_url, "checkpoint database")
+        if self.database_url and self.checkpoint_database_url and _database_target(self.database_url) == _database_target(self.checkpoint_database_url):
+            raise ValueError("application and checkpoint databases must be isolated")
+        if self.catalog_dir is not None and not self.catalog_dir.is_absolute():
+            raise ValueError("catalog_dir must be absolute")
+        if self.qdrant_url is not None and not urlsplit(self.qdrant_url).netloc:
+            raise ValueError("qdrant_url must include a host")
+        if self.qdrant_path is not None and not self.qdrant_path.is_absolute():
+            raise ValueError("qdrant_path must be absolute")
+        if self.startup_timeout_seconds <= 0:
+            raise ValueError("startup_timeout_seconds must be positive")
+
+    @property
+    def base_url(self) -> str:
+        return f"http://{self.host}:{int(self.port)}"
+
+
+@dataclass(frozen=True)
+class BackendHealth:
+    status: str
+    service: str
+    environment: str
+    backend_revision: str
+    workflow_version: str
+    capabilities: Mapping[str, bool]
+    identity: str
+    dirty_state: str = "unreported"
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "BackendHealth":
+        capabilities = payload.get("capabilities", {})
+        return cls(
+            status=str(payload.get("status") or ""),
+            service=str(payload.get("service") or ""),
+            environment=str(payload.get("environment") or ""),
+            backend_revision=str(payload.get("backend_revision") or ""),
+            workflow_version=str(payload.get("workflow_version") or ""),
+            capabilities={str(key): bool(value) for key, value in capabilities.items()} if isinstance(capabilities, Mapping) else {},
+            identity=str(payload.get("identity") or ""),
+            dirty_state=str(payload.get("dirty_state") or "unreported"),
+        )
+
+    def sanitized(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "service": self.service,
+            "environment": self.environment,
+            "backend_revision": self.backend_revision,
+            "workflow_version": self.workflow_version,
+            "capabilities": dict(self.capabilities),
+            "identity": self.identity,
+            "dirty_state": self.dirty_state,
+        }
+
+
+def validate_backend_health(health: BackendHealth, *, expected_revision: str, expected_workflow_version: str | None = None, require_restart: bool = False) -> BackendHealth:
+    if health.identity != "evaluation":
+        raise RuntimeError("backend health identity is not the evaluator identity")
+    if _env_value(health.environment) not in _EVAL_ENVS:
+        raise RuntimeError("backend health environment is not evaluation-safe")
+    if not health.backend_revision or health.backend_revision == "unknown":
+        raise RuntimeError("backend health revision is missing or unknown")
+    if health.backend_revision != expected_revision:
+        raise RuntimeError("backend health revision does not match the evaluator revision")
+    if not health.workflow_version:
+        raise RuntimeError("backend health workflow version is missing")
+    if expected_workflow_version is not None and health.workflow_version != expected_workflow_version:
+        raise RuntimeError("backend health workflow version does not match the evaluator expectation")
+    missing = [name for name in _REQUIRED_CAPABILITIES if health.capabilities.get(name) is not True]
+    if require_restart and health.capabilities.get("restart_control") is not True:
+        missing.append("restart_control")
+    if missing:
+        raise RuntimeError("backend health is missing evaluator capabilities: " + ", ".join(missing))
+    return health
+
+
+def build_backend_command(config: ServiceHarnessConfig) -> list[str]:
+    return [str(config.python_bin), "-m", "uvicorn", "app.main:app", "--host", config.host, "--port", str(config.port)]
+
+
+def compare_budget_usage(policy: Mapping[str, Any] | object, usage: Mapping[str, Any] | object, *, now: float | None = None) -> dict[str, Any]:
+    def value(obj: object, key: str) -> object:
+        return obj.get(key) if isinstance(obj, Mapping) else getattr(obj, key, None)
+
+    observed = {key: value(usage, key) for key in ("model_call_attempts", "tool_call_attempts", "total_tokens", "repair_attempts", "elapsed_ms")}
+    reasons: list[str] = []
+    unavailable = observed["total_tokens"] is None
+    compliant = True
+    for observed_key, limit_key, label in (
+        ("model_call_attempts", "max_model_calls", "model_calls"),
+        ("tool_call_attempts", "max_tool_calls", "tool_calls"),
+        ("repair_attempts", "max_repairs", "repairs"),
+    ):
+        limit = value(policy, limit_key)
+        current = observed[observed_key]
+        if limit is None:
+            unavailable = True
+            reasons.append(f"{limit_key}_unavailable")
+        elif current is None:
+            unavailable = True
+            reasons.append(f"{observed_key}_unavailable")
+        elif int(current) > int(limit):
+            compliant = False
+            reasons.append(f"{observed_key}_exceeded")
+    token_limit = value(policy, "max_total_tokens")
+    if token_limit is None:
+        unavailable = True
+        reasons.append("max_total_tokens_unavailable")
+    elif observed["total_tokens"] is None:
+        unavailable = True
+        reasons.append("token_usage_unavailable")
+    elif int(observed["total_tokens"]) > int(token_limit):
+        compliant = False
+        reasons.append("total_tokens_exceeded")
+    deadline = value(policy, "deadline_seconds")
+    if deadline is not None:
+        if observed["elapsed_ms"] is None:
+            unavailable = True
+            reasons.append("elapsed_ms_unavailable")
+        elif float(observed["elapsed_ms"]) > float(deadline) * 1000:
+            compliant = False
+            reasons.append("deadline_exceeded")
+    if now is not None and value(usage, "started_at") is not None and deadline is not None:
+        if now - float(value(usage, "started_at")) > float(deadline):
+            compliant = False
+            reasons.append("deadline_exceeded")
+    if unavailable:
+        compliant = False
+    return {"compliant": compliant, "unavailable": unavailable, "reason_codes": list(dict.fromkeys(reasons)), "observed": observed}
+
+
+class ServiceHarness:
+    def __init__(self, config: ServiceHarnessConfig) -> None:
+        self.config = config
+        self._process: subprocess.Popen[bytes] | None = None
+        self._fault_profile: str | None = None
+        self._active_resource_environment: dict[str, str] = {}
+
+    @property
+    def base_url(self) -> str:
+        return self.config.base_url
+
+    def _environment(self) -> dict[str, str]:
+        environment = dict(os.environ)
+        environment.update({str(key): str(value) for key, value in self.config.extra_environment.items()})
+        for key in (
+            "ENVIRONMENT",
+            "REHAB_EVAL_MODE",
+            "REHAB_EVAL_IDENTITY",
+            "REHAB_EVAL_RESTART_CONTROL",
+            "REHAB_BUILD_REVISION",
+            "DATABASE_URL",
+            "POSTGRES_URL",
+            "CHECKPOINT_DATABASE_URL",
+            "QDRANT_URL",
+            "QDRANT_API_KEY",
+            "QDRANT_PATH",
+            "QDRANT_COLLECTION_NAME",
+            "EXERCISE_CATALOG_PATH",
+            "REHAB_EVAL_CATALOG_DIR",
+            "REHAB_EVAL_FAULT_PROFILE",
+            "QWEN_JUDGE_API_KEY",
+        ):
+            environment.pop(key, None)
+        backend_key = self.config.backend_generation_key or environment.pop("QWEN_API_KEY", "")
+        environment.update({
+            "ENVIRONMENT": "development" if _env_value(self.config.environment) == "evaluation" else self.config.environment,
+            "DEBUG": "true",
+            "REHAB_EVAL_MODE": "true",
+            "REHAB_EVAL_RESTART_CONTROL": "true",
+            "REHAB_BUILD_REVISION": self.config.expected_revision,
+            "REHAB_EVAL_IDENTITY": "evaluation",
+        })
+        if self.config.database_url is not None:
+            environment["DATABASE_URL"] = self.config.database_url
+            environment["POSTGRES_URL"] = self.config.database_url
+        if self.config.checkpoint_database_url is not None:
+            environment["CHECKPOINT_DATABASE_URL"] = self.config.checkpoint_database_url
+        if self.config.qdrant_url is not None:
+            environment["QDRANT_URL"] = self.config.qdrant_url
+        if self.config.qdrant_path is not None:
+            environment["QDRANT_PATH"] = str(self.config.qdrant_path)
+        if self.config.qdrant_api_key is not None:
+            environment["QDRANT_API_KEY"] = self.config.qdrant_api_key
+        if self.config.embedding_provider is not None:
+            environment["REHAB_EMBEDDING_PROVIDER"] = self.config.embedding_provider
+        if self.config.catalog_dir is not None:
+            environment["REHAB_EVAL_CATALOG_DIR"] = str(self.config.catalog_dir)
+        environment.update(self._active_resource_environment)
+        if self._fault_profile:
+            environment["REHAB_EVAL_FAULT_PROFILE"] = self._fault_profile
+        else:
+            environment.pop("REHAB_EVAL_FAULT_PROFILE", None)
+        if backend_key:
+            environment["QWEN_API_KEY"] = backend_key
+        return environment
+    def request_json(self, path: str, *, method: str = "GET", payload: Mapping[str, Any] | None = None, token: str | None = None, timeout_seconds: float = 30.0) -> tuple[int, dict[str, Any]]:
+        body = None if payload is None else json.dumps(dict(payload)).encode("utf-8")
+        request = urllib.request.Request(self.base_url + path, data=body, method=method, headers={"Accept": "application/json", **({"Content-Type": "application/json"} if body is not None else {}), **({"Authorization": f"Bearer {token}"} if token else {})})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                raw = response.read().decode("utf-8")
+                parsed = json.loads(raw) if raw else {}
+                return int(response.status), parsed if isinstance(parsed, dict) else {"data": parsed}
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            try:
+                parsed = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                parsed = {"detail": raw[:500]}
+            return int(exc.code), parsed if isinstance(parsed, dict) else {"data": parsed}
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"backend service request failed: {type(exc.reason).__name__}") from exc
+
+    def get_health(self) -> BackendHealth:
+        status, payload = self.request_json("/ai/chat/health", timeout_seconds=5.0)
+        if status != 200:
+            raise RuntimeError(f"backend health returned HTTP {status}")
+        return BackendHealth.from_payload(payload)
+
+    def wait_until_ready(self) -> BackendHealth:
+        deadline = time.monotonic() + self.config.startup_timeout_seconds
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
+            try:
+                return self.get_health()
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.25)
+        if self._process is not None and self._process.poll() is not None:
+            raise RuntimeError(f"backend service exited with code {self._process.returncode}") from last_error
+        raise RuntimeError("backend service did not become ready before the evaluator timeout") from last_error
+
+    def _verify_checkout_revision(self) -> None:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(self.config.backend_dir.parent),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        actual = result.stdout.strip()
+        if actual != self.config.expected_revision:
+            raise RuntimeError("evaluator backend checkout revision does not match the requested revision")
+
+    def start(self) -> BackendHealth:
+        if not self.config.database_url or not self.config.checkpoint_database_url:
+            raise RuntimeError("isolated application and checkpoint database URLs are required")
+        self._verify_checkout_revision()
+        if self._process is not None and self._process.poll() is None:
+            return self.wait_until_ready()
+        self._process = subprocess.Popen(build_backend_command(self.config), cwd=str(self.config.backend_dir), env=self._environment(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return self.wait_until_ready()
+
+    def stop(self) -> None:
+        process = self._process
+        if process is None:
+            return
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        self._last_process_returncode = process.returncode
+        self._process = None
+
+    @property
+    def process_returncode(self) -> int | None:
+        if self._process is not None:
+
+    def activate_case_resources(self, resources: Any) -> BackendHealth | None:
+        activation = resources.activation_environment()
+        if any(not str(value).strip() for value in activation.values()):
+            raise ValueError("case resource activation contains an empty handle")
+        if not str(activation.get("QDRANT_COLLECTION_NAME", "")).startswith("rehab_eval_"):
+            raise ValueError("case resource collection is outside the evaluator namespace")
+        catalog_path = Path(str(activation.get("EXERCISE_CATALOG_PATH", "")))
+        if not catalog_path.is_absolute():
+            raise ValueError("case catalog activation must use an absolute path")
+        if activation == self._active_resource_environment:
+            return self.get_health() if self._process is not None and self._process.poll() is None else None
+        was_running = self._process is not None and self._process.poll() is None
+        self.stop()
+        self._active_resource_environment = {str(key): str(value) for key, value in activation.items()}
+        return self.start() if was_running else None
+
+    def set_fault_profile(self, profile: str | None) -> BackendHealth | None:
+        normalized = str(profile or "").strip().lower() or None
+        if normalized is not None and normalized not in FAULT_PROFILES:
+            raise ValueError("unsupported evaluator fault profile")
+        if normalized == self._fault_profile:
+            return self.get_health() if self._process is not None and self._process.poll() is None else None
+        was_running = self._process is not None and self._process.poll() is None
+        self.stop()
+        self._fault_profile = normalized
+        return self.start() if was_running else None
+
+    def restart(self) -> BackendHealth:
+        self.stop()
+        return self.start()

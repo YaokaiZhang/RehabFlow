@@ -1,0 +1,36 @@
+misc
+.env
+.worktrees/
+resources/
+.codex
+.superpowers
+backend/tests/
+
+# Python/runtime caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+backend/.venv/
+
+# Frontend workspace dependencies and build output
+node_modules/
+apps/*/node_modules/
+packages/*/node_modules/
+.next/
+apps/*/.next/
+apps/*/out/
+*.tsbuildinfo
+apps/*/tsconfig.tsbuildinfo
+packages/*/tsconfig.tsbuildinfo
+frontend/out
+
+# Local logs and OS/editor files
+*.log
+.DS_Store
+
+# Local/generated service data
+backend/data/
+backend/evals/artifacts/
+database/data/

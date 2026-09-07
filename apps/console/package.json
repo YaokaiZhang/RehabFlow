@@ -1,0 +1,26 @@
+{
+  "name": "@rehab/console",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "NEXT_TELEMETRY_DISABLED=1 node ../../scripts/dev-next.mjs",
+    "build": "NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=768 next build",
+    "start": "NEXT_TELEMETRY_DISABLED=1 node ../../scripts/start-next.mjs",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@rehab/shared": "0.1.0",
+    "next": "15.5.19",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.7",
+    "autoprefixer": "10.4.21",
+    "postcss": "8.5.15",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.9.2"
+  }
+}

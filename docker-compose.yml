@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: ${IMAGE_REGISTRY:-docker.io}/library/postgres:16
+    environment:
+      POSTGRES_USER: rehab
+      POSTGRES_PASSWORD: rehab
+      POSTGRES_DB: rehab_agent
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rehab -d rehab_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: ${IMAGE_REGISTRY:-docker.io}/library/redis:7
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  qdrant:
+    image: ${IMAGE_REGISTRY:-docker.io}/qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+      args:
+        IMAGE_REGISTRY: ${IMAGE_REGISTRY:-docker.io}
+        REHAB_BACKEND_BASE: http://localhost:${BACKEND_PORT:-8000}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg2://rehab:rehab@postgres:5432/rehab_agent
+      POSTGRES_URL: postgresql+psycopg2://rehab:rehab@postgres:5432/rehab_agent
+      CHECKPOINT_DATABASE_URL: postgresql://rehab:rehab@postgres:5432/rehab_agent
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      FRONTEND_ORIGIN: http://localhost:${PRODUCT_FRONTEND_PORT:-3000}
+      BACKEND_PORT: 8000
+      ENVIRONMENT: development
+      REHAB_ALLOW_DESTRUCTIVE_MEMORY_MIGRATION: ${REHAB_ALLOW_DESTRUCTIVE_MEMORY_MIGRATION:-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+
+  product:
+    build:
+      context: .
+      dockerfile: product.Dockerfile
+      args:
+        IMAGE_REGISTRY: ${IMAGE_REGISTRY:-docker.io}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BACKEND_PORT: 8000
+      NEXT_PUBLIC_BACKEND_PORT: 8000
+      REHAB_BACKEND_BASE: http://localhost:${BACKEND_PORT:-8000}
+      NEXT_PUBLIC_API_BASE: http://localhost:${BACKEND_PORT:-8000}
+    depends_on:
+      - backend
+    ports:
+      - "${PRODUCT_FRONTEND_PORT:-3000}:3000"
+
+volumes:
+  postgres_data:
+  qdrant_data:

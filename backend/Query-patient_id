@@ -1,0 +1,36 @@
+SELECT patient_id, patient_name, subscription_tier, created_at
+FROM patients
+WHERE patient_name = 'Key';
+
+SELECT
+    session_id,
+    patient_id,
+    internal_message_id,
+    agent_name,
+    event_type,
+    content,
+    metadata,
+    created_at
+FROM ai_internal_messages
+WHERE patient_id = '0ed58a6e-4527-44e5-a596-e33778d27425'
+ORDER BY created_at;
+
+SELECT
+    created_at,
+    session_id,
+    status,
+    response_payload ->> 'emergency_reason' AS emergency_reason,
+    response_payload ->> 'if_emergency' AS if_emergency,
+    response_payload ->> 'clarification_question' AS clarification_question,
+    response_payload ->> 'needs_more_info' AS needs_more_info,
+    response_payload ->> 'final_response' AS final_response,
+    response_payload ->> 'routing_decision' AS routing_decision,
+    response_payload ->> 'workflow_version' AS workflow_version
+FROM ai_chat_turn_receipts
+WHERE patient_id = '0ed58a6e-4527-44e5-a596-e33778d27425'
+ORDER BY created_at;
+
+
+SELECT DISTINCT jsonb_object_keys(response_payload) AS key_names
+FROM ai_chat_turn_receipts
+WHERE patient_id = '0ed58a6e-4527-44e5-a596-e33778d27425'
