@@ -5,6 +5,7 @@ rehabilitation response. This document describes the highlights of agent design.
 
 ## Contents
 
+- [Agent architecture](#agent-architecture)
 - [The context model](#1-the-context-model)
   - [Patient Memory](#patient-memory)
   - [Episode Memory](#episode-memory)
@@ -17,12 +18,34 @@ rehabilitation response. This document describes the highlights of agent design.
   - [Level 3: source conversation recall](#level-3-source-conversation-recall)
 - [The consultant retrieval loop](#3-the-consultant-retrieval-loop)
   - [Tool roles](#tool-roles)
-- [Agent architecture](#agent-architecture)
 - [Agent roles and workflow](#4-agent-roles-and-workflow)
 - [Why this design](#5-why-this-design)
 - [Evaluation questions](#6-evaluation-questions)
 
-## 1. The context model
+## Agent architecture
+
+```text
+authenticated request
+        |
+context_integrity -- unauthorized/invalid --> unsafe_fallback
+        |
+      router -- urgent --> end
+        |    \
+ clarification      consultant
+      |                |
+   checkpoint       policy_gate
+                           |
+                 +---------+---------+
+                 |                   |
+          safety_reviewer    grounding_reviewer
+                 \                   /
+                    review_join
+                 /       |        \
+          safe_end   bounded repair  unsafe_fallback
+```
+
+
+## The context model
 
 RehabFlow keeps durable memory separate from the conversation that produced it.
 The conversation is the source record. Memory is a maintained representation
@@ -64,7 +87,7 @@ hints. Context Triage ranks and labels them for the current workflow and node.
 Neither layer creates clinical truth. They make relevant evidence findable and
 keep its source identity and scope attached.
 
-## 2. How context is retrieved
+## How context is retrieved
 
 Context assembly uses progressive disclosure. The initial Consultant context
 contains the current session, compact Patient Memory, and Episode Memory Level
@@ -88,7 +111,7 @@ still belong to the patient and Care Episode.
 
 ### Level 3: source conversation recall
 
-If Level 2 is empty or points back to the conversation, the Consultant searches
+If Level 2 is empty or insufficient, the Consultant searches
 that session with a compact query built from distinctive content terms. Each
 call searches one authorized session. The agent checks the relevant indexed
 candidates before it declares a remembered detail unavailable.
@@ -98,7 +121,7 @@ provides a maintained detail view, and Level 3 reaches the original conversation
 when that view is insufficient. Long-session compaction creates a bounded view
 for context assembly; the persisted conversation remains the source record.
 
-## 3. The Consultant retrieval loop
+## The Consultant retrieval loop
 
 The Consultant uses tools in two phases: it plans retrieval, then executes the
 selected calls.
@@ -142,29 +165,8 @@ The tool descriptions encode information-need policy as well as function
 signatures. They tell the model when a tool fits and when it must use another
 source, so retrieval follows the question's meaning rather than a keyword.
 
-## Agent architecture
 
-```text
-authenticated request
-        |
-context_integrity -- unauthorized/invalid --> unsafe_fallback
-        |
-      router -- urgent --> end
-        |    \
- clarification      consultant
-      |                |
-   checkpoint       policy_gate
-                           |
-                 +---------+---------+
-                 |                   |
-          safety_reviewer    grounding_reviewer
-                 \                   /
-                    review_join
-                 /       |        \
-          safe_end   bounded repair  unsafe_fallback
-```
-
-## 4. Agent roles and workflow
+## Agent roles and workflow
 
 The system assigns different jobs to different agent roles.
 
@@ -198,7 +200,7 @@ When the Router or Consultant finds missing information, the workflow pauses
 with a question and keeps the session context. The next answer resumes the
 interrupted reasoning instead of starting with an empty prompt.
 
-## 5. Why this design
+## Why this design
 
 The design makes three tradeoffs.
 
@@ -213,7 +215,7 @@ Planning retrieval adds a model decision before execution. It lets the system
 record the information need, selected call, returned evidence, and resulting
 answer as separate steps.
 
-## 6. Evaluation
+## Evaluation
 
 The engineering corpus tests these choices as behaviors. Cases ask whether the agent:
 
