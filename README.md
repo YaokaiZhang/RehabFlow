@@ -1,8 +1,7 @@
 # RehabFlow
 
-RehabFlow is an episode-centered rehabilitation application for patient self-care
-and clinician-supported recovery. A Care Episode keeps one concern's AI Triage
-Intake, AI Daily Rehab, Professional Care, and durable Episode Memory together.
+RehabFlow is an AI agent powered rehabilitation application for patient self-care
+and clinician-supported recovery.
 
 The product has three connected workflows:
 
@@ -14,48 +13,69 @@ The product has three connected workflows:
   Conversation, care plans, AI Care Summary, and optional live movement
   monitoring.
 
-## Features and highlights
+![RehabFlow product demo](docs/media/demo.gif)
 
-- **Episode-centered care context:** AI Triage Intake, AI Daily Rehab,
-  Professional Care, and durable memory stay scoped to a specific Care Episode.
-- **Authenticated context boundaries:** patient, episode, session, and source
-  ownership are revalidated before protected context or interrupted state is
-  loaded.
-- **Durable AI workflow:** PostgreSQL-backed LangGraph checkpoints preserve
-  clarification interrupts and safely resume the same authenticated session.
-- **Bounded, authorized tool use:** the Consultant can access only explicitly
-  allowed memory, exercise catalog, and web tools, with call budgets, timeouts,
-  and recorded outcomes.
-- **Independent release review:** Safety and Grounding Reviewers run in
-  parallel; both must approve a response, with one bounded repair and complete
-  re-review before release.
-- **Idempotent delivery:** per-turn idempotency keys protect durable AI chat
-  persistence from duplicate client submissions.
-- **Reproducible evaluation:**  synthetic
-  44 case live service-backed corpus cover authorization, memory scope,
-  checkpoints, retrieval, reviewer behavior, and failure recovery.
+## Features
 
-## Architecture
+- **Care Episodes:** keep one rehabilitation concern's AI Triage Intake,
+  recommendations, memory, daily rehab, Professional Care activity, history,
+  and next steps together.
+- **AI Triage Intake:** collect symptoms, goals, rehabilitation context, and
+  warning signs; use the conversation and existing memory to understand the
+  concern; and recommend the next step, including suitable rehab exercises when
+  the patient is ready for self-care. Saved triage summaries also provide the
+  durable context used by later episode workflows.
+- **AI Daily Rehab:** turn reviewed, triage-based exercise recommendations into
+  an episode-specific list. Patients can browse the database-backed Exercise
+  Catalog, inspect exercise media, start guided sessions, mark exercises
+  complete, add notes, and review their rehab history after the Rehab Safety Gate
+  is satisfied.
+- **Clarification and resume:** when information is missing, the patient sees a
+  clear follow-up question and can continue the same AI session after answering.
+- **Professional Care:** connect a patient and selected doctor around one Care
+  Episode with a Care Conversation, care plans, AI Care Summary, and optional
+  live movement monitoring.
+- **Patient and doctor workspaces:** patients can review episode progress and
+  memory, while doctors can work from relationship-specific care and briefing
+  surfaces.
 
-```text
-authenticated request
-        |
-context_integrity -- unauthorized/invalid --> unsafe_fallback
-        |
-      router -- urgent --> end
-        |    \
- clarification      consultant
-      |                |
-   checkpoint       policy_gate
-                           |
-                 +---------+---------+
-                 |                   |
-          safety_reviewer    grounding_reviewer
-                 \                   /
-                    review_join
-                 /       |        \
-          safe_end   bounded repair  unsafe_fallback
-```
+For the agent architecture, context engineering, tool
+contracts, and evaluation approach, see
+[Engineering highlights](docs/engineering-highlights.md).
+
+## User flow
+
+1. **Sign in and orient across care.** Register or sign in as a patient in the
+   Product app. The Patient Dashboard shows active and past Care Episodes,
+   recent rehab activity, and Professional Care status.
+2. **Create or select a Care Episode.** Start a new concern manually or open an
+   existing episode. Episode work keeps triage, rehab, Professional Care, and
+   history attached to the same issue rather than mixing concerns together.
+3. **Complete AI Triage Intake.** Describe symptoms, goals, rehabilitation
+   context, and warning signs. The AI can ask a clarification question and
+   resume the same session after the answer. A saved Triage Summary records the
+   concern, safety context, missing information, and recommended next step.
+4. **Move into self-rehab when eligible.** The Rehab Safety Gate requires AI
+   triage or clinician-reviewed context before exercise guidance begins. The
+   patient reviews database-backed AI Daily Rehab recommendations, searches the
+   Exercise Catalog, opens exercise details and reference media, and adds chosen
+   exercises to an episode-specific AI Daily Rehab List.
+5. **Run a rehab session.** Start a session from the saved list, follow the
+   exercise checklist, and record completion and notes. Reference exercise
+   videos can include pose overlays; the session can use the camera for local
+   pose detection and movement feedback. Where reference pose data and the
+   service are available, movement scoring is shown.
+6. **Review progress and history.** Return to the episode workspace to review
+   saved Triage Summaries, memory documents, rehab-session completion, movement
+   feedback, unresolved questions, and Professional Care updates.
+7. **Invite Professional Care when needed.** Opt into Professional Care, send a
+   Care Connection Request to a doctor, and select an accepted doctor for the
+   episode. The resulting Care Relationship opens the shared Care Conversation,
+   care plans, AI Care Summary, and optional live movement monitoring.
+8. **Doctor collaboration.** The doctor works from the Care Worklist for
+   incoming requests and active relationships, then uses the Doctor Dashboard
+   for relationship-aware briefings, attention signals, and doctor-private
+   intelligence artifacts.
 
 ## Quick start
 
@@ -111,35 +131,15 @@ See [backend/README.md](backend/README.md) for required environment variables,
 service ports, authentication, migrations, health probes, persistent
 `systemctl --user` services, and evaluator usage.
 
-## AI chat user flow
-
-1. Register or sign in as a patient in the Product app.
-2. Create or select a Care Episode and open its AI Triage Intake.
-3. Submit a Care Episode-bound message. The browser proxy forwards the bearer
-   token to `POST /ai/chat/{session_id}`; use `new` only for the first turn.
-4. Consume the returned event envelope. A normal turn has `event: "response"`,
-   the durable `session_id`, status, response text, and any safe source links.
-   AI chat uses authenticated HTTP event responses, not an AI-chat WebSocket.
-5. When status is `clarification_required`, show the returned clarification
-   question and keep the same session ID.
-6. Submit the patient's answer to that same session with a new idempotency key.
-   The backend reauthorizes the patient and Care Episode, rehydrates the pending
-   checkpoint, and resumes the interrupted turn.
-
-The Product app is the user workflow. The Console app at
-<http://localhost:3001> is an internal QA and diagnostic surface; it is not the
-patient experience and must not be used to bypass authentication or Care
-Episode ownership.
-
 ## Repository layout
 
 - `apps/product`: patient and doctor product application
 - `apps/console`: internal QA console
 - `packages/shared`: shared browser API/auth/runtime helpers
 - `backend/app`: FastAPI, LangGraph runtime, persistence, and services
-- `backend/evals`: offline and service-backed engineering evaluations
-- `docs/product`, `docs/adr`: product contract and architecture decisions
+- `backend/evals`: offline and service-backed agent evaluations
+- `docs/`: documentations
 
 Docker Compose remains useful for local infrastructure. Complete application
 image packaging, registry publishing, and production container deployment are
-future production work, not requirements for this delivery.
+future production work.
