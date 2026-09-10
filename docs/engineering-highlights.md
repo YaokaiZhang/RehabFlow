@@ -6,21 +6,21 @@ rehabilitation response. This document describes the highlights of agent design.
 ## Contents
 
 - [Agent architecture](#agent-architecture)
-- [The context model](#1-the-context-model)
+- [The context model](#the-context-model)
   - [Patient Memory](#patient-memory)
   - [Episode Memory](#episode-memory)
   - [Memory Documents](#memory-documents)
   - [Memory Context Index](#memory-context-index)
   - [Context interpretation and triage](#context-interpretation-and-triage)
-- [How context is retrieved](#2-how-context-is-retrieved)
+- [How context is retrieved](#how-context-is-retrieved)
   - [Level 1: navigation](#level-1-navigation)
   - [Level 2: selected episode detail](#level-2-selected-episode-detail)
   - [Level 3: source conversation recall](#level-3-source-conversation-recall)
-- [The consultant retrieval loop](#3-the-consultant-retrieval-loop)
+- [The consultant retrieval loop](#the-consultant-retrieval-loop)
   - [Tool roles](#tool-roles)
-- [Agent roles and workflow](#4-agent-roles-and-workflow)
-- [Why this design](#5-why-this-design)
-- [Evaluation questions](#6-evaluation-questions)
+- [Agent roles and workflow](#agent-roles-and-workflow)
+- [Why this design](#why-this-design)
+- [Evaluation](#evaluation)
 
 ## Agent architecture
 
@@ -123,8 +123,17 @@ for context assembly; the persisted conversation remains the source record.
 
 ## The Consultant retrieval loop
 
-The Consultant uses tools in two phases: it plans retrieval, then executes the
-selected calls.
+The Consultant does not call every available tool for every question. It first
+compares the user's request with the context already in the prompt and asks:
+
+1. Is the answer already supported by the current session, Patient Memory, or
+   Episode Memory Level 1?
+2. If not, which source can provide the missing fact?
+3. Does that source depend on another retrieval step?
+
+This is the purpose of the retrieval plan. It turns the Consultant's information
+need into a small, structured set of tool calls before any external or historical
+data is fetched. The plan can also say that no retrieval is needed.
 
 ```text
 current context + user request
@@ -140,16 +149,17 @@ current context + user request
                        next retrieval plan or answer
 ```
 
-The retrieval planner returns a reason, an action, and a bounded list of calls.
-It chooses `none` when the current context is enough. With `retrieve`,
-independent calls can run together, while dependent calls wait for their
-prerequisites. A Level 3 conversation search, for example, waits for the Level
-2 read to show that the maintained entry is insufficient.
+The planner returns a reason, an action, and a bounded list of calls. It chooses
+`none` when the current context is enough. With `retrieve`, independent calls
+can run together. Dependent calls wait for their prerequisites. For example,
+the Consultant cannot search the original conversation until a Level 2 read
+shows that the maintained Episode Memory entry is empty or insufficient.
 
-The system validates the plan against the tools available in the current state,
+The runtime checks each plan against the tools available for the current state,
 rejects duplicate calls, checks arguments against the selected memory scope,
 and compresses results before adding them to the next model input. The
-Consultant writes its answer after the retrieval steps for the question finish.
+Consultant then plans again if the returned evidence leaves another specific
+gap; otherwise it writes the answer.
 
 ### Tool roles
 
@@ -228,4 +238,4 @@ The engineering corpus tests these choices as behaviors. Cases ask whether the a
 - separates Consultant drafting from safety and grounding review.
 
 The evaluator combines 44 service-backed cases. The corpus and retained artifacts show the
-context and tool behavior behind a result, not only an aggregate score. For more, see [backend/evals/README.md](backend/evals/README.md)
+context and tool behavior behind a result, not only an aggregate score. For more, see [backend/evals/README.md](../backend/evals/README.md)
