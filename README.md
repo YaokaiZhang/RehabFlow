@@ -87,6 +87,23 @@ After installing Docker and configuring provider credentials in `.env`, start th
 
 The launcher runs the PostgreSQL, Redis, Qdrant, FastAPI, and Product services through Docker Compose. It uses rootless Docker when the active context provides it. On networks where Docker Hub is unavailable, set `IMAGE_REGISTRY=docker.m.daocloud.io` before the command.
 
+### No-Docker startup with Apptainer
+
+On CSC hosts where Docker is unavailable, start the same development stack with:
+
+```bash
+./start-dev-apptainer.sh
+```
+
+This runs PostgreSQL, Redis, and Qdrant through Apptainer and runs FastAPI and
+Product from the checked-out Python and Node dependencies. The first run pulls
+the container images through Apptainer. Runtime data defaults to
+`/scratch/project_2020551/rehabflow-runtime` when that path is writable, or to
+`.rehabflow-runtime` in the repository otherwise. The default Product and API
+ports are 3000 and 8001; override them with `REHABFLOW_PRODUCT_PORT` and
+`REHABFLOW_BACKEND_PORT`. The launcher stays in the foreground and reuses
+healthy services already running on those ports.
+
 RehabFlow needs Python 3.10+, Node.js 20+, PostgreSQL, Redis, and either Qdrant
 or an explicitly configured embedded Qdrant path.
 

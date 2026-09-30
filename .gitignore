@@ -13,6 +13,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 backend/.venv/
+.rehabflow-runtime/
 
 # Frontend workspace dependencies and build output
 node_modules/
