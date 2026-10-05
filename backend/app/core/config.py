@@ -223,7 +223,10 @@ class Settings(BaseSettings):
 	openai_api_key: str | None = None
 	openai_api_base: str = "https://api.openai.com/v1"
 	openai_model: str = "gpt-5.4-mini"
-	openai_embedding_model: str = "text-embedding-3-small"
+	openai_reasoning_effort: str = Field(
+		default="none",
+		validation_alias=AliasChoices("OPENAI_REASONING_EFFORT", "openai_reasoning_effort"),
+	)
 	embedding_api_key: str | None = Field(
 		default=None,
 		validation_alias=AliasChoices("EMBEDDING_API_KEY", "embedding_api_key"),
@@ -312,6 +315,15 @@ class Settings(BaseSettings):
 	@property
 	def effective_checkpoint_database_url(self) -> str:
 		return self.checkpoint_database_url or self.database_url
+
+	@property
+	def effective_embedding_model(self) -> str:
+		provider = self.embedding_provider.strip().lower()
+		if self.embedding_model:
+			return self.embedding_model
+		if provider == "qwen":
+			return self.qwen_embedding_model
+		return "text-embedding-3-small"
 
 	@model_validator(mode="after")
 	def resolve_application_database_targets(self) -> "Settings":

@@ -182,7 +182,7 @@ def build_embedder(provider: EmbeddingProviderName | None = None, vector_size: i
 		return OpenAIEmbeddingEmbedder(
 			api_key=settings.embedding_api_key or settings.openai_api_key or os.getenv("OPENAI_API_KEY", ""),
 			base_url=settings.embedding_api_base or settings.openai_api_base,
-			model=settings.embedding_model or settings.openai_embedding_model,
+			model=settings.effective_embedding_model,
 			vector_size=selected_vector_size,
 			timeout_seconds=settings.embedding_timeout_seconds,
 			max_retries=settings.embedding_max_retries,
@@ -192,7 +192,7 @@ def build_embedder(provider: EmbeddingProviderName | None = None, vector_size: i
 		return QwenEmbeddingEmbedder(
 			api_key=settings.embedding_api_key or settings.qwen_api_key or os.getenv("QWEN_API_KEY", ""),
 			base_url=settings.embedding_api_base or settings.qwen_api_base,
-			model=settings.embedding_model or settings.qwen_embedding_model,
+			model=settings.effective_embedding_model,
 			vector_size=selected_vector_size,
 			timeout_seconds=settings.embedding_timeout_seconds,
 			max_retries=settings.embedding_max_retries,

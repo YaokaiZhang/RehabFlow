@@ -32,7 +32,7 @@ def parse_args() -> argparse.Namespace:
 	)
 	parser.add_argument("--batch-size", type=int, default=32, help="Qdrant upsert batch size")
 	parser.add_argument("--qdrant-path", type=str, default=None, help="Use local persisted Qdrant storage at this path")
-	parser.add_argument("--embedding-provider", choices=["qwen", "hash"], default=None, help="Override embedding provider")
+	parser.add_argument("--embedding-provider", choices=["openai", "qwen", "hash"], default=None, help="Override embedding provider")
 	parser.add_argument("--limit", type=int, default=0, help="Limit documents for smoke testing. Zero means all.")
 	parser.add_argument("--recreate", action="store_true", help="Delete and recreate the Qdrant collection first")
 	parser.add_argument("--dry-run", action="store_true", help="Normalize and report, but do not write to Qdrant")

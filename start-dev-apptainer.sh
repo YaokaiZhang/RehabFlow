@@ -4,6 +4,8 @@ set -Eeuo pipefail
 repo_root="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$repo_root"
 
+action="${1:-start}"
+
 log() {
 	printf '[rehabflow] %s\n' "$*" >&2
 }
@@ -13,13 +15,18 @@ die() {
 	exit 1
 }
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+usage() {
 	cat <<'EOF'
-Usage: ./start-dev-apptainer.sh
+Usage: ./start-dev-apptainer.sh [start|restart|shutdown]
 
 Start the local RehabFlow development stack without Docker. PostgreSQL,
 Redis, and Qdrant run through Apptainer; FastAPI and Product run from the
 checked-out Python and Node dependencies.
+
+Commands:
+  start       Start the stack (the default)
+  restart     Shut down the stack, then start it again
+  shutdown    Stop the launcher and the RehabFlow services
 
 Useful overrides:
   REHABFLOW_RUNTIME_DIR=/path/to/runtime
@@ -28,12 +35,268 @@ Useful overrides:
   NODE_BIN=/path/to/node
 
 The launcher stays in the foreground. Press Ctrl-C to stop processes that it
-started. Processes already serving a healthy endpoint are reused.
+started. Processes already serving a healthy endpoint are reused by start.
 EOF
+}
+
+if [[ "$action" == "--help" || "$action" == "-h" ]]; then
+	usage
 	exit 0
 fi
 
-[[ $# -eq 0 ]] || die "unknown argument: $1 (use --help for usage)"
+[[ $# -le 1 ]] || die "expected at most one command (use --help for usage)"
+case "$action" in
+	start|restart|shutdown|stop) ;;
+	*) die "unknown command: $action (use --help for usage)" ;;
+esac
+
+if [[ -n "${REHABFLOW_RUNTIME_DIR:-}" ]]; then
+	runtime_dir="$REHABFLOW_RUNTIME_DIR"
+else
+	runtime_dir="$repo_root/.rehabflow-runtime"
+fi
+
+image_dir="$runtime_dir/images"
+cache_dir="$runtime_dir/cache"
+log_dir="$runtime_dir/logs"
+data_dir="$runtime_dir/data"
+pid_dir="$runtime_dir/pids"
+
+postgres_port="${REHABFLOW_POSTGRES_PORT:-5432}"
+redis_port="${REHABFLOW_REDIS_PORT:-6379}"
+qdrant_port="${REHABFLOW_QDRANT_PORT:-6333}"
+qdrant_grpc_port="${REHABFLOW_QDRANT_GRPC_PORT:-6334}"
+backend_port="${REHABFLOW_BACKEND_PORT:-${BACKEND_PORT:-8001}}"
+product_port="${REHABFLOW_PRODUCT_PORT:-${PRODUCT_FRONTEND_PORT:-3000}}"
+
+pid_exists() {
+	[[ "${1:-}" =~ ^[0-9]+$ ]] && kill -0 "$1" 2>/dev/null
+}
+
+pid_args() {
+	ps -o args= -p "$1" 2>/dev/null | sed -e 's/^[[:space:]]*//'
+}
+
+pid_parent() {
+	ps -o ppid= -p "$1" 2>/dev/null | awk '{print $1}'
+}
+
+listener_pids() {
+	local port="$1"
+	if command -v ss >/dev/null 2>&1; then
+		ss -ltnp 2>/dev/null |
+			awk -v port="$port" '$4 ~ (":" port "$") {print}' |
+			grep -oE 'pid=[0-9]+' |
+			cut -d= -f2 |
+			sort -nu || true
+	elif command -v lsof >/dev/null 2>&1; then
+		lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -nu || true
+	fi
+}
+
+service_matches_pid() {
+	local service="$1"
+	local pid="$2"
+	local args
+	pid_exists "$pid" || return 1
+	args="$(pid_args "$pid")"
+	case "$service" in
+		postgres) [[ "$args" == *postgres* ]] ;;
+		redis) [[ "$args" == *redis* ]] ;;
+		qdrant) [[ "$args" == *qdrant* ]] ;;
+		backend) [[ "$args" == *uvicorn* && "$args" == *"app.main:app"* ]] ;;
+		product) [[ "$args" == *"dev-next.mjs"* || "$args" == *"next dev"* || "$args" == *"next-server"* ]] ;;
+		*) return 1 ;;
+	esac
+}
+
+service_root_pid() {
+	local service="$1"
+	local original_pid="$2"
+	local current_pid="$2"
+	local args
+	local parent_pid
+
+	for ((depth = 0; depth < 32; depth++)); do
+		pid_exists "$current_pid" || break
+		args="$(pid_args "$current_pid")"
+		case "$service" in
+			postgres)
+				[[ "$args" == *"Apptainer runtime parent:"*postgres* ]] && {
+					printf '%s\n' "$current_pid"
+					return 0
+				}
+				;;
+			redis)
+				[[ "$args" == *"Apptainer runtime parent:"*redis* ]] && {
+					printf '%s\n' "$current_pid"
+					return 0
+				}
+				;;
+			qdrant)
+				[[ "$args" == *"Apptainer runtime parent:"*qdrant* ]] && {
+					printf '%s\n' "$current_pid"
+					return 0
+				}
+				;;
+			backend)
+				[[ "$args" == *uvicorn* && "$args" == *"app.main:app"* ]] && {
+					printf '%s\n' "$current_pid"
+					return 0
+				}
+				;;
+			product)
+				[[ "$args" == *"dev-next.mjs"* ]] && {
+					printf '%s\n' "$current_pid"
+					return 0
+				}
+				;;
+		esac
+		parent_pid="$(pid_parent "$current_pid")"
+		[[ "$parent_pid" =~ ^[0-9]+$ && "$parent_pid" -gt 1 && "$parent_pid" != "$current_pid" ]] || break
+		current_pid="$parent_pid"
+	done
+
+	printf '%s\n' "$original_pid"
+}
+
+service_pid() {
+	local service="$1"
+	local port="$2"
+	local candidate
+
+	if [[ -r "$pid_dir/$service.pid" ]]; then
+		candidate="$(<"$pid_dir/$service.pid")"
+		if service_matches_pid "$service" "$candidate"; then
+			service_root_pid "$service" "$candidate"
+			return 0
+		fi
+	fi
+
+	while read -r candidate; do
+		[[ -n "$candidate" ]] || continue
+		if service_matches_pid "$service" "$candidate"; then
+			service_root_pid "$service" "$candidate"
+			return 0
+		fi
+	done < <(listener_pids "$port")
+	return 1
+}
+
+collect_descendants() {
+	local parent_pid="$1"
+	local child_pid
+	while read -r child_pid; do
+		[[ "$child_pid" =~ ^[0-9]+$ ]] || continue
+		printf '%s\n' "$child_pid"
+		collect_descendants "$child_pid"
+	done < <(ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$parent_pid" '$2 == parent {print $1}')
+}
+
+stop_process_tree() {
+	local root_pid="$1"
+	local -a descendants=()
+	local pid
+	local index
+	local running
+
+	pid_exists "$root_pid" || return 0
+	mapfile -t descendants < <(collect_descendants "$root_pid")
+	for ((index = ${#descendants[@]} - 1; index >= 0; index--)); do
+		pid="${descendants[$index]}"
+		kill -TERM "$pid" 2>/dev/null || true
+	done
+	kill -TERM "$root_pid" 2>/dev/null || true
+
+	for ((second = 0; second < 40; second++)); do
+		running=0
+		for pid in "${descendants[@]}" "$root_pid"; do
+			if pid_exists "$pid"; then
+				running=1
+				break
+			fi
+		done
+		if ((running == 0)); then
+			return 0
+		fi
+		sleep 0.25
+	done
+
+	log "Graceful stop timed out for PID $root_pid; sending SIGKILL to its recorded process tree"
+	for pid in "${descendants[@]}" "$root_pid"; do
+		kill -KILL "$pid" 2>/dev/null || true
+	done
+}
+
+shutdown_stack() {
+	if ! command -v ss >/dev/null 2>&1 && ! command -v lsof >/dev/null 2>&1; then
+		die "shutdown requires ss or lsof to discover reused services"
+	fi
+
+	declare -A target_names=()
+	declare -A targets=()
+	local -a services=(postgres redis qdrant backend product)
+	local -a ports=("$postgres_port" "$redis_port" "$qdrant_port" "$backend_port" "$product_port")
+	local service
+	local pid
+	local index
+	local launcher_pid=""
+
+	for index in "${!services[@]}"; do
+		service="${services[$index]}"
+		pid=""
+		if pid="$(service_pid "$service" "${ports[$index]}")"; then
+			targets["$pid"]=1
+			target_names["$pid"]="${target_names[$pid]-}$service "
+		fi
+	done
+
+	if [[ -r "$pid_dir/launcher.pid" ]]; then
+		launcher_pid="$(<"$pid_dir/launcher.pid")"
+		if [[ "$launcher_pid" =~ ^[0-9]+$ ]] && pid_exists "$launcher_pid"; then
+			local launcher_args
+			launcher_args="$(pid_args "$launcher_pid")"
+			if [[ "$launcher_args" == *"start-dev-apptainer.sh"* ]]; then
+				targets["$launcher_pid"]=1
+				target_names["$launcher_pid"]="launcher"
+			else
+				launcher_pid=""
+			fi
+		else
+			launcher_pid=""
+		fi
+	fi
+
+	if ((${#targets[@]} == 0)); then
+		log "No running RehabFlow processes found"
+		return 0
+	fi
+
+	for pid in "${!targets[@]}"; do
+		[[ "$pid" == "$launcher_pid" ]] && continue
+		log "Stopping ${target_names[$pid]} (PID $pid)"
+		stop_process_tree "$pid"
+	done
+	if [[ -n "$launcher_pid" ]]; then
+		log "Stopping launcher (PID $launcher_pid)"
+		stop_process_tree "$launcher_pid"
+	fi
+
+	for service in launcher "${services[@]}"; do
+		rm -f "$pid_dir/$service.pid"
+	done
+}
+
+if [[ "$action" == "shutdown" || "$action" == "stop" ]]; then
+	shutdown_stack
+	exit 0
+fi
+
+if [[ "$action" == "restart" ]]; then
+	"$0" shutdown
+	exec "$0" start
+fi
+
 [[ -f "$repo_root/.env" ]] || die "missing .env; copy .env.example to .env and configure provider credentials"
 command -v apptainer >/dev/null 2>&1 || die "Apptainer is required"
 command -v curl >/dev/null 2>&1 || die "curl is required"
@@ -61,27 +324,25 @@ else
 fi
 [[ -x "$node_bin" ]] || die "Node.js 20+ was not found; set NODE_BIN=/path/to/node"
 
-if [[ -n "${REHABFLOW_RUNTIME_DIR:-}" ]]; then
-	runtime_dir="$REHABFLOW_RUNTIME_DIR"
-else
-	runtime_dir="$repo_root/.rehabflow-runtime"
-fi
-
-image_dir="$runtime_dir/images"
-cache_dir="$runtime_dir/cache"
-log_dir="$runtime_dir/logs"
-data_dir="$runtime_dir/data"
-pid_dir="$runtime_dir/pids"
 mkdir -p "$image_dir" "$cache_dir" "$log_dir" "$pid_dir" \
 	"$data_dir/postgres" "$data_dir/postgres-run" "$data_dir/redis" \
 	"$data_dir/qdrant" "$data_dir/qdrant-snapshots"
 
-postgres_port="${REHABFLOW_POSTGRES_PORT:-5432}"
-redis_port="${REHABFLOW_REDIS_PORT:-6379}"
-qdrant_port="${REHABFLOW_QDRANT_PORT:-6333}"
-qdrant_grpc_port="${REHABFLOW_QDRANT_GRPC_PORT:-6334}"
-backend_port="${REHABFLOW_BACKEND_PORT:-${BACKEND_PORT:-8001}}"
-product_port="${REHABFLOW_PRODUCT_PORT:-${PRODUCT_FRONTEND_PORT:-3000}}"
+claim_launcher_pid() {
+	local existing_pid=""
+	local existing_args=""
+	if [[ -r "$pid_dir/launcher.pid" ]]; then
+		existing_pid="$(<"$pid_dir/launcher.pid")"
+		if [[ "$existing_pid" =~ ^[0-9]+$ ]] && [[ "$existing_pid" != "$$" ]] && pid_exists "$existing_pid"; then
+			existing_args="$(pid_args "$existing_pid")"
+			[[ "$existing_args" == *"start-dev-apptainer.sh"* ]] &&
+				die "launcher already running as PID $existing_pid; use './start-dev-apptainer.sh restart'"
+		fi
+	fi
+	printf '%s\n' "$$" > "$pid_dir/launcher.pid"
+}
+
+claim_launcher_pid
 
 db_user="${REHABFLOW_POSTGRES_USER:-rehab}"
 db_password="${REHABFLOW_POSTGRES_PASSWORD:-rehab}"
@@ -127,6 +388,19 @@ wait_for_port() {
 	die "$description did not open port $port; inspect $log_dir"
 }
 
+wait_for_postgres() {
+	local port="$1"
+	local description="$2"
+	local timeout_seconds="${3:-120}"
+	for ((second = 0; second < timeout_seconds; second++)); do
+		if postgres_exec pg_isready -h 127.0.0.1 -p "$port" -U "$db_user" >/dev/null 2>&1; then
+			return 0
+		fi
+		sleep 1
+	done
+	die "$description did not become ready on port $port; inspect $log_dir/postgres.log"
+}
+
 wait_for_http() {
 	local url="$1"
 	local description="$2"
@@ -141,6 +415,7 @@ wait_for_http() {
 }
 
 started_pids=()
+declare -A started_pid_by_name=()
 
 cleanup() {
 	local status=$?
@@ -148,9 +423,13 @@ cleanup() {
 	if ((${#started_pids[@]} > 0)); then
 		log "Stopping processes started by this launcher"
 		for pid in "${started_pids[@]}"; do
-			kill "$pid" 2>/dev/null || true
+			stop_process_tree "$pid"
 		done
 	fi
+	for name in postgres redis qdrant backend product; do
+		rm -f "$pid_dir/$name.pid"
+	done
+	rm -f "$pid_dir/launcher.pid"
 	exit "$status"
 }
 
@@ -164,6 +443,7 @@ start_process() {
 	nohup "$@" >>"$log_file" 2>&1 < /dev/null &
 	local pid=$!
 	started_pids+=("$pid")
+	started_pid_by_name["$name"]="$pid"
 	printf '%s\n' "$pid" > "$pid_dir/$name.pid"
 }
 
@@ -184,7 +464,7 @@ else
 		--env "POSTGRES_DB=$db_name" \
 		"$postgres_image" docker-entrypoint.sh postgres \
 		-c "listen_addresses=127.0.0.1" -p "$postgres_port"
-	wait_for_port "$postgres_port" PostgreSQL
+	wait_for_postgres "$postgres_port" PostgreSQL 120
 fi
 
 if ! postgres_exec psql -h 127.0.0.1 -p "$postgres_port" -U "$db_user" -d postgres \

@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 
 import { loadAuth } from "@rehab/shared/auth";
-import { createEpisodeFromTriageSummaryRequest, createTriageSummaryDraft, getCareEpisode, sendAiChatTurn } from "@rehab/shared/api";
+import { createEpisodeFromTriageSummaryRequest, createTriageSummaryDraft, getAiChatSession, getCareEpisode, sendAiChatTurn } from "@rehab/shared/api";
 
 type ChatMessage = {
 	id: string;
@@ -145,8 +145,11 @@ function clearPendingTriageSummary() {
 	sessionStorage.removeItem(PENDING_TRIAGE_SUMMARY_KEY);
 }
 
-export default function HomePage() {
+function HomePageContent() {
 	const router = useRouter();
+	const searchParams = useSearchParams();
+	const urlSessionId = searchParams.get("session_id") || "";
+	const urlEpisodeId = searchParams.get("episode_id") || "";
 	const agentProgressIntervalRef = useRef<number | null>(null);
 	const turnStartedAtRef = useRef(0);
 	const activeTurnRef = useRef<string | null>(null);
@@ -158,13 +161,13 @@ export default function HomePage() {
 	const [episodeTitle, setEpisodeTitle] = useState("");
 	const [episodeTitleLoading, setEpisodeTitleLoading] = useState(false);
 	const [patientId, setPatientId] = useState("");
-	const [patientLabel, setPatientLabel] = useState("Sign in to begin");
-	const [status, setStatus] = useState("Ready");
 	const [prompt, setPrompt] = useState(starterPrompt);
 	const [isWaiting, setIsWaiting] = useState(false);
 	const [agentProgress, setAgentProgress] = useState(agentProgressSteps[0]);
 	const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
 	const [summaryError, setSummaryError] = useState("");
+	const [historyLoading, setHistoryLoading] = useState(false);
+	const [historyError, setHistoryError] = useState("");
 	const [messages, setMessages] = useState<ChatMessage[]>([
 		{
 			id: "intro",
@@ -179,14 +182,14 @@ export default function HomePage() {
 	});
 
 	useEffect(() => {
-		const params = new URLSearchParams(window.location.search);
-		const urlEpisodeId = params.get("episode_id") || "";
 		setEpisodeId(urlEpisodeId);
+		setHistoryError("");
+		sessionIdRef.current = urlSessionId || "new";
+		setSessionId(sessionIdRef.current);
 		const auth = loadAuth();
 		if (auth?.role === "patient") {
 			setPatientId(auth.user_id);
-			setPatientLabel(auth.username);
-			if (params.get("resume_triage") === "summary") {
+			if (searchParams.get("resume_triage") === "summary") {
 				const pending = readPendingTriageSummary();
 				if (pending) {
 					const restoredEpisodeId = pending.episodeId || urlEpisodeId;
@@ -197,19 +200,66 @@ export default function HomePage() {
 					setMessages(pending.messages);
 					setPrompt(pending.prompt || "");
 					setRouteState(pending.routeState);
+					setHistoryLoading(false);
 					setSummaryError("Signed in. Your triage history is ready for a summary.");
 
-					const cleanParams = new URLSearchParams(window.location.search);
+					const cleanParams = new URLSearchParams(searchParams.toString());
 					cleanParams.delete("resume_triage");
 					const nextSearch = cleanParams.toString();
 					router.replace(`${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}`);
+					return () => clearAgentProgress();
 				}
 			}
+
+			if (urlSessionId) {
+				let active = true;
+				setHistoryLoading(true);
+				setMessages([]);
+				setPrompt("");
+				void getAiChatSession(urlSessionId, auth.access_token)
+					.then((session) => {
+						if (!active) return;
+						sessionIdRef.current = session.session_id;
+						setSessionId(session.session_id);
+						setEpisodeId(urlEpisodeId || session.care_episode_id || "");
+						setMessages(session.messages.map((message) => ({
+							id: message.message_id,
+							role: message.sender_role,
+							text: message.content,
+						})));
+						setPrompt("");
+					})
+					.catch((error) => {
+						if (active) setHistoryError(error instanceof Error ? error.message : "Unable to load this triage chat.");
+					})
+					.finally(() => {
+						if (active) setHistoryLoading(false);
+					});
+				return () => {
+					active = false;
+					clearAgentProgress();
+				};
+			}
+		} else {
+			setPatientId("");
+		}
+
+		if (!urlSessionId) {
+			originatingEventIdRef.current = null;
+			pendingSubmissionRef.current = null;
+			setMessages([{
+				id: "intro",
+				role: "assistant",
+				text: "Welcome. Describe your current symptoms, rehab stage, and what changes the discomfort. I will triage your situation and suggest a safe next step for today.",
+			}]);
+			setPrompt(starterPrompt);
+			setRouteState({ routingDecision: "", needsMoreInfo: null, safetyPassed: null });
+			setHistoryLoading(false);
 		}
 		return () => {
 			clearAgentProgress();
 		};
-	}, [router]);
+	}, [router, searchParams, urlEpisodeId, urlSessionId]);
 
 	useEffect(() => {
 		if (!episodeId) {
@@ -270,7 +320,6 @@ export default function HomePage() {
 	};
 
 	const sendChatTurn = async (turnId: string, submission: PendingAiChatSubmission) => {
-		setStatus(agentProgressSteps[0].label);
 		const auth = loadAuth();
 		if (!auth || auth.role !== "patient") {
 			finishTurn(turnId);
@@ -294,6 +343,7 @@ export default function HomePage() {
 			if (data.session_id) {
 				sessionIdRef.current = data.session_id;
 				setSessionId(data.session_id);
+				window.dispatchEvent(new Event("rehab-ai-chat-changed"));
 			}
 			if (data.originating_event_id) {
 				originatingEventIdRef.current = data.originating_event_id;
@@ -303,11 +353,9 @@ export default function HomePage() {
 			if (data.event === "error") {
 				pendingSubmissionRef.current = submission;
 				setPrompt(submission.message);
-				setStatus("Connection issue");
 				setMessages((prev) => [...prev, { id: makeId(), role: "system", text: friendlyError(data.detail) }]);
 			} else {
 				pendingSubmissionRef.current = null;
-				setStatus("Ready");
 				setMessages((prev) => [
 					...prev,
 					{ id: makeId(), role: "assistant", text: data.response || "I could not generate a response for that turn.", sources: data.sources },
@@ -316,7 +364,6 @@ export default function HomePage() {
 		} catch (error) {
 			if (!finishTurn(turnId)) return;
 			setPrompt(submission.message);
-			setStatus("Connection issue");
 			setMessages((prev) => [
 				...prev,
 				{ id: makeId(), role: "system", text: friendlyError(error instanceof Error ? error.message : undefined) },
@@ -369,6 +416,7 @@ export default function HomePage() {
 				await createTriageSummaryDraft(targetEpisodeId, request, auth.access_token);
 			}
 			clearPendingTriageSummary();
+			window.dispatchEvent(new Event("rehab-ai-chat-changed"));
 			router.push(`/episodes/${targetEpisodeId}/triage`);
 		} catch (error) {
 			setSummaryError(error instanceof Error ? error.message : "Could not generate the triage summary draft.");
@@ -379,7 +427,7 @@ export default function HomePage() {
 
 	const sendPrompt = (nextPrompt = prompt) => {
 		const text = nextPrompt.trim();
-		if (!text || isWaiting) return;
+		if (!text || isWaiting || historyLoading || historyError) return;
 		const auth = loadAuth();
 		if (!auth || auth.role !== "patient") {
 			setSummaryError("Please sign in as a patient before starting AI triage.");
@@ -402,7 +450,6 @@ export default function HomePage() {
 		setPrompt("");
 		setIsWaiting(true);
 		setAgentProgress(firstProgressStep);
-		setStatus(firstProgressStep.label);
 		activeTurnRef.current = turnId;
 		turnStartedAtRef.current = Date.now();
 		clearAgentProgress();
@@ -410,7 +457,6 @@ export default function HomePage() {
 			if (activeTurnRef.current !== turnId) return;
 			const nextStep = agentProgressForElapsed(Date.now() - turnStartedAtRef.current);
 			setAgentProgress(nextStep);
-			setStatus(nextStep.label);
 		}, 1000);
 
 		setSummaryError("");
@@ -427,42 +473,22 @@ export default function HomePage() {
 	}, [routeState]);
 
 	const tone = routeTone(routeState);
-	const statusClass = status === "Connected" ? "status-ok" : status === "Connection issue" ? "status-alert" : "status-neutral";
-
 	return (
 		<div className="space-y-6">
 			<section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-				<div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_360px] lg:items-start">
-					<div>
-						<div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">
-							<span>Patient rehab copilot</span>
-							<span className={`status-pill ${statusClass}`}>{status}</span>
+				<div>
+					<h1 className="mt-0 max-w-3xl text-3xl font-semibold text-slate-950 md:text-4xl">Start with AI triage, leave with today’s rehab route.</h1>
+					<p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+					Tell RehabFlow what hurts, where you are in recovery, and what changed recently.
+					</p>
+					{!patientId ? (
+						<div className="home-auth-links" aria-label="Account actions">
+							<>
+								<Link className="home-auth-link" href="/login">Login</Link>
+								<Link className="home-auth-link home-auth-link-primary" href="/register">Register</Link>
+							</>
 						</div>
-						<h1 className="mt-3 max-w-3xl text-3xl font-semibold text-slate-950 md:text-4xl">Start with AI triage, leave with today’s rehab route.</h1>
-						<p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-							Tell RehabFlow what hurts, where you are in recovery, and what changed recently. The assistant will ask clarifying questions, flag risk, and guide you toward AI Daily Rehab or Professional Care. Optional Live Movement Monitoring can support a specific Care Episode when a clinician relationship is active.
-						</p>
-						<div className="mt-5 grid gap-3 sm:grid-cols-3">
-							<div className="metric-tile"><span>1</span><p>Describe symptoms</p></div>
-							<div className="metric-tile"><span>2</span><p>Get triaged</p></div>
-							<div className="metric-tile"><span>3</span><p>Choose your next step</p></div>
-						</div>
-					</div>
-					<aside className={`rounded-lg border p-4 shadow-sm ${patientId ? "border-emerald-200 bg-emerald-50" : "border-emerald-100 bg-emerald-50"}`}>
-						<p className={`text-xs font-semibold uppercase tracking-wide ${patientId ? "text-emerald-800" : "text-emerald-700"}`}>{patientId ? "Your rehab" : "Ready when you are"}</p>
-						<p className="mt-2 text-lg font-semibold text-slate-950">{patientLabel}</p>
-						<p className="mt-1 text-xs leading-5 text-slate-600">
-							{patientId ? "Signed in. Continue to your Patient Dashboard whenever you are ready." : "Sign in as a patient to start AI triage and connect your care context."}
-						</p>
-						{patientId ? (
-							<Link className="btn-primary mt-4 w-full" href="/episodes">Patient Dashboard</Link>
-						) : (
-							<div className="mt-4 flex gap-2">
-								<Link className="btn-secondary flex-1" href="/login">Login</Link>
-								<Link className="btn-primary flex-1" href="/register">Register</Link>
-							</div>
-						)}
-					</aside>
+					) : null}
 				</div>
 			</section>
 
@@ -479,7 +505,10 @@ export default function HomePage() {
 					</div>
 
 					<div className="max-h-[520px] space-y-3 overflow-auto bg-slate-50 p-4 md:p-5">
-						{messages.map((message) => (
+						{historyLoading ? <p className="chat-history-state">Loading previous chat...</p> : null}
+						{historyError ? <p className="chat-history-state chat-history-state-error">{historyError}</p> : null}
+						{!historyLoading && !historyError && !messages.length ? <p className="chat-history-state">This chat has no messages yet.</p> : null}
+						{!historyLoading && !historyError ? messages.map((message) => (
 							<div
 								key={message.id}
 								className={`chat-card ${
@@ -499,7 +528,7 @@ export default function HomePage() {
 									</div>
 								) : null}
 							</div>
-						))}
+						)) : null}
 						{isWaiting ? (
 							<div className="chat-card chat-card-assistant agent-progress-card">
 								<div className="flex items-center gap-2">
@@ -525,11 +554,12 @@ export default function HomePage() {
 								className="textarea min-h-24 flex-1 resize-none"
 								value={prompt}
 								onChange={(event) => setPrompt(event.target.value)}
+								disabled={historyLoading || Boolean(historyError)}
 								onKeyDown={(event) => {
 									if ((event.metaKey || event.ctrlKey) && event.key === "Enter") sendPrompt();
 								}}
 							/>
-							<button className="btn-primary sm:w-32" onClick={() => sendPrompt()} disabled={isWaiting || !prompt.trim()}>
+							<button className="btn-primary sm:w-32" onClick={() => sendPrompt()} disabled={isWaiting || historyLoading || Boolean(historyError) || !prompt.trim()}>
 								{isWaiting ? "Sending" : "Send"}
 							</button>
 						</div>
@@ -537,10 +567,10 @@ export default function HomePage() {
 				</div>
 
 				<aside className="space-y-4">
-					<div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4 shadow-sm">
-						<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Triage Summary Request</p>
-						<p className="mt-2 text-sm leading-6 text-slate-700">When you are done answering triage questions, request a summary. If this triage is not already inside an episode, RehabFlow will create one from the summary request.</p>
-						<button className="btn-primary mt-4 w-full" onClick={finishTriage} disabled={isWaiting || isGeneratingSummary}>
+					<div className="summary-request-card rounded-lg border p-4 shadow-sm">
+						<p className="text-xs font-semibold uppercase tracking-wide text-[var(--rf-coffee)]">Triage Summary Request</p>
+						<p className="mt-2 text-sm leading-6 text-slate-700">When you are done answering triage questions, request a summary.</p>
+						<button className="btn-coffee mt-4 w-full" onClick={finishTriage} disabled={isWaiting || isGeneratingSummary}>
 							{isGeneratingSummary ? "Requesting" : "Request Summary"}
 						</button>
 						{summaryError ? <p className="mt-3 text-sm leading-6 text-rose-600">{summaryError}</p> : null}
@@ -573,5 +603,13 @@ export default function HomePage() {
 				</aside>
 			</section>
 		</div>
+	);
+}
+
+export default function HomePage() {
+	return (
+		<Suspense fallback={<p className="text-sm text-slate-500">Loading AI triage...</p>}>
+			<HomePageContent />
+		</Suspense>
 	);
 }

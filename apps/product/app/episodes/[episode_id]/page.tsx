@@ -34,7 +34,7 @@ function fullTriageHistory(summary: SummaryWithContext | null | undefined) {
 
 function TriageContextSummary({ text }: { text: string }) {
 	return (
-		<details className="mt-3 max-w-3xl rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+		<details className="episode-context mt-3 text-sm text-slate-600">
 			<summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">Triage context summary</summary>
 			<p className="mt-2 whitespace-pre-line leading-6">{text}</p>
 		</details>
@@ -102,27 +102,46 @@ export default function CareEpisodeOverviewPage() {
 	const completedCount = rehab ? countCompleted(rehab.checklist) : 0;
 	const triageContext = triageContextSummary(triage);
 	const latestFullHistory = fullTriageHistory(triage);
+	const nextAction = episode.safety_gate_status === "needs_triage"
+		? {
+			title: "Complete AI Triage Intake",
+			description: "Answer the safety questions so RehabFlow can determine the right path for this episode.",
+			href: `/episodes/${episode.care_episode_id}/triage`,
+			cta: "Open Triage Intake",
+		}
+		: !rehab
+			? {
+			title: "Start today's rehab",
+				description: "Your safety route is known. Begin the first guided session for this episode.",
+				href: `/episodes/${episode.care_episode_id}/rehab`,
+				cta: "Start today's rehab",
+			}
+			: {
+				title: completedCount < rehab.checklist.length ? "Continue today's rehab" : "Review episode history",
+				description: completedCount < rehab.checklist.length ? "Finish the remaining checklist items and save today's session." : "Review what has changed across this episode and decide what to do next.",
+				href: completedCount < rehab.checklist.length ? `/episodes/${episode.care_episode_id}/rehab` : `/episodes/${episode.care_episode_id}/history`,
+				cta: completedCount < rehab.checklist.length ? "Continue rehab" : "Review history",
+			};
 
 	return (
-		<div className="space-y-5">
-			<section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-				<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+		<div className="episode-overview">
+			<section className="episode-overview-header">
+				<div className="episode-overview-header-content">
 					<div>
-						<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Episode Workspace</p>
-						<h1 className="mt-2 text-2xl font-semibold text-slate-950 md:text-3xl">{episode.issue_title}</h1>
+						<h1>{episode.issue_title}</h1>
 						{triageContext ? <TriageContextSummary text={triageContext} /> : null}
 					</div>
-					<div className="flex flex-wrap gap-2">
+					<div className="episode-overview-actions">
 						<Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}/history`}>View full history</Link>
 						<Link className="btn-secondary" href="/episodes">All Episodes</Link>
 					</div>
 				</div>
 			</section>
 
-			<CareEpisodeBrief workspace={workspace} role="patient" />
+			<CareEpisodeBrief workspace={workspace} role="patient" showTitle={false} showContext={false} />
 
-			<section className="grid gap-4 lg:grid-cols-3">
-				<div className="card">
+			<section className="episode-summary-grid">
+				<div className="card episode-summary-card episode-summary-card-triage">
 					<h2 className="section-title">Latest Triage Summary</h2>
 					{triage ? (
 						<div className="mt-3 space-y-3 text-sm text-slate-700">
@@ -155,7 +174,7 @@ export default function CareEpisodeOverviewPage() {
 					) : null}
 				</div>
 
-				<div className="card">
+				<div className="card episode-summary-card">
 					<h2 className="section-title">Latest Rehab Summary</h2>
 					{rehab ? (
 						<div className="mt-3 space-y-3 text-sm text-slate-700">
@@ -168,7 +187,7 @@ export default function CareEpisodeOverviewPage() {
 					)}
 				</div>
 
-				<div className="card">
+				<div className="card episode-summary-card">
 					<h2 className="section-title">Professional Care Summary</h2>
 					<div className="mt-3 space-y-3 text-sm text-slate-700">
 						<p className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-950">Subscription:</span> <StatusBadge tone="info">{professionalCare.subscription_tier}</StatusBadge></p>
@@ -186,22 +205,36 @@ export default function CareEpisodeOverviewPage() {
 				</div>
 			</section>
 
-			<section className="grid gap-4 md:grid-cols-3">
-				<Link className="next-step-card next-step-primary" href={`/episodes/${episode.care_episode_id}/triage`}>
-					<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">AI Triage Intake</p>
-					<h2 className="mt-2 text-lg font-semibold text-slate-950">Build safety context</h2>
-					<p className="mt-2 text-sm leading-6 text-slate-600">Ask follow-up questions and request or regenerate a Triage Summary for this concern.</p>
-				</Link>
-				<Link className="next-step-card" href={`/episodes/${episode.care_episode_id}/rehab`}>
-					<p className="text-xs font-semibold uppercase tracking-wide text-amber-700">{safetyLabel(episode.safety_gate_status)}</p>
-					<h2 className="mt-2 text-lg font-semibold text-slate-950">AI Daily Rehab</h2>
-					<p className="mt-2 text-sm leading-6 text-slate-600">Start today session, update the checklist, and save a session summary into episode memory inputs.</p>
-				</Link>
-				<Link className="next-step-card" href={`/episodes/${episode.care_episode_id}/professional-care`}>
-					<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Professional Care</p>
-					<h2 className="mt-2 text-lg font-semibold text-slate-950">Work with a doctor</h2>
-					<p className="mt-2 text-sm leading-6 text-slate-600">Manage requests, Care Conversation, and AI Care Summary for this episode.</p>
-				</Link>
+			<section className="episode-next-action" aria-live="polite">
+				<div>
+					<h2>{nextAction.title}</h2>
+					<p>{nextAction.description}</p>
+				</div>
+				<Link className="btn-primary shrink-0" href={nextAction.href}>{nextAction.cta}</Link>
+			</section>
+
+			<section className="episode-session-directory">
+				<div className="episode-session-directory-header">
+					<h2>Sessions in this episode</h2>
+					<p>Choose another care workspace. The episode folder keeps the working context together, while each session has one clear job.</p>
+				</div>
+				<div className="mt-4 grid gap-3 md:grid-cols-3">
+					<Link className="next-step-card next-step-primary" href={`/episodes/${episode.care_episode_id}/triage`}>
+						<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">AI Triage Intake</p>
+						<h3 className="mt-2 text-lg font-semibold text-slate-950">Build safety context</h3>
+						<p className="mt-2 text-sm leading-6 text-slate-600">Ask follow-up questions and request or regenerate a Triage Summary.</p>
+					</Link>
+					<Link className="next-step-card" href={`/episodes/${episode.care_episode_id}/rehab`}>
+						<p className="text-xs font-semibold uppercase tracking-wide text-amber-700">{safetyLabel(episode.safety_gate_status)}</p>
+						<h3 className="mt-2 text-lg font-semibold text-slate-950">AI Daily Rehab</h3>
+						<p className="mt-2 text-sm leading-6 text-slate-600">Start today's session, update the checklist, and save a summary.</p>
+					</Link>
+					<Link className="next-step-card" href={`/episodes/${episode.care_episode_id}/professional-care`}>
+						<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Professional Care</p>
+						<h3 className="mt-2 text-lg font-semibold text-slate-950">Work with a doctor</h3>
+						<p className="mt-2 text-sm leading-6 text-slate-600">Manage requests, Care Conversation, and the AI Care Summary.</p>
+					</Link>
+				</div>
 			</section>
 		</div>
 	);

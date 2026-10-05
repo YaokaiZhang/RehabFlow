@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 
 import { clearAuth, loadAuth, type AuthState } from "@rehab/shared/auth";
+import EpisodeRail from "./EpisodeRail";
 
 function homeFor(auth: AuthState | null | undefined) {
   if (!auth) return "/";
@@ -13,6 +14,7 @@ function homeFor(auth: AuthState | null | undefined) {
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
+  if (href === "/episodes") return pathname === "/episodes";
   if (href === "/doctor") {
     const isDoctorDashboard = pathname === "/doctor/dashboard" || pathname.startsWith("/doctor/dashboard/");
     return !isDoctorDashboard && (pathname === href || pathname.startsWith(`${href}/`));
@@ -37,7 +39,8 @@ function ShellNavLink({ href, children }: { href: string; children: ReactNode })
 
 export default function ProductShell({ children }: { children: ReactNode }) {
   const [auth, setAuth] = useState<AuthState | null | undefined>(undefined);
-  const showTriage = auth === null || auth?.role === "patient";
+  const showTriage = auth === null || auth?.role === "patient" || auth === undefined;
+  const pathname = usePathname();
 
   useEffect(() => {
     const syncAuth = () => setAuth(loadAuth());
@@ -57,13 +60,14 @@ export default function ProductShell({ children }: { children: ReactNode }) {
   };
 
   const homeHref = homeFor(auth);
+  const episodeRailVisible = auth?.role !== "doctor";
 
   const navLinks = (
     <>
       {showTriage ? <ShellNavLink href="/">AI Triage Intake</ShellNavLink> : null}
-      {auth?.role === "patient" ? (
+      {auth?.role !== "doctor" ? (
         <>
-          <ShellNavLink href="/episodes">Patient Dashboard</ShellNavLink>
+          {auth?.role === "patient" ? <ShellNavLink href="/episodes">Patient Dashboard</ShellNavLink> : null}
           <ShellNavLink href="/settings">Settings</ShellNavLink>
         </>
       ) : null}
@@ -78,56 +82,40 @@ export default function ProductShell({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div className="min-h-screen bg-[var(--rf-app-bg)] text-slate-900">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur md:hidden">
-        <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <Link href={homeHref} className="flex items-center gap-3 text-slate-950">
-            <span className="product-logo-mark">RF</span>
-            <span>
-              <span className="block text-sm font-semibold leading-5">RehabFlow</span>
-              <span className="block text-xs text-slate-500">Episode-centered rehab</span>
+    <div className="product-app min-h-screen bg-[var(--rf-app-bg)] text-slate-900">
+      <header className="product-global-nav">
+        <div className="product-global-nav-inner">
+          <Link href={homeHref} className="product-brand" aria-label="RehabFlow home">
+            <span className="product-brand-copy">
+              <span className="product-brand-name">
+                <span className="product-brand-name-rehab">Rehab</span><span className="product-brand-name-flow">Flow</span>
+              </span>
             </span>
           </Link>
-          {auth ? (
-            <button onClick={signOut} className="product-signout-button">Sign out</button>
-          ) : auth === null ? (
-            <Link href="/login" className="product-signout-button">Login</Link>
-          ) : null}
-        </div>
-        <nav className="flex gap-2 overflow-x-auto px-4 pb-3 text-sm">{navLinks}</nav>
-      </header>
-
-      <div className="mx-auto grid min-h-screen max-w-7xl md:grid-cols-[244px_minmax(0,1fr)]">
-        <aside className="sticky top-0 hidden h-screen flex-col border-r border-slate-200 bg-white px-4 py-5 md:flex">
-          <Link href={homeHref} className="flex items-center gap-3 rounded-md px-2 py-2 text-slate-950 hover:bg-slate-50">
-            <span className="product-logo-mark">RF</span>
-            <span>
-              <span className="block text-base font-semibold leading-5">RehabFlow</span>
-              <span className="block text-xs text-slate-500">Friendly clinical rehab</span>
-            </span>
-          </Link>
-          <nav className="mt-8 flex flex-1 flex-col gap-2 text-sm">{navLinks}</nav>
-          <div className="border-t border-slate-200 pt-4">
+          <div className="product-navigation">
+            <nav className="product-top-nav" aria-label="Global navigation">{navLinks}</nav>
+          </div>
+          <div className="product-account">
             {auth ? (
-              <div className="space-y-3">
-                <div className="rounded-md bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
-                  <p className="text-sm font-semibold text-slate-900">{auth.username}</p>
-                  <p className="text-xs capitalize text-slate-500">{auth.role}</p>
-                </div>
-                <button onClick={signOut} className="product-signout-button w-full">Sign out</button>
-              </div>
+              <>
+                <span className="product-account-name">{auth.username}</span>
+                <button onClick={signOut} className="product-signout-button">Sign out</button>
+              </>
             ) : auth === null ? (
-              <div className="space-y-2">
-                <Link href="/login" className="product-auth-link">Login</Link>
-                <Link href="/register" className="product-auth-link product-auth-link-secondary">Register</Link>
-                <p className="px-2 text-xs text-slate-500">Guest</p>
+              <div className="product-account-actions">
+                <Link href="/login" className="product-account-link">Login</Link>
+                <Link href="/register" className="product-account-link product-account-link-primary">Register</Link>
               </div>
             ) : (
-              <p className="px-2 text-xs text-slate-500">Loading account...</p>
+              <span className="product-account-loading">Loading...</span>
             )}
           </div>
-        </aside>
-        <main className="min-w-0 px-4 py-5 md:px-6 md:py-8">{children}</main>
+        </div>
+      </header>
+
+      <div className={`product-workspace ${episodeRailVisible ? "product-workspace-with-rail" : ""}`}>
+        {episodeRailVisible ? <EpisodeRail auth={auth} /> : null}
+        <main className="product-main">{children}</main>
       </div>
     </div>
   );

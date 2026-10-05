@@ -13,21 +13,22 @@ assert(existsSync(pagePath), "public triage page should exist");
 
 const page = readFileSync(pagePath, "utf8");
 
-for (const vocabulary of ["Professional Care", "Optional Live Movement Monitoring"]) {
+for (const vocabulary of ["Professional Care"]) {
 	assert(page.includes(vocabulary), `public triage should use current ${vocabulary} vocabulary`);
+}
+
+for (const removedCopy of ["The assistant will ask clarifying questions", "Optional Live Movement Monitoring can support"]) {
+	assert(!page.includes(removedCopy), `public triage should remove ${removedCopy}`);
 }
 
 for (const legacyCopy of ["professional monitoring", "monitoring path"]) {
 	assert(!page.toLowerCase().includes(legacyCopy), `public triage should not use legacy ${legacyCopy} copy`);
 }
 
+assert(!page.includes("Patient Dashboard"), "public triage should not render a Patient Dashboard action");
 assert(
-	/patientId\s*\?\s*\([\s\S]*?href="\/episodes"[\s\S]*?>\s*Patient Dashboard\s*</.test(page),
-	"signed-in patients should have a Patient Dashboard continuation",
-);
-assert(
-	/:\s*\([\s\S]*?href="\/login"[\s\S]*?>\s*Login\s*<[\s\S]*?href="\/register"[\s\S]*?>\s*Register\s*</.test(page),
-	"anonymous patients should retain Login and Register routes",
+	page.includes('/login') && page.includes('/register'),
+	'anonymous patients should retain Login and Register routes',
 );
 assert(page.includes('href="/rehab/session"'), "public triage should retain the demo rehab session link");
 assert(page.includes("getCareEpisode"), "episode-scoped triage should load the selected Care Episode");

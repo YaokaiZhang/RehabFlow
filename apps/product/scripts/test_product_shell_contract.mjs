@@ -38,8 +38,10 @@ assert(isActive("/doctor/queue", "/doctor"), "Care Worklist should stay active o
 assert(isActive("/doctor/dashboard", "/doctor/dashboard"), "Doctor Dashboard should be active on /doctor/dashboard");
 assert(!isActive("/doctor/dashboard", "/doctor"), "Doctor Dashboard should not also activate Care Worklist");
 
-assert(navSurface.includes('href="/episodes"'), "patient shell nav should link to /episodes");
-assert(navSurface.includes("Patient Dashboard"), "patient shell nav should label /episodes as Patient Dashboard");
+assert(navSurface.includes('href="/episodes"'), "patient shell nav should link to the Patient Dashboard at /episodes");
+assert(navSurface.includes("Patient Dashboard"), "patient shell nav should label the dashboard destination");
+assert(isActive("/episodes", "/episodes"), "Patient Dashboard should be active on /episodes");
+assert(!isActive("/episodes/demo", "/episodes"), "Patient Dashboard should not stay active inside an episode workspace");
 assert(navSurface.includes('href="/settings"'), "shell nav should link to /settings");
 assert(navSurface.includes("Settings"), "shell nav should label Settings");
 assert(navSurface.includes('href="/doctor"'), "doctor shell nav should link to Care Worklist at /doctor");

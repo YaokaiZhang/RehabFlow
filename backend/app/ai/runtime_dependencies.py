@@ -261,7 +261,7 @@ class OpenAIProviderFactory:
             model=model_name,
             base_url=settings.openai_api_base,
             api_key=openai_api_key,
-            reasoning_effort="none",
+            reasoning_effort=settings.openai_reasoning_effort,
             use_responses_api=True,
             **openai_client_options(
                 timeout_seconds=timeout_seconds,

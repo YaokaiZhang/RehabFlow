@@ -176,7 +176,6 @@ export default function EpisodeRehabPage() {
         blocked,
         savedListItems,
         savedExerciseIds,
-        clinicianReviewNeeded,
         addExercise,
         removeExercise,
         loadExerciseDetails,
@@ -209,7 +208,6 @@ export default function EpisodeRehabPage() {
                 <>
                     <section className="card max-w-4xl border-emerald-200 bg-emerald-50">
                         <h2 className="section-title">Recommended from AI Triage</h2>
-                        {clinicianReviewNeeded ? <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Clinician review is recommended for this episode. Keep today&apos;s list conservative.</p> : null}
                         {recommendation ? (
                             <>
                                 <p className="mt-3 text-sm text-slate-700">Recommendation status: <span className="font-semibold text-slate-950">{statusCopy(recommendation.status)}</span>{recommendation.empty_reason ? " - " + recommendation.empty_reason : ""}</p>

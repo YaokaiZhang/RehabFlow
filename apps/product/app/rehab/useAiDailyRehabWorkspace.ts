@@ -44,7 +44,6 @@ export function useAiDailyRehabWorkspace(episodeId: string) {
     const blocked = episode ? !isSafetyGateCleared(episode.safety_gate_status) : false;
     const savedListItems = useMemo(() => rehabList?.items || [], [rehabList]);
     const savedExerciseIds = useMemo(() => new Set(savedListItems.map((item) => item.exercise_id)), [savedListItems]);
-    const clinicianReviewNeeded = Boolean(episode?.latest_triage_summary?.clinician_review_needed);
 
     const loadCatalog = useCallback(async (nextAuth: AuthState) => {
         const requestId = catalogRequestRef.current += 1;
@@ -193,7 +192,6 @@ export function useAiDailyRehabWorkspace(episodeId: string) {
         blocked,
         savedListItems,
         savedExerciseIds,
-        clinicianReviewNeeded,
         addExercise,
         removeExercise,
         loadExerciseDetails,

@@ -12,6 +12,7 @@ from app.db.models import AISession, CareEpisode, Patient
 
 
 _NOT_FOUND_DETAIL = "AI chat resource not found"
+PATIENT_SESSION_INVALID_DETAIL = "Patient session is no longer valid"
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,10 @@ def authorize_ai_chat(
 
     patient = db.query(Patient).filter(Patient.patient_id == principal.user_id).first()
     if patient is None:
-        _raise_not_found()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=PATIENT_SESSION_INVALID_DETAIL,
+        )
 
     try:
         requested_session_id = UUID(session_id)

@@ -37,7 +37,7 @@ def diagnostics_config() -> dict[str, Any]:
 		"qdrant_url": settings.qdrant_url,
 		"qdrant_path_configured": bool(settings.qdrant_path),
 		"embedding_provider": settings.embedding_provider,
-		"embedding_model": settings.openai_embedding_model,
+		"embedding_model": settings.effective_embedding_model,
 	}
 
 

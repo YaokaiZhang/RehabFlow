@@ -390,7 +390,7 @@ def _try_build_ai_summary(
 			model=settings.openai_model,
 			base_url=settings.openai_api_base,
 			api_key=api_key,
-			reasoning_effort="none",
+			reasoning_effort=settings.openai_reasoning_effort,
 			use_responses_api=True,
 			**openai_client_options(),
 		)

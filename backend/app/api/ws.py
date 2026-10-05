@@ -10,18 +10,23 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
 from app.api.streaming import get_stream_ticket_service
 from app.core.config import get_settings
 from app.core.security import Principal, get_current_principal
-from app.db.models import AISession, CareEpisode, Patient
+from app.db.models import AIMessage, AISession, CareEpisode, Patient, ai_message_ordering
 from app.db.session import get_db
 from app.schemas.ai_chat import AIChatSessionRequest, AIChatTurnRequest
 from app.schemas.streaming import StreamScope
-from app.services.ai_chat_access import AuthorizedAIChat, authorize_ai_chat
+from app.services.ai_chat_access import (
+    PATIENT_SESSION_INVALID_DETAIL,
+    AuthorizedAIChat,
+    authorize_ai_chat,
+)
 from app.services.dtw_service import score_motion
 from app.services.stream_tickets import StreamTicketError
 
@@ -441,49 +446,166 @@ class _LegacyAIChatTurnService:
 
 
 
+def _authorize_ai_chat_patient(db: Session, principal: Principal) -> Patient:
+	if principal.role != "patient":
+		raise HTTPException(status_code=403, detail="Only patients can use AI chat")
+
+	patient = db.query(Patient).filter(Patient.patient_id == principal.user_id).first()
+	if patient is None:
+		raise HTTPException(status_code=401, detail=PATIENT_SESSION_INVALID_DETAIL)
+	return patient
+
+
+def _chat_message_dict(message: AIMessage) -> dict[str, object]:
+	return {
+		"message_id": message.message_id,
+		"sender_role": message.sender_role,
+		"content": message.content,
+		"created_at": message.created_at,
+	}
+
+
+def _chat_session_row(session: AISession, messages: list[AIMessage]) -> dict[str, object]:
+	user_message = next((message for message in messages if message.sender_role == "user"), None)
+	last_message_at = max(
+		(message.created_at for message in messages if message.created_at is not None),
+		default=None,
+	)
+	return {
+		"session_id": session.session_id,
+		"title": session.title,
+		"care_episode_id": session.care_episode_id,
+		"created_at": session.created_at,
+		"updated_at": session.updated_at,
+		"last_message_at": last_message_at or session.updated_at or session.created_at,
+		"message_count": len(messages),
+		"preview": (user_message.content or "").strip()[:160] if user_message else "",
+	}
+
+
+@router.get("/ai/chat/sessions")
+def list_ai_chat_sessions(
+	principal: Principal = Depends(get_current_principal),
+	db: Session = Depends(get_db),
+) -> dict[str, list[dict[str, object]]]:
+	patient = _authorize_ai_chat_patient(db, principal)
+	sessions = db.query(AISession).filter(AISession.patient_id == patient.patient_id).all()
+	if not sessions:
+		return {"sessions": []}
+
+	session_ids = [session.session_id for session in sessions]
+	messages = (
+		db.query(AIMessage)
+		.filter(AIMessage.session_id.in_(session_ids))
+		.order_by(*ai_message_ordering())
+		.all()
+	)
+	messages_by_session: dict[UUID, list[AIMessage]] = {session_id: [] for session_id in session_ids}
+	for message in messages:
+		messages_by_session.setdefault(message.session_id, []).append(message)
+
+	rows = [_chat_session_row(session, messages_by_session.get(session.session_id, [])) for session in sessions]
+	rows.sort(
+		key=lambda row: row["last_message_at"].timestamp() if row["last_message_at"] is not None else 0,
+		reverse=True,
+	)
+	return {"sessions": jsonable_encoder(rows)}
+
+
+@router.get("/ai/chat/{session_id}")
+def get_ai_chat_session(
+	session_id: str,
+	principal: Principal = Depends(get_current_principal),
+	db: Session = Depends(get_db),
+) -> dict[str, object]:
+	access = authorize_ai_chat(db, principal, session_id=session_id, care_episode_id=None)
+	session = (
+		db.query(AISession)
+		.filter(AISession.session_id == UUID(access.session_id), AISession.patient_id == access.patient_id)
+		.first()
+	)
+	if session is None:
+		raise HTTPException(status_code=404, detail=_AI_CHAT_NOT_FOUND_DETAIL)
+	messages = db.query(AIMessage).filter(AIMessage.session_id == session.session_id).order_by(*ai_message_ordering()).all()
+	row = _chat_session_row(session, messages)
+	row["messages"] = [_chat_message_dict(message) for message in messages]
+	return jsonable_encoder(row)
+
+
+@router.delete("/ai/chat/{session_id}", status_code=204)
+def delete_ai_chat_session(
+	session_id: str,
+	http_request: Request = None,
+	principal: Principal = Depends(get_current_principal),
+	db: Session = Depends(get_db),
+) -> Response:
+	access = authorize_ai_chat(db, principal, session_id=session_id, care_episode_id=None)
+	session = (
+		db.query(AISession)
+		.filter(AISession.session_id == UUID(access.session_id), AISession.patient_id == access.patient_id)
+		.first()
+	)
+	if session is None:
+		raise HTTPException(status_code=404, detail=_AI_CHAT_NOT_FOUND_DETAIL)
+
+	runtime = getattr(getattr(http_request, "app", None), "state", None)
+	runtime = getattr(runtime, "agent_runtime", None)
+	delete_thread = getattr(runtime, "delete_thread", None)
+	if callable(delete_thread):
+		try:
+			delete_thread(access.session_id)
+		except Exception as exc:
+			logger.exception("[ai_chat:delete] checkpoint deletion failed")
+			raise HTTPException(status_code=503, detail="AI chat could not be deleted.") from exc
+
+	db.delete(session)
+	try:
+		db.commit()
+	except Exception as exc:
+		db.rollback()
+		logger.warning("[db:error] failure_category=chat_session_deletion_failed")
+		raise HTTPException(status_code=500, detail="AI chat could not be deleted.") from exc
+	return Response(status_code=204)
+
+
 def _authorize_new_ai_chat(
-    db: Session,
-    principal: Principal,
-    *,
-    care_episode_id,
+	db: Session,
+	principal: Principal,
+	*,
+	care_episode_id,
 ) -> AuthorizedAIChat:
-    if principal.role != "patient":
-        raise HTTPException(status_code=403, detail="Only patients can use AI chat")
+	patient = _authorize_ai_chat_patient(db, principal)
 
-    patient = db.query(Patient).filter(Patient.patient_id == principal.user_id).first()
-    if patient is None:
-        raise HTTPException(status_code=404, detail=_AI_CHAT_NOT_FOUND_DETAIL)
+	episode = None
+	if care_episode_id is not None:
+		episode = (
+			db.query(CareEpisode)
+			.filter(
+				CareEpisode.care_episode_id == care_episode_id,
+				CareEpisode.patient_id == patient.patient_id,
+			)
+			.first()
+		)
+		if episode is None:
+			raise HTTPException(status_code=404, detail=_AI_CHAT_NOT_FOUND_DETAIL)
 
-    episode = None
-    if care_episode_id is not None:
-        episode = (
-            db.query(CareEpisode)
-            .filter(
-                CareEpisode.care_episode_id == care_episode_id,
-                CareEpisode.patient_id == patient.patient_id,
-            )
-            .first()
-        )
-        if episode is None:
-            raise HTTPException(status_code=404, detail=_AI_CHAT_NOT_FOUND_DETAIL)
+	session = AISession(
+		patient_id=patient.patient_id,
+		care_episode_id=episode.care_episode_id if episode is not None else None,
+	)
+	db.add(session)
+	try:
+		db.commit()
+	except Exception as exc:
+		db.rollback()
+		logger.warning("[db:error] failure_category=chat_session_persistence_failed")
+		raise HTTPException(status_code=500, detail="Failed to start rehab chat session") from exc
 
-    session = AISession(
-        patient_id=patient.patient_id,
-        care_episode_id=episode.care_episode_id if episode is not None else None,
-    )
-    db.add(session)
-    try:
-        db.commit()
-    except Exception as exc:
-        db.rollback()
-        logger.warning("[db:error] failure_category=chat_session_persistence_failed")
-        raise HTTPException(status_code=500, detail="Failed to start rehab chat session") from exc
-
-    return AuthorizedAIChat(
-        patient_id=patient.patient_id,
-        session_id=str(session.session_id),
-        care_episode_id=episode.care_episode_id if episode is not None else None,
-    )
+	return AuthorizedAIChat(
+		patient_id=patient.patient_id,
+		session_id=str(session.session_id),
+		care_episode_id=episode.care_episode_id if episode is not None else None,
+	)
 
 
 @router.post("/ai/chat/session")

@@ -22,6 +22,7 @@ assert(!inputType.includes("debug"), "AI chat input must not accept caller-contr
 
 assert(api.includes("accessToken: string"), "sendAiChatTurn should require an access token");
 assert(api.includes("Authorization:") && api.includes("Bearer " + "$" + "{accessToken}"), "sendAiChatTurn should send the bearer token");
+assert(api.includes("patient session is no longer valid"), "shared API should clear auth when the backend reports a missing patient session");
 assert(api.includes("JSON.stringify({"), "sendAiChatTurn should build a reduced request payload");
 assert(api.includes("idempotency_key: input.idempotency_key"), "sendAiChatTurn should forward the idempotency key");
 

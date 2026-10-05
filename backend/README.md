@@ -32,7 +32,7 @@ Required runtime settings are grouped below. Never commit real credentials.
 | Application | `ENVIRONMENT`, `BACKEND_PORT`, `FRONTEND_ORIGIN` |
 | Database | `DATABASE_URL`, `CHECKPOINT_DATABASE_URL`; if set, `POSTGRES_URL` must target the same database |
 | Cache and retrieval | `REDIS_URL`; either `QDRANT_URL` or `QDRANT_PATH`; `QDRANT_COLLECTION_NAME` |
-| Generation | `OPENAI_API_KEY`, `OPENAI_API_BASE`, `OPENAI_MODEL` |
+| Generation | `OPENAI_API_KEY`, `OPENAI_API_BASE`, `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` |
 | Embeddings | `EMBEDDING_PROVIDER`, `EMBEDDING_API_KEY`, `EMBEDDING_API_BASE`, `EMBEDDING_MODEL` |
 | Security | unique `JWT_SECRET_KEY`, unique `REHAB_TRACE_HMAC_KEY`, `REHAB_TRACE_HMAC_KEY_VERSION` |
 | Streaming | `STREAM_TICKET_TTL_SECONDS` (1-60 seconds) |

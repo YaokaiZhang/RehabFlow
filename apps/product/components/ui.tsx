@@ -11,10 +11,10 @@ type AppButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const buttonClasses: Record<AppButtonVariant, string> = {
-  primary: "border-emerald-700 bg-emerald-600 text-white shadow-[0_2px_0_#047857] hover:bg-emerald-700",
-  secondary: "border-emerald-200 bg-emerald-50 text-emerald-800 shadow-[0_2px_0_#a7f3d0] hover:bg-emerald-100",
-  ghost: "border-transparent bg-transparent text-slate-700 hover:bg-slate-100",
-  danger: "border-rose-700 bg-rose-600 text-white shadow-[0_2px_0_#be123c] hover:bg-rose-700",
+  primary: "border-[var(--rf-olive-deep)] bg-[var(--rf-olive-deep)] text-[var(--rf-surface)] hover:border-[var(--rf-coffee)] hover:bg-[var(--rf-coffee)]",
+  secondary: "border-[rgba(82,97,78,0.36)] bg-[rgba(201,183,156,0.34)] text-[var(--rf-coffee)] hover:border-[rgba(82,97,78,0.58)] hover:bg-[rgba(113,129,109,0.16)]",
+  ghost: "border-transparent bg-transparent text-[var(--rf-coffee)] hover:bg-[rgba(113,129,109,0.12)]",
+  danger: "border-[#8b3f31] bg-[#8b3f31] text-[var(--rf-surface)] hover:border-[var(--rf-coffee)] hover:bg-[var(--rf-coffee)]",
 };
 
 export function AppButton({ variant = "primary", className, type = "button", ...props }: AppButtonProps) {
@@ -34,11 +34,11 @@ export function AppButton({ variant = "primary", className, type = "button", ...
 type StatusTone = "success" | "info" | "attention" | "risk" | "neutral";
 
 const statusClasses: Record<StatusTone, string> = {
-  success: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  info: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  attention: "bg-amber-50 text-amber-700 ring-amber-200",
-  risk: "bg-rose-50 text-rose-700 ring-rose-200",
-  neutral: "bg-slate-100 text-slate-700 ring-slate-200",
+  success: "bg-[rgba(113,129,109,0.14)] text-[var(--rf-olive-deep)] ring-[rgba(113,129,109,0.3)]",
+  info: "bg-[rgba(113,129,109,0.14)] text-[var(--rf-olive-deep)] ring-[rgba(113,129,109,0.3)]",
+  attention: "bg-[rgba(201,183,156,0.34)] text-[var(--rf-coffee)] ring-[rgba(82,97,78,0.26)]",
+  risk: "bg-[rgba(160,74,54,0.1)] text-[#7d392e] ring-[rgba(160,74,54,0.25)]",
+  neutral: "bg-[rgba(201,183,156,0.26)] text-[var(--rf-coffee)] ring-[rgba(52,42,33,0.18)]",
 };
 
 export function StatusBadge({ tone = "neutral", className, children, ...props }: HTMLAttributes<HTMLSpanElement> & { tone?: StatusTone }) {
@@ -51,7 +51,7 @@ export function StatusBadge({ tone = "neutral", className, children, ...props }:
 
 export function DashboardCard({ className, children, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cx("rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:border-emerald-200 hover:shadow-md", className)} {...props}>
+    <div className={cx("dashboard-card rounded-[10px] border border-[var(--rf-line)] bg-[var(--rf-surface)] p-4 shadow-[0_8px_20px_rgba(52,42,33,0.06)] transition hover:border-[rgba(113,129,109,0.42)] hover:shadow-[0_10px_24px_rgba(52,42,33,0.1)]", className)} {...props}>
       {children}
     </div>
   );
@@ -61,9 +61,9 @@ export function SectionHeader({ eyebrow, title, description, action, className }
   return (
     <div className={cx("flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between", className)}>
       <div>
-        {eyebrow ? <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">{eyebrow}</p> : null}
-        <h2 className="text-xl font-semibold text-slate-950">{title}</h2>
-        {description ? <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">{description}</p> : null}
+        {eyebrow ? <p className="text-xs font-semibold uppercase tracking-wide text-[var(--rf-olive-deep)]">{eyebrow}</p> : null}
+        <h2 className="text-xl font-semibold text-[var(--rf-coffee)]">{title}</h2>
+        {description ? <p className="mt-1 max-w-2xl text-sm leading-6 text-[rgba(52,42,33,0.7)]">{description}</p> : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>

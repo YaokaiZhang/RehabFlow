@@ -21,9 +21,9 @@ assert(page.includes("loadAuth"), "/episodes should preserve existing auth flow"
 assert(page.includes("listCareEpisodes"), "/episodes should keep existing episode fetch behavior");
 assert(page.includes("deleteCareEpisode"), "/episodes should keep existing episode delete behavior");
 
-assert(page.includes("Patient Dashboard"), "/episodes should present as Patient Dashboard");
+assert(page.includes("Your rehab concerns, organized by episode"), "Patient Dashboard should present its primary heading");
 assert(page.includes("Care Episode List"), "Patient Dashboard should include Care Episode List as a section");
-assert(page.indexOf("Patient Dashboard") < page.indexOf("Care Episode List"), "Care Episode List should sit inside the Patient Dashboard, not replace it");
+assert(page.indexOf("Your rehab concerns, organized by episode") < page.indexOf("Care Episode List"), "Care Episode List should sit inside the Patient Dashboard, not replace it");
 
 for (const primitive of ["DashboardCard", "SectionHeader", "StatusBadge"]) {
   assert(page.includes(primitive), `/episodes should use shared dashboard primitive ${primitive}`);
@@ -45,7 +45,7 @@ assert(
 );
 
 const metricsStart = page.indexOf('aria-label="Patient dashboard status"');
-const metricsEnd = page.indexOf('<section className="space-y-4" aria-label="Care Episode List">', metricsStart);
+const metricsEnd = page.indexOf('<section className="dashboard-episode-section" aria-label="Care Episode List">', metricsStart);
 assert(metricsStart >= 0 && metricsEnd > metricsStart, "Patient Dashboard should retain a bounded metrics section");
 const metricsSection = page.slice(metricsStart, metricsEnd);
 assert(page.includes("episodesLoaded"), "Dashboard metrics should track whether episode data loaded successfully");

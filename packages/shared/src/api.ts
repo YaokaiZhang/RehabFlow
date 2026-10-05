@@ -47,7 +47,7 @@ async function requestUrl<T>(url: string, init?: RequestInit, timeoutMs: number 
 		} catch {
 			// ignore parse errors
 		}
-		if (response.status === 401 && /invalid or expired token|missing bearer token/i.test(detail)) {
+		if (response.status === 401 && /invalid or expired token|missing bearer token|patient session is no longer valid/i.test(detail)) {
 			clearAuth();
 			detail = "Your session expired. Please sign in again.";
 		}
@@ -61,8 +61,8 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs: number | 
 	return requestUrl<T>(getApiBase() + path, init, timeoutMs);
 }
 
-async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
-	const response = await fetchWithTimeout(getApiBase() + path, {
+async function requestUrlNoContent(url: string, init?: RequestInit): Promise<void> {
+	const response = await fetchWithTimeout(url, {
 		...init,
 		headers: {
 			"Content-Type": "application/json",
@@ -78,12 +78,16 @@ async function requestNoContent(path: string, init?: RequestInit): Promise<void>
 		} catch {
 			// ignore parse errors
 		}
-		if (response.status === 401 && /invalid or expired token|missing bearer token/i.test(detail)) {
+		if (response.status === 401 && /invalid or expired token|missing bearer token|patient session is no longer valid/i.test(detail)) {
 			clearAuth();
 			detail = "Your session expired. Please sign in again.";
 		}
 		throw new Error(detail);
 	}
+}
+
+async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
+	return requestUrlNoContent(getApiBase() + path, init);
 }
 
 
@@ -153,6 +157,32 @@ export type AiChatTurnResponse = {
 	}>;
 };
 
+export type AiChatMessage = {
+	message_id: string;
+	sender_role: "user" | "assistant";
+	content: string;
+	created_at: string;
+};
+
+export type AiChatSessionSummary = {
+	session_id: string;
+	title: string;
+	care_episode_id?: string | null;
+	created_at: string;
+	updated_at: string;
+	last_message_at: string;
+	message_count: number;
+	preview: string;
+};
+
+export type AiChatSession = AiChatSessionSummary & {
+	messages: AiChatMessage[];
+};
+
+function aiChatUrl(path: string) {
+	return typeof window !== "undefined" ? "/ai-chat/" + path : getApiBase() + "/ai/chat/" + path;
+}
+
 export async function sendAiChatTurn(
 	sessionId: string,
 	input: AiChatTurnInput,
@@ -179,6 +209,32 @@ export async function sendAiChatTurn(
 		},
 		body: JSON.stringify(payload),
 	}, null);
+}
+
+export async function listAiChatSessions(accessToken: string): Promise<AiChatSessionSummary[]> {
+	const data = await requestUrl<{ sessions: AiChatSessionSummary[] }>(aiChatUrl("sessions"), {
+		headers: {
+			Authorization: `Bearer ${accessToken}`,
+		},
+	});
+	return data.sessions;
+}
+
+export async function getAiChatSession(sessionId: string, accessToken: string): Promise<AiChatSession> {
+	return requestUrl<AiChatSession>(aiChatUrl(encodeURIComponent(sessionId)), {
+		headers: {
+			Authorization: `Bearer ${accessToken}`,
+		},
+	});
+}
+
+export async function deleteAiChatSession(sessionId: string, accessToken: string): Promise<void> {
+	await requestUrlNoContent(aiChatUrl(encodeURIComponent(sessionId)), {
+		method: "DELETE",
+		headers: {
+			Authorization: `Bearer ${accessToken}`,
+		},
+	});
 }
 
 export async function registerPatient(input: {

@@ -191,4 +191,11 @@ class AgentRuntime:
             close()
 
     def delete_thread(self, session_id: str) -> None:
-        self.checkpointer.delete_thread(session_id)
+        normalized_session_id = str(session_id)
+        self.checkpointer.delete_thread(normalized_session_id)
+        self._idempotent_results = {
+            key: value for key, value in self._idempotent_results.items() if key[0] != normalized_session_id
+        }
+        self._idempotency_request_hashes = {
+            key: value for key, value in self._idempotency_request_hashes.items() if key[0] != normalized_session_id
+        }

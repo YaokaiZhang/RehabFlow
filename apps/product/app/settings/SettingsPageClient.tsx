@@ -39,8 +39,8 @@ export default function SettingsPageClient() {
 
 	if (!auth) {
 		return (
-			<section className="space-y-5">
-				<DashboardCard className="max-w-2xl p-5 md:p-6">
+			<section className="settings-page">
+				<DashboardCard className="settings-guest-card max-w-2xl p-5 md:p-6">
 					<SectionHeader
 						eyebrow="Settings"
 						title="Sign in to manage settings"
@@ -58,52 +58,48 @@ export default function SettingsPageClient() {
 	const role = auth.role;
 
 	return (
-		<div className="space-y-6">
-			<section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-				<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-					<SectionHeader
-						eyebrow="Settings"
-						title="Account and preferences"
-						description="Manage account basics and role-specific RehabFlow settings without changing care workflow data."
-					/>
-					<div className="flex flex-wrap gap-2">
-						<Link className="product-auth-link product-auth-link-secondary" href={roleHome(auth)}>Back to workspace</Link>
-						<AppButton variant="ghost" onClick={signOut}>Sign out</AppButton>
-					</div>
+		<div className="settings-page">
+			<section className="settings-intro">
+				<div>
+					<h1>Account and preferences</h1>
+					<p>Manage account basics and role-specific RehabFlow settings without changing care workflow data.</p>
+				</div>
+				<div className="settings-intro-actions">
+					<Link className="product-auth-link product-auth-link-secondary" href={roleHome(auth)}>Back to workspace</Link>
+					<AppButton variant="ghost" onClick={signOut}>Sign out</AppButton>
 				</div>
 			</section>
 
-			<div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-				<aside className="space-y-3">
-					<DashboardCard className="p-4">
-						<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Account</p>
-						<h2 className="mt-1 text-lg font-semibold text-slate-950">{auth.username}</h2>
-						<div className="mt-3 flex flex-wrap gap-2">
+			<div className="settings-layout">
+				<aside className="settings-sidebar">
+					<div className="settings-account-summary">
+						<p className="settings-side-label">Signed in as</p>
+						<h2>{auth.username}</h2>
+						<div className="settings-account-badges">
 							<StatusBadge tone="info">{auth.role}</StatusBadge>
 							<StatusBadge tone="neutral">Signed in</StatusBadge>
 						</div>
-					</DashboardCard>
-					<nav className="space-y-2 text-sm">
-						<a className={showAccount ? "product-nav-link product-nav-link-active" : "product-nav-link"} href="/settings">Account</a>
-						{role === "patient" ? <a className={showPatientMemory ? "product-nav-link product-nav-link-active" : "product-nav-link"} href="/settings?section=patient-memory">Patient Memory</a> : null}
-						{role === "doctor" ? <a className={showProfessionalProfile ? "product-nav-link product-nav-link-active" : "product-nav-link"} href="/settings?section=professional-profile">Professional Profile</a> : null}
+					</div>
+					<nav className="settings-nav" aria-label="Settings sections">
+						<a className={showAccount ? "settings-nav-link settings-nav-link-active" : "settings-nav-link"} href="/settings">Account</a>
+						{role === "patient" ? <a className={showPatientMemory ? "settings-nav-link settings-nav-link-active" : "settings-nav-link"} href="/settings?section=patient-memory">Patient Memory</a> : null}
+						{role === "doctor" ? <a className={showProfessionalProfile ? "settings-nav-link settings-nav-link-active" : "settings-nav-link"} href="/settings?section=professional-profile">Professional Profile</a> : null}
 					</nav>
 				</aside>
 
-				<main className="min-w-0 space-y-5">
+				<main className="settings-content">
 					{showAccount ? (
-						<DashboardCard className="p-5 md:p-6">
-							<SectionHeader
-								eyebrow="Account"
-								title="Account settings"
+						<DashboardCard className="settings-content-card p-5 md:p-6">
+								<SectionHeader
+									title="Account settings"
 								description="Your current RehabFlow identity and role. Care Episodes, Professional Care, and doctor workflow data stay in their own workspaces."
 							/>
-							<dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-								<div className="rounded-md bg-slate-50 p-3 ring-1 ring-slate-200">
+							<dl className="settings-detail-grid mt-4 grid gap-3 text-sm sm:grid-cols-2">
+								<div className="settings-detail-item rounded-md bg-slate-50 p-3 ring-1 ring-slate-200">
 									<dt className="font-semibold text-slate-600">Name</dt>
 									<dd className="mt-1 text-slate-950">{auth.username}</dd>
 								</div>
-								<div className="rounded-md bg-slate-50 p-3 ring-1 ring-slate-200">
+								<div className="settings-detail-item rounded-md bg-slate-50 p-3 ring-1 ring-slate-200">
 									<dt className="font-semibold text-slate-600">Role</dt>
 									<dd className="mt-1 capitalize text-slate-950">{auth.role}</dd>
 								</div>
