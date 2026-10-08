@@ -20,7 +20,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app.api import ws as ws_api
 from app.core.security import Principal
-from app.db.models import AIMessage, AISession, Patient
+from app.db.models import AIChatTurnReceipt, AIMessage, AISession, Patient
+from app.services.ai_turn_persistence import safe_chat_sources
 
 
 class FakeQuery:
@@ -41,10 +42,11 @@ class FakeQuery:
 
 
 class FakeDb:
-	def __init__(self, patient, sessions, messages):
+	def __init__(self, patient, sessions, messages, receipts=None):
 		self.patient = patient
 		self.sessions = list(sessions)
 		self.messages = list(messages)
+		self.receipts = list(receipts or [])
 		self.deleted = []
 		self.commits = 0
 
@@ -55,6 +57,8 @@ class FakeDb:
 			return FakeQuery(self.sessions)
 		if model is AIMessage:
 			return FakeQuery(self.messages)
+		if model is AIChatTurnReceipt:
+			return FakeQuery(self.receipts)
 		return FakeQuery([])
 
 	def rollback(self):
@@ -89,7 +93,29 @@ class HistoryContractTests(unittest.TestCase):
 		self.assistant_message = AIMessage(session_id=self.unassigned_id, sender_role="assistant", content="Let's clarify the change.")
 		self.assistant_message.message_id = uuid.uuid4()
 		self.assistant_message.created_at = base
-		self.db = FakeDb(self.patient, [unassigned, assigned], [self.user_message, self.assistant_message])
+		self.assistant_message.message_metadata = {
+			"sequence": 2,
+			"sources": [
+				{"label": "NHS", "title": "Back pain", "url": "https://www.nhs.uk/conditions/back-pain/"},
+				{"label": "Insecure", "title": "Drop this", "url": "http://example.com/insecure"},
+			],
+		}
+		self.receipt = AIChatTurnReceipt(
+			session_id=self.unassigned_id,
+			patient_id=self.patient_id,
+			idempotency_key="history-turn-0001",
+			request_hash="history-request-hash",
+			status="completed",
+			workflow_version="history-contract",
+			response_payload={
+				"final_response": "Let's clarify the change.",
+				"web_sources": [
+					{"label": "NHS", "title": "Back pain", "url": "https://www.nhs.uk/conditions/back-pain/"},
+				],
+			},
+		)
+		self.receipt.created_at = base
+		self.db = FakeDb(self.patient, [unassigned, assigned], [self.user_message, self.assistant_message], [self.receipt])
 		self.principal = Principal(subject="history-patient", role="patient", user_id=self.patient_id)
 
 	def test_list_exposes_unassigned_and_episode_ownership(self):
@@ -104,6 +130,29 @@ class HistoryContractTests(unittest.TestCase):
 		payload = ws_api.get_ai_chat_session(str(self.unassigned_id), principal=self.principal, db=self.db)
 		self.assertEqual([message["sender_role"] for message in payload["messages"]], ["user", "assistant"])
 		self.assertEqual(payload["messages"][0]["content"], "My back feels stiff")
+		self.assertNotIn("sources", payload["messages"][0])
+		self.assertEqual(
+			payload["messages"][1]["sources"],
+			[{"label": "NHS", "title": "Back pain", "url": "https://www.nhs.uk/conditions/back-pain/"}],
+		)
+
+	def test_source_sanitizer_keeps_only_unique_https_sources(self):
+		self.assertEqual(
+			safe_chat_sources([
+				{"label": "NHS", "title": "Back pain", "url": "https://www.nhs.uk/conditions/back-pain/"},
+				{"label": "Insecure", "title": "Drop this", "url": "http://example.com/insecure"},
+				{"label": "Duplicate", "title": "Drop this duplicate", "url": "https://www.nhs.uk/conditions/back-pain/"},
+			]),
+			[{"label": "NHS", "title": "Back pain", "url": "https://www.nhs.uk/conditions/back-pain/"}],
+		)
+
+	def test_get_recovers_sources_from_replayable_receipt_for_older_message(self):
+		self.assistant_message.message_metadata = {"sequence": 2}
+		payload = ws_api.get_ai_chat_session(str(self.unassigned_id), principal=self.principal, db=self.db)
+		self.assertEqual(
+			payload["messages"][1]["sources"],
+			[{"label": "NHS", "title": "Back pain", "url": "https://www.nhs.uk/conditions/back-pain/"}],
+		)
 
 	def test_delete_removes_session_and_agent_checkpoint(self):
 		class FakeRuntime:

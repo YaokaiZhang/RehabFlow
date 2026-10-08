@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Callable, Mapping
 from typing import Any
+from urllib.parse import urlparse
 
 from sqlalchemy import Integer, func, select, text
 
@@ -128,6 +129,32 @@ _REDACT_INTERNAL_TEXT = re.compile(
     r"(?:password|secret|api[_-]?key|token|stream[_-]?ticket)\s*[:=]\s*[^\s,;]+|"
     r"sk-[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)"
 )
+
+
+def safe_chat_sources(value: object) -> list[dict[str, str]]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    sources: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, Mapping):
+            continue
+        label = str(raw.get("label") or "").strip()
+        title = str(raw.get("title") or "").strip()
+        url = str(raw.get("url") or "").strip()
+        parsed = urlparse(url)
+        if (
+            not label
+            or not title
+            or parsed.scheme != "https"
+            or not parsed.netloc
+            or url in seen_urls
+        ):
+            continue
+        seen_urls.add(url)
+        sources.append({"label": label[:80], "title": title[:240], "url": url[:2048]})
+    return sources
+
 
 def redact_internal_text(value: object) -> str:
     text = str(value or "")
@@ -594,11 +621,15 @@ class AIChatTurnPersistence:
                 message_sequence = self._next_message_sequence(session_id)
                 originating_event_id = str(output.get("evidence_turn_id") or output.get("trace_turn_id") or "").strip()
 
-                def add_message(sender_role: str, content: str) -> None:
+                def add_message(sender_role: str, content: str, *, sources: object = None) -> None:
                     nonlocal message_sequence
                     message_metadata = {"sequence": message_sequence}
                     if sender_role == "user" and originating_event_id:
                         message_metadata["originating_event_id"] = originating_event_id
+                    if sender_role == "assistant":
+                        safe_sources = safe_chat_sources(sources)
+                        if safe_sources:
+                            message_metadata["sources"] = safe_sources
                     self.db.add(
                         AIMessage(
                             session_id=session_id,
@@ -612,7 +643,11 @@ class AIChatTurnPersistence:
                 add_message("user", str(user_input))
                 final_response = str(output.get("final_response") or "")
                 if final_response:
-                    add_message("assistant", final_response)
+                    add_message(
+                        "assistant",
+                        final_response,
+                        sources=output.get("web_sources", output.get("sources", [])),
+                    )
 
                 trace_source = internal_trace if internal_trace is not None else output
                 internal_sequence = self._next_internal_sequence(session_id)

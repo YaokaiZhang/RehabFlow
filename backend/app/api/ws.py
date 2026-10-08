@@ -7,7 +7,6 @@ import logging
 import math
 from collections.abc import Mapping
 from datetime import datetime, timezone
-from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
@@ -18,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.streaming import get_stream_ticket_service
 from app.core.config import get_settings
 from app.core.security import Principal, get_current_principal
-from app.db.models import AIMessage, AISession, CareEpisode, Patient, ai_message_ordering
+from app.db.models import AIChatTurnReceipt, AIMessage, AISession, CareEpisode, Patient, ai_message_ordering
 from app.db.session import get_db
 from app.schemas.ai_chat import AIChatSessionRequest, AIChatTurnRequest
 from app.schemas.streaming import StreamScope
@@ -27,6 +26,7 @@ from app.services.ai_chat_access import (
     AuthorizedAIChat,
     authorize_ai_chat,
 )
+from app.services.ai_turn_persistence import safe_chat_sources
 from app.services.dtw_service import score_motion
 from app.services.stream_tickets import StreamTicketError
 
@@ -175,31 +175,6 @@ def _safe_debug_trace(value: object) -> list[dict[str, object]]:
     return safe_events
 
 
-def _safe_chat_sources(value: object) -> list[dict[str, str]]:
-    if not isinstance(value, (list, tuple)):
-        return []
-    sources: list[dict[str, str]] = []
-    seen_urls: set[str] = set()
-    for raw in value:
-        if not isinstance(raw, Mapping):
-            continue
-        label = str(raw.get("label") or "").strip()
-        title = str(raw.get("title") or "").strip()
-        url = str(raw.get("url") or "").strip()
-        parsed = urlparse(url)
-        if (
-            not label
-            or not title
-            or parsed.scheme != "https"
-            or not parsed.netloc
-            or url in seen_urls
-        ):
-            continue
-        seen_urls.add(url)
-        sources.append({"label": label[:80], "title": title[:240], "url": url[:2048]})
-    return sources
-
-
 def _build_ai_chat_response(current_session_id: str | None, result: dict, include_debug: bool) -> dict:
     response = {
         "event": "response",
@@ -207,7 +182,7 @@ def _build_ai_chat_response(current_session_id: str | None, result: dict, includ
         "status": result.get("status", "completed"),
         "response": result.get("final_response", "No response generated"),
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "sources": _safe_chat_sources(result.get("web_sources", result.get("sources", []))),
+        "sources": safe_chat_sources(result.get("web_sources", result.get("sources", []))),
     }
     response["routing_decision"] = result.get("routing_decision")
     response["needs_more_info"] = result.get("needs_more_info")
@@ -456,13 +431,46 @@ def _authorize_ai_chat_patient(db: Session, principal: Principal) -> Patient:
 	return patient
 
 
-def _chat_message_dict(message: AIMessage) -> dict[str, object]:
-	return {
-		"message_id": message.message_id,
-		"sender_role": message.sender_role,
-		"content": message.content,
-		"created_at": message.created_at,
-	}
+def _receipt_sources_for_assistant_messages(
+    db: Session,
+    session_id: UUID,
+    assistant_messages: list[AIMessage],
+) -> dict[UUID, list[dict[str, str]]]:
+    if not assistant_messages:
+        return {}
+    receipts = (
+        db.query(AIChatTurnReceipt)
+        .filter(AIChatTurnReceipt.session_id == session_id)
+        .filter(AIChatTurnReceipt.status.in_(("completed", "interrupted")))
+        .order_by(AIChatTurnReceipt.created_at.asc(), AIChatTurnReceipt.id.asc())
+        .all()
+    )
+    replayable_sources: list[list[dict[str, str]]] = []
+    for receipt in receipts:
+        payload = receipt.response_payload if isinstance(receipt.response_payload, Mapping) else {}
+        if not payload or not payload.get("final_response"):
+            continue
+        replayable_sources.append(safe_chat_sources(payload.get("web_sources", payload.get("sources", []))))
+    return {
+        message.message_id: sources
+        for message, sources in zip(assistant_messages, replayable_sources)
+    }
+
+
+def _chat_message_dict(message: AIMessage, fallback_sources: object = None) -> dict[str, object]:
+    metadata = message.message_metadata if isinstance(message.message_metadata, Mapping) else {}
+    sources = safe_chat_sources(metadata.get("sources")) if message.sender_role == "assistant" else []
+    if not sources and message.sender_role == "assistant":
+        sources = safe_chat_sources(fallback_sources)
+    payload = {
+        "message_id": message.message_id,
+        "sender_role": message.sender_role,
+        "content": message.content,
+        "created_at": message.created_at,
+    }
+    if sources:
+        payload["sources"] = sources
+    return payload
 
 
 def _chat_session_row(session: AISession, messages: list[AIMessage]) -> dict[str, object]:
@@ -527,8 +535,10 @@ def get_ai_chat_session(
 	if session is None:
 		raise HTTPException(status_code=404, detail=_AI_CHAT_NOT_FOUND_DETAIL)
 	messages = db.query(AIMessage).filter(AIMessage.session_id == session.session_id).order_by(*ai_message_ordering()).all()
+	assistant_messages = [message for message in messages if message.sender_role == "assistant"]
+	receipt_sources = _receipt_sources_for_assistant_messages(db, session.session_id, assistant_messages)
 	row = _chat_session_row(session, messages)
-	row["messages"] = [_chat_message_dict(message) for message in messages]
+	row["messages"] = [_chat_message_dict(message, receipt_sources.get(message.message_id)) for message in messages]
 	return jsonable_encoder(row)
 
 

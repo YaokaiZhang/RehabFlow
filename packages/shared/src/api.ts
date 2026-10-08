@@ -162,6 +162,11 @@ export type AiChatMessage = {
 	sender_role: "user" | "assistant";
 	content: string;
 	created_at: string;
+	sources?: Array<{
+		label: string;
+		title: string;
+		url: string;
+	}>;
 };
 
 export type AiChatSessionSummary = {

@@ -226,6 +226,7 @@ function HomePageContent() {
 							id: message.message_id,
 							role: message.sender_role,
 							text: message.content,
+							sources: message.sources,
 						})));
 						setPrompt("");
 					})
