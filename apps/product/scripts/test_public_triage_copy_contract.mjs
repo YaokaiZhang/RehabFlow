@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const productRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pagePath = resolve(productRoot, "app/page.tsx");
+const shellPath = resolve(productRoot, "components/ProductShell.tsx");
 
 function assert(condition, message) {
 	if (!condition) throw new Error(message);
@@ -12,6 +13,7 @@ function assert(condition, message) {
 assert(existsSync(pagePath), "public triage page should exist");
 
 const page = readFileSync(pagePath, "utf8");
+const shell = readFileSync(shellPath, "utf8");
 
 for (const vocabulary of ["Professional Care"]) {
 	assert(page.includes(vocabulary), `public triage should use current ${vocabulary} vocabulary`);
@@ -27,9 +29,10 @@ for (const legacyCopy of ["professional monitoring", "monitoring path"]) {
 
 assert(!page.includes("Patient Dashboard"), "public triage should not render a Patient Dashboard action");
 assert(
-	page.includes('/login') && page.includes('/register'),
-	'anonymous patients should retain Login and Register routes',
+	shell.includes('href="/login"') && shell.includes('href="/register"'),
+	'global shell should retain Login and Register routes',
 );
+assert(!page.includes("home-auth-links"), "public triage should not duplicate global account actions");
 assert(page.includes('href="/rehab/session"'), "public triage should retain the demo rehab session link");
 assert(page.includes("getCareEpisode"), "episode-scoped triage should load the selected Care Episode");
 assert(page.includes("episodeTitleLoading"), "episode-scoped triage should represent episode-title loading");

@@ -369,33 +369,6 @@ summary {
 	color: var(--rf-olive-deep);
 }
 
-.home-auth-links {
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 14px;
-	margin-top: 20px;
-}
-
-.home-auth-link {
-	color: rgba(52, 42, 33, 0.78);
-	font-size: 0.8rem;
-	font-weight: 750;
-	text-decoration: none;
-	text-underline-offset: 4px;
-}
-
-.home-auth-link:hover {
-	color: var(--rf-coffee);
-	text-decoration: underline;
-}
-
-.home-auth-link-primary {
-	border-bottom: 1px solid rgba(82, 97, 78, 0.65);
-	padding-bottom: 3px;
-	color: var(--rf-olive-deep);
-}
-
 .product-account-name,
 .product-account-loading {
 	max-width: 150px;

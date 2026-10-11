@@ -482,14 +482,6 @@ function HomePageContent() {
 					<p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
 					Tell RehabFlow what hurts, where you are in recovery, and what changed recently.
 					</p>
-					{!patientId ? (
-						<div className="home-auth-links" aria-label="Account actions">
-							<>
-								<Link className="home-auth-link" href="/login">Login</Link>
-								<Link className="home-auth-link home-auth-link-primary" href="/register">Register</Link>
-							</>
-						</div>
-					) : null}
 				</div>
 			</section>
 

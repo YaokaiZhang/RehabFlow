@@ -412,7 +412,7 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
                 "the stated symptoms, restrictions, rehabilitation stage, and goal. "
                 "A catalog match can describe an option but cannot by "
                 "itself establish that the patient should exercise today; if the context does not support "
-                "that decision, omit the exercises completely in the response and ask for the "
+                "that decision, omit the result completely in the response and ask for the "
                 "missing care-plan or symptom detail. "
                 "If a catalog result is empty or not applicable to the patient's body area, symptom "
                 "behavior, rehabilitation stage, or restrictions, do not recommend it. Continue with "
