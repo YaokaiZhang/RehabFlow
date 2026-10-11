@@ -16,7 +16,11 @@ export function getWsBase(): string {
   const backendPort = getBackendPort();
   if (typeof window === "undefined") return `ws://localhost:${backendPort}`;
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.hostname}:${backendPort}`;
+  const isLocalDevelopment = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
+  const publicHost = !isLocalDevelopment && window.location.host
+    ? window.location.host
+    : `${window.location.hostname}:${backendPort}`;
+  return `${protocol}//${publicHost}`;
 }
 
 const requestTimeoutMessage = "Request timed out while contacting RehabFlow. Check that the backend is reachable and try again.";

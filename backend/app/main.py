@@ -68,9 +68,6 @@ app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin], all
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(DATA_DIR), check_dir=False), name="media")
-for route in (auth_router, bindings_router, care_episodes_router, demo_router, episode_workspace_router, exercise_catalog_router, diagnostics_router, doctor_dashboard_router, doctor_profile_router, professional_care_router, memory_documents_router, streaming_router, ws_router):
-    app.include_router(route)
-
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name}
@@ -93,3 +90,6 @@ def ai_chat_health() -> dict[str, object]:
 		"identity": settings.evaluation_identity,
 		"dirty_state": os.getenv("REHAB_EVAL_BACKEND_DIRTY_STATE", "not-applicable"),
 	}
+
+for route in (auth_router, bindings_router, care_episodes_router, demo_router, episode_workspace_router, exercise_catalog_router, diagnostics_router, doctor_dashboard_router, doctor_profile_router, professional_care_router, memory_documents_router, streaming_router, ws_router):
+	app.include_router(route)

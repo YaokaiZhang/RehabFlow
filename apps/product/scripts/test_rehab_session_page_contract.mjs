@@ -120,7 +120,7 @@ assert(page.includes("scoringNotice"), "session page should keep scoring reminde
 assert(runtime.includes("NEXT_PUBLIC_BACKEND_PORT"), "shared runtime should allow the backend port to be set from .env");
 assert(runtime.includes("DEFAULT_BACKEND_PORT = \"8000\""), "shared runtime should default to the active FastAPI backend port");
 assert(runtime.includes("`ws://localhost:${backendPort}`"), "server websocket runtime should derive its port from the backend port setting");
-assert(runtime.includes("`${protocol}//${window.location.hostname}:${backendPort}`"), "browser websocket runtime should derive its port from the backend port setting");
+assert(runtime.includes("window.location.host"), "browser websocket runtime should inspect the public same-origin host");
 assert(rootEnvExample.includes("BACKEND_PORT=8000"), "root env example should document the configurable backend port");
 assert(rootEnvExample.includes("PRODUCT_FRONTEND_PORT=3000"), "root env example should document the Product frontend port");
 assert(productEnvExample.includes("Root .env is canonical"), "product env example should point to the root template");
