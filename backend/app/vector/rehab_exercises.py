@@ -114,7 +114,7 @@ def load_rehab_exercises(jsonl_path: Path) -> list[RehabExercise]:
 			if not line.strip():
 				continue
 			raw = json.loads(line)
-			source_url = _clean_text(raw.get("url"))
+			source_url = _clean_text(raw.get("url") or raw.get("source_url"))
 			title = _clean_text(raw.get("title"))
 			if not source_url and not title:
 				raise ValueError(f"Line {line_number} is missing both url and title")
@@ -133,9 +133,9 @@ def load_rehab_exercises(jsonl_path: Path) -> list[RehabExercise]:
 			)
 			row_counts[key] = row_counts.get(key, 0) + 1
 
-			for field in ("url", "title", "video_url", "introduction"):
+			for field in ("url", "source_url", "title", "video_url", "introduction"):
 				if not existing.get(field):
-					existing[field] = _clean_text(raw.get(field))
+					existing[field] = _clean_text(raw.get(field) or (raw.get("source_url") if field == "url" else None))
 			existing["structures_involved"] = _clean_list(
 				[*existing["structures_involved"], *_clean_list(raw.get("structures_involved"))]
 			)
