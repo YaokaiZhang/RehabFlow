@@ -184,7 +184,7 @@ def _qwen_model(model: str, temperature: float):
 
     key = "consultant" if model == "qwen3.5-plus" else "router"
     return OpenAIProviderFactory().model(
-        key, get_settings().openai_model, temperature
+        key, get_settings().anthropic_model, temperature
     )
 
 

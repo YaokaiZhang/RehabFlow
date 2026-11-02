@@ -1,4 +1,4 @@
-"""Allowlisted web search through the OpenAI Responses API."""
+"""Allowlisted web search through Claude's server-side web_search tool."""
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
@@ -7,8 +7,6 @@ import os
 import re
 from typing import Any
 from urllib.parse import urlparse
-
-import requests
 
 from app.core.config import get_settings
 
@@ -81,37 +79,55 @@ def _scrub_unapproved_urls(text: str, allowed_domains: Iterable[str]) -> str:
     return _URL_RE.sub(replace, text).strip()
 
 
-def _response_text_and_citations(payload: Mapping[str, Any]) -> tuple[str, list[tuple[str, str]]]:
+def _block_value(block: Any, name: str) -> Any:
+    if isinstance(block, Mapping):
+        return block.get(name)
+    return getattr(block, name, None)
+
+
+def _response_text_and_citations(content: Iterable[Any]) -> tuple[str, list[tuple[str, str]]]:
+    """Extract answer text and cited sources from Claude response content blocks."""
     texts: list[str] = []
     citations: list[tuple[str, str]] = []
-    top_level_text = payload.get("output_text")
-    if isinstance(top_level_text, str) and top_level_text.strip():
-        texts.append(top_level_text.strip())
-    for item in payload.get("output", ()) or ():
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("type") != "message":
-            continue
-        for content in item.get("content", ()) or ():
-            if not isinstance(content, Mapping) or content.get("type") != "output_text":
-                continue
-            text = content.get("text")
+    for block in content or ():
+        block_type = _block_value(block, "type")
+        if block_type == "text":
+            text = _block_value(block, "text")
             if isinstance(text, str) and text.strip():
                 texts.append(text.strip())
-            annotations = content.get("annotations", ()) or ()
-            for annotation in annotations:
-                if not isinstance(annotation, Mapping):
-                    continue
-                url = annotation.get("url")
-                title = annotation.get("title") or annotation.get("text") or ""
+            for citation in _block_value(block, "citations") or ():
+                url = _block_value(citation, "url")
+                title = _block_value(citation, "title") or ""
                 if url:
                     citations.append((str(title).strip(), str(url).strip()))
+        elif block_type == "web_search_tool_result":
+            results = _block_value(block, "content")
+            # A failed search returns an error object instead of a list.
+            if isinstance(results, (list, tuple)):
+                for result in results:
+                    url = _block_value(result, "url")
+                    title = _block_value(result, "title") or ""
+                    if url:
+                        citations.append((str(title).strip(), str(url).strip()))
     text = "\n\n".join(dict.fromkeys(texts))
     for title, url in _MARKDOWN_URL_RE.findall(text):
         citations.append((title.strip(), url.strip()))
     for url in _URL_RE.findall(text):
         citations.append(("", url))
     return text, citations
+
+
+def _web_search_tool_type(model: str) -> str:
+    # The dynamic-filtering variant is documented for Opus/Sonnet; Haiku uses the basic one.
+    return "web_search_20250305" if model.startswith("claude-haiku") else "web_search_20260209"
+
+
+def _timeout_seconds() -> float:
+    # A Claude web_search turn (search + cited summary) typically takes 15-30s.
+    try:
+        return float(os.getenv("REHAB_WEB_SEARCH_TIMEOUT_SECONDS", "45"))
+    except (TypeError, ValueError):
+        return 45.0
 
 
 def _max_results() -> int:
@@ -134,9 +150,9 @@ class ReliableWebSearch:
         max_results: int | None = None,
         timeout_seconds: float | None = None,
     ) -> None:
-        self.api_key = _setting("openai_api_key", "") if api_key is None else api_key
-        self.base_url = (base_url or _setting("openai_api_base", "https://api.openai.com/v1")).rstrip("/")
-        self.model = model or _setting("openai_model", "gpt-5.4-mini")
+        self.api_key = _setting("anthropic_api_key", "") if api_key is None else api_key
+        self.base_url = base_url or _setting("anthropic_base_url", "") or None
+        self.model = model or _setting("anthropic_model", "claude-haiku-5-5")
         configured = allowed_domains if allowed_domains is not None else _configured_domains()
         self.allowed_domains = tuple(sorted({
             _normalized_domain(domain)
@@ -145,7 +161,7 @@ class ReliableWebSearch:
         }))
         self.max_results = max_results if max_results is not None else _max_results()
         self.max_results = max(1, min(int(self.max_results), 8))
-        self.timeout_seconds = timeout_seconds if timeout_seconds is not None else 20.0
+        self.timeout_seconds = timeout_seconds if timeout_seconds is not None else _timeout_seconds()
         self.timeout_seconds = max(0.1, min(float(self.timeout_seconds), 60.0))
 
     def __call__(self, query: str) -> dict[str, Any]:
@@ -153,48 +169,61 @@ class ReliableWebSearch:
         if not normalized_query:
             return {"error": "web search query is empty"}
         if not self.api_key:
-            return {"error": "OPENAI_API_KEY is not configured"}
+            return {"error": "LLM_KEY is not configured"}
         if not self.allowed_domains:
             return {"error": "no reliable web search domains are configured"}
 
-        body = {
-            "model": self.model,
-            "input": (
-                "Search only the allowed reliable sources. Return a short list of "
-                "source titles, exact HTTPS URLs, and concise source-supported snippets. "
-                "Do not provide medical advice or use unsupported model knowledge. "
+        try:
+            import anthropic
+        except ImportError:
+            return {"error": "anthropic package is not installed"}
+
+        client = anthropic.Anthropic(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            timeout=self.timeout_seconds,
+            max_retries=1,
+        )
+        messages: list[dict[str, Any]] = [{
+            "role": "user",
+            "content": (
+                "Search once; the search tool is already restricted to approved sources. Reply with at most "
+                "five bullets, one line each: source title, exact HTTPS URL, and a "
+                "source-supported snippet of under 25 words. Do not provide medical advice "
+                "or use unsupported model knowledge. "
                 f"Query: {normalized_query}"
             ),
+        }]
+        request: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": 4096,
+            "output_config": {"effort": "low"},
             "tools": [{
-                "type": "web_search",
-                "filters": {"allowed_domains": list(self.allowed_domains)},
+                "type": _web_search_tool_type(self.model),
+                "name": "web_search",
+                "allowed_domains": list(self.allowed_domains),
+                "max_uses": 1,
             }],
-            "max_output_tokens": 1400,
         }
+        content: list[Any] = []
         try:
-            response = requests.post(
-                f"{self.base_url}/responses",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-                timeout=self.timeout_seconds,
-            )
-        except requests.RequestException:
+            response = client.messages.create(messages=messages, **request)
+            content.extend(response.content)
+            # A paused server-tool loop resumes by resending the assistant turn.
+            if response.stop_reason == "pause_turn":
+                messages.append({"role": "assistant", "content": response.content})
+                response = client.messages.create(messages=messages, **request)
+                content.extend(response.content)
+        except anthropic.APIStatusError as exc:
+            logger.warning("reliable web search provider returned HTTP %s", exc.status_code)
+            return {"error": "reliable web search provider returned an error"}
+        except anthropic.APIError:
             logger.warning("reliable web search request failed")
             return {"error": "reliable web search request failed"}
-        if response.status_code >= 400:
-            logger.warning("reliable web search provider returned HTTP %s", response.status_code)
-            return {"error": "reliable web search provider returned an error"}
-        try:
-            payload = response.json()
-        except ValueError:
-            return {"error": "reliable web search returned invalid JSON"}
-        if not isinstance(payload, Mapping):
-            return {"error": "reliable web search returned an invalid response"}
+        if response.stop_reason == "refusal":
+            return {"error": "reliable web search was declined by the provider", "results": []}
 
-        text, citations = _response_text_and_citations(payload)
+        text, citations = _response_text_and_citations(content)
         safe_text = _scrub_unapproved_urls(text, self.allowed_domains)
         results: list[dict[str, str]] = []
         seen: set[str] = set()

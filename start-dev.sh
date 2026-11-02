@@ -34,6 +34,8 @@ Useful overrides:
   REHABFLOW_POSTGRES_PORT=5432
   REHABFLOW_REDIS_PORT=6379
   REHABFLOW_QDRANT_PORT=6333
+  REHABFLOW_LANGFUSE=1      Also start self-hosted Langfuse and send LLM traces to it
+  LANGFUSE_PORT=3100        Langfuse UI port (with REHABFLOW_LANGFUSE=1)
 EOF
 }
 
@@ -118,6 +120,20 @@ fi
 
 compose_args=(--project-directory "$repo_root" -f "$repo_root/docker-compose.yml")
 
+langfuse_enabled=0
+langfuse_port=""
+case "$(resolve_env_value REHABFLOW_LANGFUSE 0 | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) langfuse_enabled=1 ;;
+esac
+if [[ "$action" == "shutdown" || "$action" == "stop" ]]; then
+  # Always include the overlay so Langfuse containers stop too if they ran.
+  compose_args+=(-f "$repo_root/docker-compose.langfuse.yml")
+elif (( langfuse_enabled )); then
+  compose_args+=(-f "$repo_root/docker-compose.langfuse.yml")
+  langfuse_port="$(resolve_env_value LANGFUSE_PORT 3100)"
+  export LANGFUSE_PORT="$langfuse_port"
+fi
+
 validate_port() {
   local name="$1"
   local value="$2"
@@ -135,6 +151,9 @@ validate_port REHABFLOW_POSTGRES_PORT "$postgres_port"
 validate_port REHABFLOW_REDIS_PORT "$redis_port"
 validate_port REHABFLOW_QDRANT_PORT "$qdrant_port"
 validate_port REHABFLOW_QDRANT_GRPC_PORT "$qdrant_grpc_port"
+if (( langfuse_enabled )); then
+  validate_port LANGFUSE_PORT "$langfuse_port"
+fi
 
 if [[ -z "${IMAGE_REGISTRY:-}" ]] && ! curl -sS --max-time 5 https://registry-1.docker.io/v2/ >/dev/null 2>&1; then
   export IMAGE_REGISTRY="docker.m.daocloud.io"
@@ -177,6 +196,11 @@ wait_for_http() {
 
 compose "${compose_args[@]}" up -d postgres redis qdrant
 wait_for_http "http://127.0.0.1:${qdrant_port}/healthz" Qdrant
+if (( langfuse_enabled )); then
+  log "Starting self-hosted Langfuse (first start pulls images and runs migrations)"
+  compose "${compose_args[@]}" up -d langfuse-web langfuse-worker
+  wait_for_http "http://127.0.0.1:${langfuse_port}/api/public/health" Langfuse 300
+fi
 compose "${compose_args[@]}" up --build -d backend product
 wait_for_http "http://127.0.0.1:${backend_port}/health" FastAPI
 wait_for_http "http://127.0.0.1:${product_port}/" Product
@@ -185,6 +209,9 @@ log "RehabFlow is running"
 log "Product: http://127.0.0.1:${product_port}"
 log "API: http://127.0.0.1:${backend_port}/health"
 log "Qdrant: http://127.0.0.1:${qdrant_port}/healthz"
+if (( langfuse_enabled )); then
+  log "Langfuse: http://127.0.0.1:${langfuse_port} (dev login: dev@rehabflow.local / rehabflow-dev unless overridden)"
+fi
 log "Use './start-dev.sh shutdown' to stop containers while preserving volumes"
 
 compose "${compose_args[@]}" logs --follow --tail=0

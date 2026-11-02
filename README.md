@@ -109,7 +109,7 @@ or an explicitly configured embedded Qdrant path.
 
 ```bash
 cp .env.example .env
-python3.10 -m venv backend/.venv
+python3.11 -m venv backend/.venv
 backend/.venv/bin/python -m pip install -r requirements.txt
 npm ci
 ```

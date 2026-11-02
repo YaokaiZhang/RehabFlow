@@ -25,6 +25,7 @@ from app.api.streaming import router as streaming_router
 from app.api.ws import router as ws_router
 from app.core.config import backend_source_revision, evaluator_mode_enabled, get_settings
 from app.db.session import SessionLocal, verify_schema_revision
+from app.observability.langfuse_tracing import get_langfuse_client, shutdown_langfuse
 from app.services.ai_chat_turns import AIChatTurnService
 from app.services.memory_maintenance_worker import MemoryMaintenanceWorker
 from app.vector.qdrant_store import close_shared_qdrant_clients
@@ -52,6 +53,9 @@ async def lifespan(app: FastAPI):
         )
         await maintenance_worker.start()
         app.state.memory_maintenance_worker = maintenance_worker
+        # Initialize optional Langfuse tracing up front so config problems are
+        # logged at startup rather than on the first chat turn.
+        get_langfuse_client()
         try:
             yield
         finally:
@@ -61,7 +65,10 @@ async def lifespan(app: FastAPI):
                 try:
                     runtime.close()
                 finally:
-                    close_shared_qdrant_clients()
+                    try:
+                        close_shared_qdrant_clients()
+                    finally:
+                        shutdown_langfuse()
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin], allow_origin_regex=r"https?://[^/]+:300[01]", allow_credentials=True, allow_methods=["*"], allow_headers=["*"])

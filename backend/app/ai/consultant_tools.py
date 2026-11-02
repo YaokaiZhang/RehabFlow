@@ -288,6 +288,13 @@ def _safe_tool_call_request(arguments: Mapping[str, Any]) -> dict[str, Any]:
     return request
 
 
+def _web_search_timeout(deps: Any) -> float:
+    """Web search runs a Claude server-tool turn, which needs more than the KB budget."""
+    from app.ai.reliable_web_search import _timeout_seconds
+
+    return max(float(deps.tool_timeout_seconds), _timeout_seconds())
+
+
 def _search_adapter_result(
     search: Any,
     query: str,
@@ -607,7 +614,7 @@ def _dispatch_consultant_tool(
                 _search_adapter_result(
                     deps.web_search or _default_reliable_web_search,
                     selected_query,
-                    timeout_seconds=deps.tool_timeout_seconds,
+                    timeout_seconds=_web_search_timeout(deps),
                 )
                 for selected_query in selected_queries
             ]
@@ -623,7 +630,7 @@ def _dispatch_consultant_tool(
                     retry_result = _search_adapter_result(
                         deps.web_search or _default_reliable_web_search,
                         narrowed_query,
-                        timeout_seconds=deps.tool_timeout_seconds,
+                        timeout_seconds=_web_search_timeout(deps),
                     )
                     compressed = compress_web_results(retry_result)
                     selected_queries = [narrowed_query]

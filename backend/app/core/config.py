@@ -4,7 +4,7 @@ from collections.abc import MutableMapping
 from functools import lru_cache
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic import ValidationError
@@ -220,6 +220,36 @@ class Settings(BaseSettings):
 			"embedding_provider",
 		),
 	)
+	# Chat/LLM calls use the Anthropic API. LLM_KEY is the canonical variable.
+	anthropic_api_key: str | None = Field(
+		default=None,
+		validation_alias=AliasChoices("LLM_KEY", "ANTHROPIC_API_KEY", "anthropic_api_key"),
+	)
+	anthropic_base_url: str | None = Field(
+		default=None,
+		validation_alias=AliasChoices("ANTHROPIC_BASE_URL", "anthropic_base_url"),
+	)
+	anthropic_model: str = Field(
+		default="claude-haiku-5-5",
+		validation_alias=AliasChoices("ANTHROPIC_MODEL", "anthropic_model"),
+	)
+	# Thinking is on by default for claude-haiku-5-5; effort is the depth control.
+	anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] = Field(
+		default="medium",
+		validation_alias=AliasChoices("ANTHROPIC_EFFORT", "anthropic_effort"),
+	)
+	anthropic_max_tokens: int = Field(
+		default=16000,
+		ge=1024,
+		validation_alias=AliasChoices("ANTHROPIC_MAX_TOKENS", "anthropic_max_tokens"),
+	)
+	# Server-side refusal fallback (re-runs a declined request on another model).
+	# Ignored for Haiku models, which have no server-side fallback.
+	anthropic_fallbacks_enabled: bool = Field(
+		default=True,
+		validation_alias=AliasChoices("ANTHROPIC_FALLBACKS", "anthropic_fallbacks_enabled"),
+	)
+	# OpenAI-compatible settings remain for embeddings only.
 	openai_api_key: str | None = None
 	openai_api_base: str = "https://api.openai.com/v1"
 	openai_model: str = "gpt-5.4-mini"
@@ -296,6 +326,29 @@ class Settings(BaseSettings):
 			"trace_hmac_key_version",
 		),
 	)
+	# Developer-only LLM tracing to a self-hosted Langfuse instance. Langfuse
+	# receives full prompts and model outputs, so it stays off unless enabled
+	# and is refused in production without an explicit override.
+	langfuse_enabled: bool = Field(
+		default=False,
+		validation_alias=AliasChoices("LANGFUSE_ENABLED", "langfuse_enabled"),
+	)
+	langfuse_public_key: str | None = Field(
+		default=None,
+		validation_alias=AliasChoices("LANGFUSE_PUBLIC_KEY", "langfuse_public_key"),
+	)
+	langfuse_secret_key: str | None = Field(
+		default=None,
+		validation_alias=AliasChoices("LANGFUSE_SECRET_KEY", "langfuse_secret_key"),
+	)
+	langfuse_base_url: str = Field(
+		default="http://localhost:3100",
+		validation_alias=AliasChoices("LANGFUSE_BASE_URL", "LANGFUSE_HOST", "langfuse_base_url"),
+	)
+	langfuse_allow_production: bool = Field(
+		default=False,
+		validation_alias=AliasChoices("LANGFUSE_ALLOW_PRODUCTION", "langfuse_allow_production"),
+	)
 
 	model_config = SettingsConfigDict(
 		env_file=_DEFAULT_ENV_FILES,
@@ -342,6 +395,7 @@ class Settings(BaseSettings):
 				"jwt_secret_key": self.jwt_secret_key,
 				"trace_hmac_key": self.trace_hmac_key,
 				"openai_api_key": self.openai_api_key,
+				"anthropic_api_key": self.anthropic_api_key,
 				"embedding_api_key": self.embedding_api_key,
 				"qwen_api_key": self.qwen_api_key,
 			}
@@ -354,6 +408,8 @@ class Settings(BaseSettings):
 				raise ValueError("jwt_secret_key must be explicitly configured in production")
 			if "trace_hmac_key" in insecure:
 				raise ValueError("trace_hmac_key must be explicitly configured in production")
+			if "anthropic_api_key" in insecure:
+				raise ValueError("anthropic_api_key (LLM_KEY) must be explicitly configured in production")
 			provider = self.embedding_provider.strip().lower()
 			if provider == "openai":
 				if self.embedding_api_key and "embedding_api_key" in insecure:
@@ -381,6 +437,7 @@ class Settings(BaseSettings):
 			("openai_api_base", self.openai_api_base),
 			("qwen_api_base", self.qwen_api_base),
 			("embedding_api_base", self.embedding_api_base),
+			("anthropic_base_url", self.anthropic_base_url),
 		):
 			if value is None:
 				continue

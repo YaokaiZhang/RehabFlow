@@ -1,0 +1,7 @@
+# Offline video pose-extraction tooling (scripts/extract_video_poses.py and
+# scripts/extract_demo_video_pose_set.py). Kept out of the backend runtime
+# requirements because mediapipe 0.10.x pins protobuf<5, which conflicts with
+# the OpenTelemetry exporter used by Langfuse tracing. Install into a separate
+# virtualenv: python3.11 -m venv .venv-video && .venv-video/bin/pip install -r backend/requirements-video.txt
+mediapipe==0.10.21
+opencv-python-headless==4.11.0.86

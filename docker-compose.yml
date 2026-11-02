@@ -57,6 +57,8 @@ services:
       FRONTEND_ORIGIN: http://localhost:${PRODUCT_FRONTEND_PORT:-3000}
       BACKEND_PORT: 8000
       ENVIRONMENT: development
+      # Anthropic API key for all LLM calls, from the shell or .env.
+      LLM_KEY: ${LLM_KEY:-}
       REHAB_ALLOW_DESTRUCTIVE_MEMORY_MIGRATION: ${REHAB_ALLOW_DESTRUCTIVE_MEMORY_MIGRATION:-1}
     depends_on:
       postgres:

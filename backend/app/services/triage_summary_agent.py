@@ -7,7 +7,6 @@ from typing import Any
 from sqlalchemy import Integer, func, select, text
 from sqlalchemy.orm import Session
 
-from app.ai.runtime_dependencies import openai_client_options
 from app.core.config import get_settings
 from app.db.models import AIInternalMessage, AIMessage, AISession, CareEpisode, CareEpisodeTriageSummary, ai_message_ordering
 from app.services.rehab_session_context import load_latest_rehab_session_context
@@ -369,7 +368,6 @@ def _try_build_ai_summary(
 		return None
 	try:
 		from langchain_core.messages import HumanMessage, SystemMessage
-		from langchain_openai import ChatOpenAI
 		from pydantic import BaseModel, Field
 	
 		class AgentOutput(BaseModel):
@@ -382,19 +380,12 @@ def _try_build_ai_summary(
 			unresolved_questions: list[str]
 			clinician_review_needed: bool
 	
-		settings = get_settings()
-		api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY")
-		if not api_key:
-			raise TriageSummaryGenerationFailed("OpenAI API key is not configured for Triage Summary generation")
-		llm = ChatOpenAI(
-			model=settings.openai_model,
-			base_url=settings.openai_api_base,
-			api_key=api_key,
-			reasoning_effort=settings.openai_reasoning_effort,
-			use_responses_api=True,
-			**openai_client_options(),
-		)
-		structured = llm.with_structured_output(AgentOutput, method="json_schema")
+		from app.ai.anthropic_model import build_chat_model
+
+		if not get_settings().anthropic_api_key:
+			raise TriageSummaryGenerationFailed("LLM_KEY is not configured for Triage Summary generation")
+		llm = build_chat_model()
+		structured = llm.with_structured_output(AgentOutput)
 		prompt = (
 			"Create a concise patient-facing Triage Summary from the episode and triage chat. "
 			"Use a two-to-six-word concern such as 'Shoulder stiffness'. "
@@ -413,10 +404,19 @@ def _try_build_ai_summary(
 			f"Latest saved rehab session:\n{rehab_context or 'None provided.'}\n"
 			f"AI triage transcript:\n{conversation_context or 'None provided.'}"
 		)
-		output = structured.invoke([
-			SystemMessage(content="You are RehabFlow's backend triage-summary agent."),
-			HumanMessage(content=prompt),
-		])
+		from app.observability.langfuse_tracing import (
+			langfuse_trace_attributes,
+			with_langfuse_callbacks,
+		)
+
+		with langfuse_trace_attributes(trace_name="triage_summary"):
+			output = structured.invoke(
+				[
+					SystemMessage(content="You are RehabFlow's backend triage-summary agent."),
+					HumanMessage(content=prompt),
+				],
+				config=with_langfuse_callbacks({"run_name": "triage_summary"}),
+			)
 		derived_fields = derive_episode_fields_from_triage_context(additional_context, conversation_context)
 		summary_concern = derived_fields["issue_title"]
 		if summary_concern == "AI triage rehab concern" and episode.issue_title != "AI triage rehab concern":

@@ -16,6 +16,10 @@ from app.ai.graph_dependencies import (
 from app.ai.graph_builder import build_rehab_graph
 from app.ai.checkpoint_privacy import ensure_metadata_only_checkpointer
 from app.ai.runtime_dependencies import AgentRuntimeDependencies
+from app.observability.langfuse_tracing import (
+    langfuse_trace_attributes,
+    with_langfuse_callbacks,
+)
 
 
 class AgentRuntime:
@@ -81,12 +85,13 @@ class AgentRuntime:
         *,
         session_id: str,
         owner_id: str | None,
-    ) -> dict[str, dict[str, str]]:
+    ) -> dict[str, Any]:
         owner = owner_id or cls._owner_from_command(command)
         configurable = {"thread_id": str(session_id)}
         if owner:
             configurable["authenticated_owner"] = str(owner)
-        return {"configurable": configurable}
+        # Callbacks are run-scoped and never reach the checkpointer.
+        return with_langfuse_callbacks({"configurable": configurable})
 
     async def ainvoke_turn(
         self,
@@ -107,7 +112,9 @@ class AgentRuntime:
         result: dict[str, Any]
         ainvoke = getattr(self.graph, "ainvoke", None)
         try:
-            with self.checkpointer.rehydrate():
+            with self.checkpointer.rehydrate(), langfuse_trace_attributes(
+                trace_name="rehab_turn", session_id=session_id
+            ):
                 if callable(ainvoke):
                     result = await ainvoke(active_command, config=config)
                 else:
@@ -159,7 +166,9 @@ class AgentRuntime:
             return replay
         result: dict[str, Any]
         try:
-            with self.checkpointer.rehydrate():
+            with self.checkpointer.rehydrate(), langfuse_trace_attributes(
+                trace_name="rehab_turn", session_id=session_id
+            ):
                 result = self.graph.invoke(active_command, config=config)
             self._remember_completed(idempotency_key, result)
             return result

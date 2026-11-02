@@ -15,8 +15,9 @@ with `cd backend`.
 | PostgreSQL | `localhost:5432` | Application records and LangGraph checkpoints |
 | Redis | `localhost:6379` | Single-use movement-stream tickets |
 | Qdrant | `http://localhost:6333` | Authorized rehabilitation knowledge |
+| Langfuse (optional) | `http://localhost:3100` | Self-hosted LLM trace viewer |
 
-Use Python 3.10 or newer. The frontend workspaces require Node.js 20 or newer.
+Use Python 3.11 or newer (LangGraph needs 3.11+ to pass tracing callbacks into nested model calls). The frontend workspaces require Node.js 20 or newer.
 On hosts with multiple runtimes, verify `python --version`, `node --version`,
 and `npm --version` before installation.
 
@@ -32,11 +33,24 @@ Required runtime settings are grouped below. Never commit real credentials.
 | Application | `ENVIRONMENT`, `BACKEND_PORT`, `FRONTEND_ORIGIN` |
 | Database | `DATABASE_URL`, `CHECKPOINT_DATABASE_URL`; if set, `POSTGRES_URL` must target the same database |
 | Cache and retrieval | `REDIS_URL`; either `QDRANT_URL` or `QDRANT_PATH`; `QDRANT_COLLECTION_NAME` |
-| Generation | `OPENAI_API_KEY`, `OPENAI_API_BASE`, `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` |
+| Generation (Anthropic) | `LLM_KEY` (required), `ANTHROPIC_MODEL` (default `claude-haiku-5-5`), `ANTHROPIC_EFFORT` (default `medium`), `ANTHROPIC_FALLBACKS` (default `true`), optional `ANTHROPIC_BASE_URL`, `ANTHROPIC_MAX_TOKENS`, `REHAB_WEB_SEARCH_TIMEOUT_SECONDS` (default `45`) |
 | Embeddings | `EMBEDDING_PROVIDER`, `EMBEDDING_API_KEY`, `EMBEDDING_API_BASE`, `EMBEDDING_MODEL` |
 | Security | unique `JWT_SECRET_KEY`, unique `REHAB_TRACE_HMAC_KEY`, `REHAB_TRACE_HMAC_KEY_VERSION` |
 | Streaming | `STREAM_TICKET_TTL_SECONDS` (1-60 seconds) |
 | Frontends | `PRODUCT_FRONTEND_PORT=3000`, `CONSOLE_FRONTEND_PORT=3001`, `BACKEND_PORT=8000` |
+
+All chat/LLM calls (router, consultant, safety and grounding reviewers,
+session compaction, memory agents, triage summary and allowlisted web search)
+use Claude through the Anthropic API (`app/ai/anthropic_model.py`), by default
+`claude-haiku-5-5`. Thinking is adaptive and on by default; `ANTHROPIC_EFFORT`
+controls its depth and is the main latency/cost lever. Structured outputs use
+native JSON-schema output. If Claude declines a request, the turn fails through
+the normal model-failure path rather than returning an empty answer. Haiku has
+no server-side refusal fallback; with an Opus or Sonnet model,
+`ANTHROPIC_FALLBACKS=true` retries a declined request on another model first.
+Web search uses Claude's `web_search` server tool restricted to the
+reliable-domain allowlist. Embeddings still use `EMBEDDING_*` (OpenAI-compatible),
+because Anthropic has no embeddings API.
 
 Production rejects default or shared JWT/provider/trace secrets. Evaluation has
 additional isolated `REHAB_EVAL_*` settings; use the runner described below
@@ -48,7 +62,7 @@ The root `requirements.txt` delegates to the fully pinned
 `backend/requirements.txt`.
 
 ```bash
-python3.10 -m venv backend/.venv
+python3.11 -m venv backend/.venv
 backend/.venv/bin/python -m pip install --upgrade pip
 backend/.venv/bin/python -m pip install -r requirements.txt
 backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
@@ -233,6 +247,56 @@ Authorization header. AI chat has no product WebSocket. Movement streams are a
 different feature and require a short-lived single-use ticket from
 `/stream-tickets/patient-rehab` or
 `/stream-tickets/doctor-monitor/{care_episode_id}`.
+
+## LLM tracing with self-hosted Langfuse
+
+For debugging prompts and agent behaviour, the backend can send every LangGraph
+turn to a self-hosted [Langfuse](https://langfuse.com) instance. Each turn is
+one `rehab_turn` trace, with a span per graph node and the exact prompts, model
+outputs, latency and token usage of each LLM call nested under it. Traces are
+grouped into Langfuse sessions by the RehabFlow chat session UUID, so a Langfuse
+session lines up with the `ai_internal_messages` rows for that session.
+Triage-summary generation is traced separately as `triage_summary`.
+
+```bash
+REHABFLOW_LANGFUSE=1 ./start-dev.sh
+```
+
+This adds `docker-compose.langfuse.yml` to the stack: Langfuse web and worker
+plus their own Postgres, ClickHouse, Redis and MinIO, all bound to
+`127.0.0.1`. The first start pulls images and runs migrations, which can take a
+few minutes. Open `http://localhost:3100` and log in with
+`dev@rehabflow.local` / `rehabflow-dev`. The `rehabflow-dev` project and its
+API keys are created automatically, and the Compose backend is pointed at it.
+`./start-dev.sh shutdown` stops Langfuse too; its data stays in the
+`langfuse_*` volumes.
+
+To trace a backend running outside Compose, start Langfuse as above and set
+`LANGFUSE_ENABLED=true`, `LANGFUSE_BASE_URL=http://localhost:3100`,
+`LANGFUSE_PUBLIC_KEY=pk-lf-rehabflow-dev` and
+`LANGFUSE_SECRET_KEY=sk-lf-rehabflow-dev` in `.env`.
+
+Privacy rules:
+
+- Langfuse stores full prompts and outputs, including patient messages. Use
+  synthetic test patients, and keep the stack on localhost.
+- The credentials in `docker-compose.langfuse.yml` are development defaults.
+  Override the `LANGFUSE_*` variables listed there before using it anywhere
+  shared.
+- Tracing is off unless enabled, and the backend refuses it when
+  `ENVIRONMENT=production` unless `LANGFUSE_ALLOW_PRODUCTION=true`.
+- Exported text goes through the same secret redaction as internal graph logs.
+  No patient or user ID is sent.
+- Langfuse is a debugging tool. The privacy-safe `agent_trace` events and
+  `ai_internal_messages` rows remain the system of record.
+
+Tracing never blocks a turn: a missing package, bad configuration or an
+unreachable Langfuse server only logs a warning.
+
+The offline video pose-extraction scripts (`scripts/extract_video_poses.py`,
+`scripts/extract_demo_video_pose_set.py`) need mediapipe, whose protobuf pin
+conflicts with Langfuse's OpenTelemetry exporter. Install them into a separate
+virtualenv from `backend/requirements-video.txt`.
 
 ## Tests and evaluation
 

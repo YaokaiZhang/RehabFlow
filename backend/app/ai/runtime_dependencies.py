@@ -173,7 +173,11 @@ class LazyChatModel:
 
 
 class OpenAIProviderFactory:
-    """Lazy OpenAI provider factory used by the default runtime."""
+    """Lazy chat-model provider factory used by the default runtime.
+
+    The historical name is kept for existing imports; models are Claude via
+    the Anthropic API (see ``app.ai.anthropic_model``).
+    """
 
     def __init__(self, *, overrides: dict[str, Any] | None = None) -> None:
         self._overrides = dict(overrides or {})
@@ -202,16 +206,16 @@ class OpenAIProviderFactory:
         return self._models[key]
 
     def router_model(self) -> Any:
-        return self.model("router", get_settings().openai_model, 0.1)
+        return self.model("router", get_settings().anthropic_model, 0.1)
 
     def consultant_model(self) -> Any:
-        return self.model("consultant", get_settings().openai_model, 0.4)
+        return self.model("consultant", get_settings().anthropic_model, 0.4)
 
     def session_compaction_model(self) -> Any:
         settings = get_settings()
         return self.model(
             "session_compaction",
-            settings.openai_model,
+            settings.anthropic_model,
             0.2,
             timeout_seconds=settings.session_compaction_timeout_seconds,
             max_retries=0,
@@ -221,7 +225,7 @@ class OpenAIProviderFactory:
         settings = get_settings()
         return self.model(
             "episode_memory",
-            settings.openai_model,
+            settings.anthropic_model,
             0.2,
             timeout_seconds=settings.memory_agent_timeout_seconds,
             max_retries=0,
@@ -231,7 +235,7 @@ class OpenAIProviderFactory:
         settings = get_settings()
         return self.model(
             "patient_memory",
-            settings.openai_model,
+            settings.anthropic_model,
             0.2,
             timeout_seconds=settings.memory_agent_timeout_seconds,
             max_retries=0,
@@ -245,31 +249,25 @@ class OpenAIProviderFactory:
         timeout_seconds: float | None = None,
         max_retries: int | None = None,
     ) -> Any:
-        from langchain_openai import ChatOpenAI
+        """Build the Claude chat model.
 
-        from app.core.config import get_settings
+        ``model_name`` and ``temperature`` are accepted for call-site
+        compatibility but ignored: every role uses ``ANTHROPIC_MODEL``, and
+        current Claude models reject sampling parameters (depth is set with
+        ``ANTHROPIC_EFFORT``).
+        """
+        from app.ai.anthropic_model import build_chat_model
 
+        del model_name, temperature
         if evaluator_fault_profile("provider_failure"):
             raise RuntimeError("evaluator provider fault profile")
-        settings = get_settings()
-        openai_api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
-            raise ValueError(
-                "OPENAI_API_KEY is not set. Please set the environment variable or backend/.env value."
-            )
-        return ChatOpenAI(
-            model=model_name,
-            base_url=settings.openai_api_base,
-            api_key=openai_api_key,
-            reasoning_effort=settings.openai_reasoning_effort,
-            use_responses_api=True,
-            **openai_client_options(
-                timeout_seconds=timeout_seconds,
-                max_retries=max_retries,
-            ),
+        return build_chat_model(
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
         )
 
 QwenProviderFactory = OpenAIProviderFactory
+LLMProviderFactory = OpenAIProviderFactory
 
 class _RuntimeRetrieval:
     def __init__(self, vector_store_factory: Callable[[], Any]) -> None:
