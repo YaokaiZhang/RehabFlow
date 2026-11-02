@@ -25,6 +25,7 @@ from app.ai.active_turn_context import store_consultant_snapshot, store_tool_rec
 from app.ai.model_input_budget import model_messages_estimated_tokens
 from app.ai.policy_gate import GateResult, GateSeverity
 from app.ai.response_style import PATIENT_RESPONSE_STYLE
+from app.ai.turn_progress import report_progress, report_tools_started
 from app.ai.runtime_dependencies import structured_output_model, with_responses_provider_retry
 from app.ai.session_compaction import SessionCompactionError, prepare_active_model_messages
 from app.ai.tool_result_compression import (
@@ -237,8 +238,11 @@ def _consultant_retrieval_plan(
         "rehab_exercise_kb_search in this retrieval plan before drafting, using the supplied "
         "conversation context as its query; the catalog call is mandatory."
         + (
-            " Put one web_search call for precautions and safety boundaries relevant to this "
-            "presentation in the same calls list, so both run together."
+            " Do not add web_search for general precautions: the catalog answers exercise "
+            "selection, and web search runs later only if the catalog has no usable match. "
+            "Add web_search to this same calls list only when the request also asks for an "
+            "external clinical fact the catalog cannot answer, such as a diagnosis, recovery "
+            "timeline, medication, or condition-specific contraindication."
             if "web_search" in authorized_names else ""
         )
         if required_catalog_query and "rehab_exercise_kb_search" in authorized_names else ""
@@ -567,6 +571,13 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
                 retrieval_outcomes.get(str(schema["function"]["name"])) == "substantive"
                 for schema in tool_schemas
             )
+            # An exercise-selection request is answered by the catalog; once it has
+            # returned usable records, draft instead of planning more retrieval.
+            catalog_covers_request = (
+                state.get("exercise_request") is True
+                and retrieval_outcomes.get("rehab_exercise_kb_search") == "substantive"
+            )
+            searches_complete = searches_complete or catalog_covers_request
             if deps.use_tool_calling and tool_schemas and not searches_complete:
                 exercise_query = "\n".join(
                     str(item.get("content") or "").strip()
@@ -609,9 +620,11 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
                     )
                 else:
                     consultant_boundary = "consultant.answer"
+                    report_progress("drafting")
                     response = answer_model.invoke(prepared_messages)
             else:
                 consultant_boundary = "consultant.answer"
+                report_progress("drafting")
                 response = answer_model.invoke(prepared_messages)
         except _RuntimeAdmissionBlocked as blocked:
             blocked_updates = _blocked_invocation_updates(state, usage, blocked)
@@ -739,6 +752,7 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
                 "internal_log_events": _internal_log_events(state, *internal_events),
             }
         usage.tool_calls = batch_usage.tool_calls
+        report_tools_started([_tool_call_name(call) for call in tool_calls])
         batch_futures = [
             _CONSULTANT_BATCH_EXECUTOR.submit(
                 _dispatch_consultant_tool,

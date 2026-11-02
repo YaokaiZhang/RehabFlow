@@ -11,6 +11,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
@@ -636,6 +637,113 @@ def ai_chat_new(
     }
 
 
+def _authorize_ai_chat_turn(
+    session_id: str,
+    request: AIChatTurnRequest,
+    principal: Principal,
+    db: Session,
+) -> tuple[str, AuthorizedAIChat]:
+    user_input = request.message.strip()
+    if not user_input:
+        raise HTTPException(status_code=400, detail="Message is required.")
+    if session_id == "new":
+        access = _authorize_new_ai_chat(db, principal, care_episode_id=request.care_episode_id)
+    else:
+        access = authorize_ai_chat(
+            db,
+            principal,
+            session_id=session_id,
+            care_episode_id=request.care_episode_id,
+        )
+    return user_input, access
+
+
+def _sse(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+_AI_CHAT_STREAM_HEARTBEAT_SECONDS = 15.0
+
+
+@router.post("/ai/chat/{session_id}/stream")
+async def ai_chat_turn_stream(
+    session_id: str,
+    request: AIChatTurnRequest,
+    http_request: Request = None,
+    principal: Principal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Run one chat turn and stream its progress as Server-Sent Events.
+
+    Emits ``session`` first, then ``progress`` events (fixed stage labels only) while the
+    turn runs, then exactly one ``response`` event carrying the same payload as
+    ``POST /ai/chat/{session_id}``, or one ``error`` event. The reply is sent only after
+    safety and grounding review, so the patient never sees an unreviewed draft.
+    """
+    user_input, access = _authorize_ai_chat_turn(session_id, request, principal, db)
+    app_state = getattr(getattr(http_request, "app", None), "state", None)
+    turn_service = getattr(app_state, "ai_chat_turn_service", None)
+    if turn_service is None:
+        raise HTTPException(status_code=503, detail=_AI_CHAT_RUNTIME_UNAVAILABLE_DETAIL)
+    # Deferred like run_rehab_graph: app.ai imports the full graph stack.
+    from app.ai.turn_progress import progress_sink
+
+    current_session_id = access.session_id
+    include_debug = DEBUG_GRAPH
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+
+    def sink(stage: str, label: str) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, (stage, label))
+
+    def run_turn() -> dict:
+        with progress_sink(sink):
+            return turn_service.invoke_turn(
+                user_input,
+                access,
+                idempotency_key=request.idempotency_key,
+                workflow_version=request.workflow_version,
+            )
+
+    async def events():
+        yield _sse("session", {"session_id": current_session_id})
+        turn = asyncio.ensure_future(asyncio.to_thread(run_turn))
+        last_stage = None
+        while True:
+            getter = asyncio.ensure_future(queue.get())
+            done, _ = await asyncio.wait(
+                {turn, getter},
+                timeout=_AI_CHAT_STREAM_HEARTBEAT_SECONDS,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if getter in done:
+                stage, label = getter.result()
+                if stage != last_stage:
+                    last_stage = stage
+                    yield _sse("progress", {"stage": stage, "label": label})
+                continue
+            getter.cancel()
+            if turn in done:
+                break
+            yield ": keep-alive\n\n"
+        try:
+            result = turn.result()
+        except HTTPException as exc:
+            yield _sse("error", {"status": exc.status_code, "detail": str(exc.detail)})
+            return
+        except Exception:
+            logger.error("[http:ai_chat_stream:error] failure_category=runtime_error")
+            yield _sse("error", {"status": 500, "detail": "AI chat request failed."})
+            return
+        yield _sse("response", _build_ai_chat_response(current_session_id, result, include_debug))
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/ai/chat/{session_id}")
 async def ai_chat_turn(
     session_id: str,
@@ -644,23 +752,7 @@ async def ai_chat_turn(
     principal: Principal = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ) -> dict:
-    user_input = request.message.strip()
-    if not user_input:
-        raise HTTPException(status_code=400, detail="Message is required.")
-
-    if session_id == "new":
-        access = _authorize_new_ai_chat(
-            db,
-            principal,
-            care_episode_id=request.care_episode_id,
-        )
-    else:
-        access = authorize_ai_chat(
-            db,
-            principal,
-            session_id=session_id,
-            care_episode_id=request.care_episode_id,
-        )
+    user_input, access = _authorize_ai_chat_turn(session_id, request, principal, db)
 
     current_session_id = access.session_id
     include_debug = DEBUG_GRAPH

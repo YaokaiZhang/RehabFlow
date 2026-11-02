@@ -216,6 +216,105 @@ export async function sendAiChatTurn(
 	}, null);
 }
 
+export type AiChatProgress = {
+	stage: string;
+	label: string;
+};
+
+function parseSseBlock(block: string): { event: string; data: string } | null {
+	let event = "message";
+	const dataLines: string[] = [];
+	for (const line of block.split("\n")) {
+		if (line.startsWith("event:")) event = line.slice(6).trim();
+		else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
+	}
+	return dataLines.length ? { event, data: dataLines.join("\n") } : null;
+}
+
+/**
+ * Send one AI chat turn and receive live progress stages while it runs.
+ *
+ * The reply arrives only after the backend's safety and grounding review, as the same
+ * payload `sendAiChatTurn` returns; `onProgress` receives each coarse stage before that.
+ */
+export async function streamAiChatTurn(
+	sessionId: string,
+	input: AiChatTurnInput,
+	accessToken: string,
+	onProgress: (progress: AiChatProgress) => void,
+): Promise<AiChatTurnResponse> {
+	if (!accessToken.trim()) {
+		throw new Error("Authentication is required to send an AI chat turn.");
+	}
+
+	const encodedSessionId = encodeURIComponent(sessionId || "new");
+	const url = typeof window !== "undefined"
+		? "/ai-chat/" + encodedSessionId + "/stream"
+		: getApiBase() + "/ai/chat/" + encodedSessionId + "/stream";
+	const response = await fetchWithTimeout(url, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			Accept: "text/event-stream",
+			Authorization: `Bearer ${accessToken}`,
+		},
+		body: JSON.stringify({
+			message: input.message,
+			care_episode_id: input.care_episode_id,
+			idempotency_key: input.idempotency_key,
+		}),
+	}, null);
+
+	if (!response.ok || !response.body) {
+		let detail = "Request failed (" + response.status + ")";
+		try {
+			const data = (await response.json()) as { detail?: unknown };
+			detail = formatApiError(data.detail, detail);
+		} catch {
+			// ignore parse errors
+		}
+		if (response.status === 401 && /invalid or expired token|missing bearer token|patient session is no longer valid/i.test(detail)) {
+			clearAuth();
+			detail = "Your session expired. Please sign in again.";
+		}
+		throw new Error(detail);
+	}
+
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	let sessionFromStream: string | null = null;
+	for (;;) {
+		const { done, value } = await reader.read();
+		buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
+		let boundary = buffer.indexOf("\n\n");
+		while (boundary !== -1) {
+			const message = parseSseBlock(buffer.slice(0, boundary));
+			buffer = buffer.slice(boundary + 2);
+			boundary = buffer.indexOf("\n\n");
+			if (!message) continue;
+			const payload = JSON.parse(message.data) as Record<string, unknown>;
+			if (message.event === "session") {
+				sessionFromStream = typeof payload.session_id === "string" ? payload.session_id : null;
+			} else if (message.event === "progress") {
+				onProgress({ stage: String(payload.stage || ""), label: String(payload.label || "") });
+			} else if (message.event === "response") {
+				void reader.cancel();
+				return payload as AiChatTurnResponse;
+			} else if (message.event === "error") {
+				void reader.cancel();
+				return {
+					event: "error",
+					session_id: sessionFromStream,
+					detail: typeof payload.detail === "string" ? payload.detail : undefined,
+				};
+			}
+		}
+		if (done) break;
+	}
+	throw new Error("The connection closed before the reply arrived. Please try again.");
+}
+
 export async function listAiChatSessions(accessToken: string): Promise<AiChatSessionSummary[]> {
 	const data = await requestUrl<{ sessions: AiChatSessionSummary[] }>(aiChatUrl("sessions"), {
 		headers: {

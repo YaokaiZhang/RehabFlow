@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 
 import { loadAuth } from "@rehab/shared/auth";
-import { createEpisodeFromTriageSummaryRequest, createTriageSummaryDraft, getAiChatSession, getCareEpisode, sendAiChatTurn } from "@rehab/shared/api";
+import { createEpisodeFromTriageSummaryRequest, createTriageSummaryDraft, getAiChatSession, getCareEpisode, streamAiChatTurn, type AiChatProgress } from "@rehab/shared/api";
 
 type ChatMessage = {
 	id: string;
@@ -48,7 +48,6 @@ type PendingAiChatSubmission = {
 };
 
 type AgentProgressStep = {
-	afterMs: number;
 	label: string;
 	detail: string;
 };
@@ -63,33 +62,21 @@ const suggestedPrompts = [
 	"I am recovering from surgery and feel new pain during stairs. Should I contact my clinician?",
 ];
 
-const agentProgressSteps: AgentProgressStep[] = [
-	{
-		afterMs: 0,
-		label: "Reading symptoms",
-		detail: "Reviewing your message and recent triage context.",
-	},
-	{
-		afterMs: 6000,
-		label: "Checking safety",
-		detail: "Screening for red flags and deciding whether more details are needed.",
-	},
-	{
-		afterMs: 14000,
-		label: "Searching context",
-		detail: "Looking up relevant rehab guidance and exercise catalog context.",
-	},
-	{
-		afterMs: 24000,
-		label: "Reviewing plan",
-		detail: "Running the safety review before showing the recommendation.",
-	},
-	{
-		afterMs: 36000,
-		label: "Writing answer",
-		detail: "Finalizing the response and saving the session state.",
-	},
-];
+// Stages reported live by the backend while a turn runs; the label comes from the server.
+const agentProgressDetails: Record<string, string> = {
+	reading: "Reviewing your message and screening for red flags.",
+	planning: "Deciding which guidance and exercises to look up.",
+	searching_catalog: "Finding exercises that match your situation.",
+	searching_web: "Looking up current clinical guidance for your question.",
+	searching_history: "Checking what you discussed in earlier sessions.",
+	drafting: "Putting together a reply for you.",
+	reviewing: "Running the safety and accuracy review before showing it.",
+	revising: "Adjusting the reply after the review.",
+};
+const initialAgentProgress: AgentProgressStep = {
+	label: "Reading your message",
+	detail: agentProgressDetails.reading,
+};
 const summaryRequestFallback = "Patient requested a Triage Summary from the AI intake chat.";
 
 function makeId() {
@@ -101,8 +88,8 @@ function prettyRoute(route: string) {
 	return route.replaceAll("_", " ");
 }
 
-function agentProgressForElapsed(elapsedMs: number) {
-	return agentProgressSteps.reduce((current, step) => (elapsedMs >= step.afterMs ? step : current), agentProgressSteps[0]);
+function agentProgressForStage(progress: AiChatProgress): AgentProgressStep {
+	return { label: progress.label, detail: agentProgressDetails[progress.stage] || "" };
 }
 
 function friendlyError(detail?: string) {
@@ -150,8 +137,6 @@ function HomePageContent() {
 	const searchParams = useSearchParams();
 	const urlSessionId = searchParams.get("session_id") || "";
 	const urlEpisodeId = searchParams.get("episode_id") || "";
-	const agentProgressIntervalRef = useRef<number | null>(null);
-	const turnStartedAtRef = useRef(0);
 	const activeTurnRef = useRef<string | null>(null);
 	const sessionIdRef = useRef("new");
 	const originatingEventIdRef = useRef<string | null>(null);
@@ -163,7 +148,7 @@ function HomePageContent() {
 	const [patientId, setPatientId] = useState("");
 	const [prompt, setPrompt] = useState(starterPrompt);
 	const [isWaiting, setIsWaiting] = useState(false);
-	const [agentProgress, setAgentProgress] = useState(agentProgressSteps[0]);
+	const [agentProgress, setAgentProgress] = useState(initialAgentProgress);
 	const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
 	const [summaryError, setSummaryError] = useState("");
 	const [historyLoading, setHistoryLoading] = useState(false);
@@ -296,10 +281,7 @@ function HomePageContent() {
 	}, [episodeId]);
 
 	const clearAgentProgress = () => {
-		if (agentProgressIntervalRef.current) {
-			window.clearInterval(agentProgressIntervalRef.current);
-			agentProgressIntervalRef.current = null;
-		}
+		setAgentProgress(initialAgentProgress);
 	};
 
 	const finishTurn = (turnId: string) => {
@@ -331,7 +313,7 @@ function HomePageContent() {
 		}
 
 		try {
-			const data = await sendAiChatTurn(
+			const data = await streamAiChatTurn(
 				sessionIdRef.current || "new",
 				{
 					message: submission.message,
@@ -339,6 +321,9 @@ function HomePageContent() {
 					idempotency_key: submission.idempotencyKey,
 				},
 				auth.access_token,
+				(progress) => {
+					if (activeTurnRef.current === turnId) setAgentProgress(agentProgressForStage(progress));
+				},
 			);
 			if (activeTurnRef.current !== turnId) return;
 			if (data.session_id) {
@@ -446,19 +431,11 @@ function HomePageContent() {
 				idempotencyKey: crypto.randomUUID(),
 			};
 		pendingSubmissionRef.current = submission;
-		const firstProgressStep = agentProgressSteps[0];
 		setMessages((prev) => [...prev, { id: makeId(), role: "user", text }]);
 		setPrompt("");
 		setIsWaiting(true);
-		setAgentProgress(firstProgressStep);
+		setAgentProgress(initialAgentProgress);
 		activeTurnRef.current = turnId;
-		turnStartedAtRef.current = Date.now();
-		clearAgentProgress();
-		agentProgressIntervalRef.current = window.setInterval(() => {
-			if (activeTurnRef.current !== turnId) return;
-			const nextStep = agentProgressForElapsed(Date.now() - turnStartedAtRef.current);
-			setAgentProgress(nextStep);
-		}, 1000);
 
 		setSummaryError("");
 		void sendChatTurn(turnId, submission);

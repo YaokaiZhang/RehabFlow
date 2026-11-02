@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import unittest
@@ -745,6 +746,97 @@ class AiChatHttpContractTests(unittest.TestCase):
 				)
 			)
 		self.assertEqual(error.exception.status_code, 400)
+
+
+def _parse_sse(text):
+	events = []
+	for block in text.split("\n\n"):
+		name, data = None, None
+		for line in block.split("\n"):
+			if line.startswith("event: "):
+				name = line[len("event: "):]
+			elif line.startswith("data: "):
+				data = json.loads(line[len("data: "):])
+		if name is not None:
+			events.append((name, data))
+	return events
+
+
+class ProgressReportingTurnService(FakeAIChatTurnService):
+	def __init__(self, result=None, error=None):
+		super().__init__(result or {})
+		self.error = error
+
+	def invoke_turn(self, user_input, access, *, idempotency_key=None, workflow_version=None):
+		from app.ai.turn_progress import report_node_started, report_progress, report_tools_started
+
+		report_node_started("router")
+		report_node_started("consultant")
+		report_tools_started(["rehab_exercise_kb_search", "rehab_exercise_kb_search"])
+		report_progress("drafting")
+		report_node_started("safety_reviewer")
+		report_node_started("grounding_reviewer")
+		if self.error is not None:
+			raise self.error
+		return super().invoke_turn(user_input, access, idempotency_key=idempotency_key, workflow_version=workflow_version)
+
+
+class AiChatStreamContractTests(unittest.TestCase):
+	def _stream(self, service):
+		patient_id, session_id = uuid.uuid4(), uuid.uuid4()
+		access = AuthorizedAIChat(patient_id=patient_id, session_id=str(session_id), care_episode_id=None)
+		app = FastAPI()
+		app.include_router(ws_api.router)
+		app.state.ai_chat_turn_service = service
+		app.dependency_overrides[get_db] = lambda: object()
+		with patch.object(ws_api, "authorize_ai_chat", return_value=access), patch(
+			"app.core.security.decode_token",
+			return_value={"sub": "offline-user", "role": "patient", "user_id": str(patient_id)},
+		):
+			response = TestClient(app).post(
+				f"/ai/chat/{session_id}/stream",
+				headers={"Authorization": "Bearer offline-token"},
+				json={"message": "My knee is stiff", "idempotency_key": "idempotency-key-5678"},
+			)
+		return session_id, response
+
+	def test_stream_sends_progress_stages_then_the_reviewed_response(self):
+		service = ProgressReportingTurnService({"final_response": "Streamed reply", "safety_passed": True})
+		session_id, response = self._stream(service)
+
+		self.assertEqual(response.status_code, 200, response.text)
+		self.assertTrue(response.headers["content-type"].startswith("text/event-stream"))
+		events = _parse_sse(response.text)
+		self.assertEqual(events[0], ("session", {"session_id": str(session_id)}))
+		stages = [data["stage"] for name, data in events if name == "progress"]
+		# Repeated stages (two reviewers, duplicate tool names) are collapsed.
+		self.assertEqual(stages, ["reading", "planning", "searching_catalog", "drafting", "reviewing"])
+		self.assertTrue(all(data["label"] for name, data in events if name == "progress"))
+		name, payload = events[-1]
+		self.assertEqual(name, "response")
+		self.assertEqual(payload["event"], "response")
+		self.assertEqual(payload["response"], "Streamed reply")
+		self.assertEqual(payload["session_id"], str(session_id))
+		self.assertEqual(len(service.calls), 1)
+
+	def test_stream_reports_turn_errors_as_an_error_event(self):
+		service = ProgressReportingTurnService(error=ws_api.HTTPException(status_code=409, detail="Busy"))
+		_, response = self._stream(service)
+
+		self.assertEqual(response.status_code, 200, response.text)
+		name, payload = _parse_sse(response.text)[-1]
+		self.assertEqual((name, payload), ("error", {"status": 409, "detail": "Busy"}))
+
+	def test_progress_reporting_without_a_sink_is_a_no_op(self):
+		from app.ai.turn_progress import progress_sink, report_progress
+
+		report_progress("drafting")
+		received = []
+		with progress_sink(lambda stage, label: received.append(stage)):
+			report_progress("drafting")
+			report_progress("not_a_stage")
+		report_progress("reviewing")
+		self.assertEqual(received, ["drafting"])
 
 
 if __name__ == "__main__":

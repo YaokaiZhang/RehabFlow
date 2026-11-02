@@ -11,6 +11,7 @@ from time import perf_counter
 from typing import Any
 
 from app.ai.evidence_types import EvidenceResult, EvidenceSource
+from app.ai.turn_progress import report_node_started
 from app.observability.agent_trace import TraceContext, is_safe_trace_source_id
 
 def _trace_route(state: Mapping[str, Any], updates: Mapping[str, Any] | None = None) -> str | None:
@@ -247,6 +248,7 @@ def _trace_begin(context: TraceContext, state: Mapping[str, Any]) -> None:
 
 
 def _trace_node_started(context: TraceContext, state: Mapping[str, Any], node_name: str) -> None:
+    report_node_started(node_name)
     _trace_begin(context, state)
     attempt = _trace_attempt(state)
     context.emit(
