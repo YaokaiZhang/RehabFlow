@@ -197,8 +197,9 @@ def router_agent(
         "fact as present until a newer user statement changes it. Do not re-ask an established fact "
         "just because the current request is a follow-up or asks for a more specific action. "
         "Screen only for urgent-risk combinations explicitly supported by the current conversation. In an urgent situation, set "
-        "if_emergency=True and routing_decision=urgent_end, and put the immediate bounded action "
-        "and the known facts in emergency_reason. Do not ask a generic rehabilitation question first. "
+        "if_emergency=True and routing_decision=urgent_end, and write emergency_reason as one or two "
+        "plain sentences spoken to the patient: what is worrying in what they described and what to "
+        "do right now. No labels or headings such as 'Known facts' or 'Immediate action'. Do not ask a generic rehabilitation question first. "
         "If an unknown fact is necessary to give a reliable, safe, and grounded answer "
         "for this specific route, set needs_more_info=True, routing_decision=ask_clarification, and ask "
         "one concise natural-language question for only the decision-critical missing information. "
@@ -584,8 +585,8 @@ def router_agent(
     if routing_decision == "urgent_end" or if_emergency:
         emergency_reason = _safe_str(result.emergency_reason, 500).strip().rstrip(".")
         updates["final_response"] = (
-            f"This may need urgent medical attention: {emergency_reason}. "
-            "Seek immediate medical care rather than following a rehabilitation plan here."
+            f"This needs urgent medical attention. {emergency_reason}. "
+            "Please get medical care now rather than following a rehabilitation plan."
         )
     elif routing_decision == "ask_clarification" or needs_more_info:
         if re.search(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", follow_up_question):

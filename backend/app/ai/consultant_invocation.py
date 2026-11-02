@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from app.ai.active_turn_context import store_consultant_snapshot, store_tool_record, store_web_sources
 from app.ai.model_input_budget import model_messages_estimated_tokens
 from app.ai.policy_gate import GateResult, GateSeverity
+from app.ai.response_style import PATIENT_RESPONSE_STYLE
 from app.ai.runtime_dependencies import structured_output_model, with_responses_provider_retry
 from app.ai.session_compaction import SessionCompactionError, prepare_active_model_messages
 from app.ai.tool_result_compression import (
@@ -235,6 +236,11 @@ def _consultant_retrieval_plan(
         " The Router marked this conversation as an exercise-selection request. Include "
         "rehab_exercise_kb_search in this retrieval plan before drafting, using the supplied "
         "conversation context as its query; the catalog call is mandatory."
+        + (
+            " Put one web_search call for precautions and safety boundaries relevant to this "
+            "presentation in the same calls list, so both run together."
+            if "web_search" in authorized_names else ""
+        )
         if required_catalog_query and "rehab_exercise_kb_search" in authorized_names else ""
     )
     planning_messages = [*messages, HumanMessage(content=(
@@ -264,8 +270,13 @@ def _consultant_retrieval_plan(
         if len(calls) != 1 or _tool_call_name(calls[0]) != "consultant_retrieval_plan":
             raise ValueError("Consultant retrieval planner did not return its required plan call")
         plan = ConsultantRetrievalPlan.model_validate(_tool_arguments(calls[0]))
+    # The reason is trace-only; a blank one must not fail the patient's turn.
     if not plan.reason.strip():
-        raise ValueError("Consultant retrieval plan requires a reason")
+        plan.reason = (
+            "Retrieval planned without a stated reason."
+            if plan.action == "retrieve"
+            else "No further retrieval needed before drafting."
+        )
     if required_catalog_query and "rehab_exercise_kb_search" in authorized_names and not any(
         call.tool_name == "rehab_exercise_kb_search" for call in plan.calls
     ):
@@ -298,7 +309,7 @@ def _consultant_retrieval_plan(
     seen_calls: set[str] = set()
     for call in plan.calls:
         if not call.reason.strip():
-            raise ValueError("each Consultant retrieval call requires a reason")
+            call.reason = f"Planned {call.tool_name} call."
         if call.tool_name not in authorized_names:
             raise _RuntimeAdmissionBlocked(
                 GateResult(
@@ -460,7 +471,8 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
                 "is missing. On resumed clarification, incorporate the new answer instead of "
                 "repeating resolved questions. If prior request content is unavailable, ask the user "
                 "to restate the relevant care request rather than asking for internal identifiers. "
-                "Do not mention internal agents, tools, or prompts."
+                "Do not mention internal agents, tools, or prompts. "
+                + PATIENT_RESPONSE_STYLE
             )
         ),
         HumanMessage(
@@ -551,7 +563,11 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
         response_is_model_output = True
         consultant_boundary = "consultant.retrieval_planning"
         try:
-            if deps.use_tool_calling and tool_schemas:
+            searches_complete = bool(tool_schemas) and all(
+                retrieval_outcomes.get(str(schema["function"]["name"])) == "substantive"
+                for schema in tool_schemas
+            )
+            if deps.use_tool_calling and tool_schemas and not searches_complete:
                 exercise_query = "\n".join(
                     str(item.get("content") or "").strip()
                     for item in (state.get("conversation_history") or [])

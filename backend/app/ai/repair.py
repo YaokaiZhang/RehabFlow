@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.ai.response_style import PATIENT_RESPONSE_STYLE
 from app.ai.policy_gate import GateResult, GateSeverity, evaluate_invocation_admission
 from app.ai.runtime_dependencies import with_responses_provider_retry
 from app.ai.workflow_policy import WorkflowPolicy
@@ -587,7 +588,10 @@ def consultant_repair_node(state: Mapping[str, Any], deps: Any) -> dict[str, Any
                 "selection or dosing is unavailable, say only that it cannot be provided from the "
                 "current evidence. "
                 "If an authorized capability is unavailable, do not simulate its output. Respect active memory "
-                "lifecycle state."
+                "lifecycle state. Make the smallest edits that address the feedback and keep the "
+                "rest of the answer as written; do not add disclaimers about where evidence came "
+                "from. "
+                + PATIENT_RESPONSE_STYLE
             )
         ),
         HumanMessage(content=instruction),

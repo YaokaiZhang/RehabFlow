@@ -92,8 +92,9 @@ def _fallback_response_for_state(state: RehabGraphState) -> tuple[str, str]:
         Route.URGENT.value,
     }:
         return (
-            f"This may need urgent medical attention: {_safe_str(state.get('emergency_reason', ''), 500)} "
-            "Please seek immediate care rather than following an exercise plan here.",
+            "This needs urgent medical attention. "
+            + (f"{reason}. " if (reason := _safe_str(state.get('emergency_reason', ''), 500).strip().rstrip(".")) else "")
+            + "Please get medical care now rather than following an exercise plan.",
             "emergency",
         )
     if any(
