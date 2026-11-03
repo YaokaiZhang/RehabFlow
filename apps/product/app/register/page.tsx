@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
@@ -19,6 +20,14 @@ function safeNextPath(value: string | null) {
 
 function safeInitialRole(value: string | null): LoginRole | "" {
 	return value === "doctor" || value === "patient" ? value : "";
+}
+
+function friendlyAuthError(err: unknown) {
+	const message = err instanceof Error ? err.message : "";
+	if (!message || /failed to fetch|networkerror|load failed/i.test(message)) {
+		return "RehabFlow can't reach its server right now. Check your connection and try again.";
+	}
+	return message;
 }
 
 function doctorRedirectPath(nextPath: string) {
@@ -68,57 +77,66 @@ export default function RegisterPage() {
 			saveAuth(auth);
 			router.push(auth.role === "doctor" ? doctorRedirectPath(nextPath) : nextPath || "/episodes");
 		} catch (err) {
-			setError((err as Error).message);
+			setError(friendlyAuthError(err));
 		} finally {
 			setLoading(false);
 		}
 	};
 
 	return (
-		<section className="card max-w-lg">
-			<h1 className="text-xl font-semibold">Register</h1>
-			<form onSubmit={onSubmit} className="mt-4 space-y-3">
-				<div>
-					<label className="mb-1 block text-sm text-slate-600">Role</label>
-					<select
-						value={role}
-						onChange={(e) => updateRole(e.target.value as LoginRole)}
-						className="input mt-0"
-					>
-						<option value="patient">Patient</option>
-						<option value="doctor">Doctor</option>
-					</select>
-				</div>
+		<section className="auth-page">
+			<div className="auth-card">
+				<h1>Create your account</h1>
+				<p className="auth-lead">{role === "doctor" ? "Doctors review requests from patients and follow their rehab." : "Patients get AI triage, daily guided rehab, and a doctor when they need one."}</p>
+				<form onSubmit={onSubmit} className="auth-form">
+					<fieldset className="auth-role">
+						<legend className="sr-only">I am a</legend>
+						<label className={role === "patient" ? "auth-role-option auth-role-option-active" : "auth-role-option"}>
+							<input type="radio" name="role" value="patient" checked={role === "patient"} onChange={() => updateRole("patient")} />
+							Patient
+						</label>
+						<label className={role === "doctor" ? "auth-role-option auth-role-option-active" : "auth-role-option"}>
+							<input type="radio" name="role" value="doctor" checked={role === "doctor"} onChange={() => updateRole("doctor")} />
+							Doctor
+						</label>
+					</fieldset>
 
-				<div>
-					<label className="mb-1 block text-sm text-slate-600">Name</label>
-					<input
-						required
-						className="input mt-0"
-						value={name}
-						onChange={(e) => setName(e.target.value)}
-					/>
-				</div>
+					<div>
+						<label className="field-label mt-0" htmlFor="register-name">Username</label>
+						<input
+							id="register-name"
+							required
+							autoComplete="username"
+							className="input"
+							value={name}
+							onChange={(e) => setName(e.target.value)}
+						/>
+					</div>
 
-				<div>
-					<label className="mb-1 block text-sm text-slate-600">Password</label>
-					<input
-						type="password"
-						required
-						minLength={8}
-						placeholder="At least 8 characters"
-						className="input mt-0"
-						value={password}
-						onChange={(e) => setPassword(e.target.value)}
-					/>
-				</div>
+					<div>
+						<label className="field-label mt-0" htmlFor="register-password">Password</label>
+						<input
+							id="register-password"
+							type="password"
+							required
+							minLength={8}
+							autoComplete="new-password"
+							aria-describedby="register-password-hint"
+							className="input"
+							value={password}
+							onChange={(e) => setPassword(e.target.value)}
+						/>
+						<p id="register-password-hint" className="mt-1.5 text-xs text-[var(--rf-ink-soft)]">At least 8 characters.</p>
+					</div>
 
-				{error ? <p className="text-sm text-red-600">{error}</p> : null}
+					{error ? <p className="notice notice-danger" role="alert">{error}</p> : null}
 
-				<AppButton type="submit" disabled={loading}>
-					Create account
-				</AppButton>
-			</form>
+					<AppButton type="submit" className="w-full" disabled={loading}>
+						{loading ? "Creating account" : "Create account"}
+					</AppButton>
+				</form>
+				<p className="auth-switch">Already have an account? <Link href={role === "doctor" ? "/login?role=doctor" : "/login"}>Log in</Link></p>
+			</div>
 		</section>
 	);
 }

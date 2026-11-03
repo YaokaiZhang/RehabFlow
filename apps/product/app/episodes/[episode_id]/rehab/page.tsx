@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { useAiDailyRehabWorkspace } from "../../../rehab/useAiDailyRehabWorkspace";
+import { StatusBadge } from "../../../../components/ui";
 
 type Params = { episode_id?: string };
 
@@ -183,34 +184,34 @@ export default function EpisodeRehabPage() {
     } = useAiDailyRehabWorkspace(episodeId);
 
     if (loading) return <p className="text-sm text-slate-500">Loading AI Daily Rehab...</p>;
-    if (error && !episode) return <section className="card max-w-2xl text-sm text-rose-700">{error}</section>;
+    if (error && !episode) return <section className="page-column-narrow"><p className="notice notice-danger">{error}</p></section>;
     if (!episode) return null;
 
     return (
-        <div className="space-y-5">
-            <section className="card max-w-4xl">
-                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">AI Daily Rehab</p>
-                <h1 className="mt-2 text-2xl font-semibold text-slate-950">{episode.issue_title}</h1>
+        <div className="page-column space-y-6">
+            <section className="page-header">
+                <p className="page-header-kicker">AI Daily Rehab</p>
+                <h1>{episode.issue_title}</h1>
                 {blocked ? (
                     <>
-                        <p className="mt-2 text-sm leading-6 text-slate-600">This Care Episode has not cleared the Rehab Safety Gate. Complete AI Triage Intake or get clinician-reviewed context before AI-assisted self-rehab starts.</p>
-                        <div className="mt-4 flex flex-wrap gap-2"><Link className="btn-primary" href={"/episodes/" + episode.care_episode_id + "/triage"}>Start AI Triage Intake</Link><Link className="btn-secondary" href={"/episodes/" + episode.care_episode_id}>Episode Overview</Link></div>
+                        <p className="page-header-lead">This Care Episode has not cleared the Rehab Safety Gate. Daily rehab opens once you finish AI Triage Intake and save the summary, or a clinician reviews this episode.</p>
+                        <div className="page-header-actions"><Link className="btn-primary" href={"/episodes/" + episode.care_episode_id + "/triage"}>Start AI Triage Intake</Link><Link className="btn-secondary" href={"/episodes/" + episode.care_episode_id}>Episode Overview</Link></div>
                     </>
                 ) : (
-                    <div className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
-                        <p>Safety context is available. Build a simple daily list from AI triage recommendations and the exercise catalog, then launch today&apos;s guided video session.</p>
-                        <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">Safety gate: {safetyCopy(episode.safety_gate_status)}</p>
-                    </div>
+                    <>
+                        <p className="page-header-lead">Pick today&apos;s exercises from the suggestions or the catalog, then start a guided video session.</p>
+                        <p className="mt-3"><StatusBadge tone="success">{safetyCopy(episode.safety_gate_status)}</StatusBadge></p>
+                    </>
                 )}
             </section>
 
             {!blocked ? (
                 <>
-                    <section className="card max-w-4xl border-emerald-200 bg-emerald-50">
+                    <section className="card">
                         <h2 className="section-title">Recommended from AI Triage</h2>
                         {recommendation ? (
                             <>
-                                <p className="mt-3 text-sm text-slate-700">Recommendation status: <span className="font-semibold text-slate-950">{statusCopy(recommendation.status)}</span>{recommendation.empty_reason ? " - " + recommendation.empty_reason : ""}</p>
+                                <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600"><StatusBadge tone="neutral">{statusCopy(recommendation.status)}</StatusBadge>{recommendation.empty_reason ? recommendation.empty_reason : "Based on your saved Triage Summary."}</p>
                                 {recommendation.items.length ? (
                                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                                         {recommendation.items.map((item) => {
@@ -235,30 +236,33 @@ export default function EpisodeRehabPage() {
                         ) : <p className="mt-3 text-sm text-slate-600">No AI triage recommendation is active yet.</p>}
                     </section>
 
-                    <section className="card max-w-4xl">
+                    <section className="card border-[rgba(82,97,78,0.35)]">
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                            <h2 className="section-title">AI Daily Rehab List</h2>
+                            <div>
+                                <h2 className="section-title">Today&apos;s list</h2>
+                                <p className="mt-1 text-sm text-slate-600">{savedListItems.length ? `${savedListItems.length} exercise${savedListItems.length === 1 ? "" : "s"} ready` : "Add at least one exercise to start"}</p>
+                            </div>
                             <button className="btn-primary" onClick={createSession} disabled={busy || !savedListItems.length}>{busy ? "Saving" : "Start Session"}</button>
                         </div>
                         {savedListItems.length ? (
                             <div className="mt-4 space-y-2">
                                 {savedListItems.map((item) => (
-                                    <div key={item.exercise_id} className="flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-white p-3">
+                                    <div key={item.exercise_id} className="flex items-center justify-between gap-3 rounded-control border border-line bg-white p-3">
                                         <label className="flex min-w-0 items-start gap-3 text-sm text-slate-700">
                                             <input className="mt-1" type="checkbox" checked readOnly />
                                             <span className="block font-semibold text-slate-950">{item.label}</span>
                                         </label>
-                                        <button className="btn-secondary shrink-0" onClick={() => removeExercise(item.exercise_id)} disabled={busy}>Remove</button>
+                                        <button className="btn shrink-0 border-transparent px-3 text-danger hover:bg-[var(--rf-danger-tint)]" onClick={() => removeExercise(item.exercise_id)} disabled={busy}>Remove</button>
                                     </div>
                                 ))}
                             </div>
-                        ) : <p className="mt-3 text-sm text-slate-600">No saved exercises yet. Add exercises from recommendations or the catalog.</p>}
-                        {error ? <p className="mt-3 text-sm text-rose-600">{error}</p> : null}
-                        {statusMessage ? <p className="mt-3 text-sm text-emerald-700">{statusMessage}</p> : null}
+                        ) : <p className="mt-3 text-sm text-slate-600">Nothing on today&apos;s list yet. Use Add on a suggestion or a catalog exercise.</p>}
+                        {error ? <p className="notice notice-danger mt-3">{error}</p> : null}
+                        {statusMessage ? <p className="notice mt-3" role="status">{statusMessage}</p> : null}
                     </section>
 
-                    <section className="card max-w-4xl">
-                        <h2 className="section-title">Exercise Catalog</h2>
+                    <section className="card">
+                        <h2 className="section-title">Exercise catalog</h2>
                         <label className="mt-4 block max-w-2xl">
                             <span className="field-label">Search exercises</span>
                             <input className="input" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search by goal, symptom, movement, or name" />

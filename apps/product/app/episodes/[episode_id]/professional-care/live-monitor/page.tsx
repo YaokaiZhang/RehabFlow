@@ -150,63 +150,59 @@ export default function ProfessionalCareLiveMonitorPage() {
 	};
 
 	if (!auth || auth.role !== "doctor") {
-		return <section className="card max-w-2xl text-sm text-rose-700">Login as a doctor to use Optional Live Movement Monitoring.</section>;
+		return <section className="page-column-narrow"><p className="notice">Log in as a doctor to use Optional Live Movement Monitoring.</p></section>;
 	}
 
 	if (loading) return <p className="text-sm text-slate-500">Loading Care Episode...</p>;
 
 	return (
-		<div className="space-y-5">
-			<section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-				<div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-					<div>
-						<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Professional Care</p>
-						<h1 className="mt-2 text-2xl font-semibold text-slate-950 md:text-3xl">Optional Live Movement Monitoring</h1>
-						<p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-							Review live movement signals for this Care Episode while the patient is actively streaming.
-						</p>
-					</div>
-					<Link className="btn-secondary" href="/doctor">Return to Care Worklist</Link>
+		<div className="page-column space-y-6">
+			<section className="page-header">
+				<p className="page-header-kicker">Professional Care</p>
+				<h1>Optional Live Movement Monitoring</h1>
+				<p className="page-header-lead">See the patient&apos;s movement score while they do a guided session. Connect, then ask the patient to press Start in AI Daily Rehab.</p>
+				<div className="page-header-actions">
+					<Link className="btn-secondary" href="/doctor">Back to Care Worklist</Link>
 				</div>
 			</section>
 
-			{errorMessage ? <p className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{errorMessage}</p> : null}
+			{errorMessage ? <p className="notice notice-danger">{errorMessage}</p> : null}
 
 			{workspace ? <CareEpisodeBrief workspace={workspace} role="doctor" compact /> : null}
 
-			<section className="grid gap-3 md:grid-cols-4">
-				<DashboardCard className="rounded-md p-4 shadow-none hover:border-slate-200 hover:shadow-none">
-					<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Connection</p>
+			<section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+				<DashboardCard className="p-4">
+					<p className="text-sm font-semibold text-slate-500">Connection</p>
 					<StatusBadge className="mt-2" tone={connectionStatus === "connected" ? "success" : connectionStatus === "error" ? "risk" : "neutral"}>{statusMessage}</StatusBadge>
 				</DashboardCard>
-				<DashboardCard className="rounded-md p-4 shadow-none hover:border-slate-200 hover:shadow-none">
-					<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Latest signal</p>
+				<DashboardCard className="p-4">
+					<p className="text-sm font-semibold text-slate-500">Latest signal</p>
 					<p className="mt-2 text-sm text-slate-700">{latestEvent ? `Score ${latestEvent.current_score}` : "Patient not streaming"}</p>
 				</DashboardCard>
-				<DashboardCard className="rounded-md p-4 shadow-none hover:border-slate-200 hover:shadow-none">
-					<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Landmark count</p>
+				<DashboardCard className="p-4">
+					<p className="text-sm font-semibold text-slate-500">Pose points seen</p>
 					<p className="mt-2 text-sm text-slate-700">{latestEvent?.coordinates?.length ?? 0}</p>
 				</DashboardCard>
-				<DashboardCard className="rounded-md p-4 shadow-none hover:border-slate-200 hover:shadow-none">
-					<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Last received</p>
+				<DashboardCard className="p-4">
+					<p className="text-sm font-semibold text-slate-500">Last received</p>
 					<p className="mt-2 text-sm text-slate-700">{formatReceivedTime(latestEvent?.timestamp)}</p>
 				</DashboardCard>
 			</section>
 
-			<section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+			<section className="card">
 				<SectionHeader
 					title="Recent movement events"
-					description="Use this stream as a secondary review signal during an active Professional Care session."
+					description="Newest first. Scores support your judgement; they don't replace watching the movement."
 					action={<AppButton onClick={() => void connect()} disabled={!workspace}>Connect to Optional Live Movement Monitoring</AppButton>}
 				/>
 
 				<div className="mt-4 max-h-96 space-y-2 overflow-auto">
-					{orderedEvents.length === 0 ? <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-500">Patient not streaming</p> : null}
+					{orderedEvents.length === 0 ? <p className="rounded-control border border-dashed border-line p-4 text-sm text-slate-500">The patient isn&apos;t streaming yet.</p> : null}
 					{orderedEvents.map((evt, idx) => (
-						<DashboardCard key={`${evt.timestamp || "event"}-${idx}`} className="rounded-md p-3 text-sm text-slate-600 shadow-none hover:border-slate-200 hover:shadow-none">
+						<DashboardCard key={`${evt.timestamp || "event"}-${idx}`} className="p-3 text-sm text-slate-600">
 							<p><span className="font-semibold text-slate-950">Time:</span> {formatReceivedTime(evt.timestamp)}</p>
-							<p><span className="font-semibold text-slate-950">Latest signal:</span> Score {evt.current_score}</p>
-							<p><span className="font-semibold text-slate-950">Landmark count:</span> {evt.coordinates?.length ?? 0}</p>
+							<p><span className="font-semibold text-slate-950">Score:</span> {evt.current_score}</p>
+							<p><span className="font-semibold text-slate-950">Pose points:</span> {evt.coordinates?.length ?? 0}</p>
 						</DashboardCard>
 					))}
 				</div>

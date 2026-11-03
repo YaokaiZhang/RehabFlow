@@ -101,7 +101,7 @@ export default function PatientDashboardPage() {
 			<section className="dashboard-intro">
 				<div className="dashboard-intro-copy">
 					<h1>Your rehab concerns, organized by episode</h1>
-					<p>See where each concern stands, then open the right Care Episode before starting triage, AI Daily Rehab, Professional Care, or history work.</p>
+					<p>Each episode keeps one concern, like a knee or your lower back, with its own triage, rehab and doctor conversation.</p>
 				</div>
 				<div className="dashboard-intro-actions">
 					<Link className="btn-primary" href="/">Create Episode With AI Triage</Link>
@@ -111,19 +111,19 @@ export default function PatientDashboardPage() {
 
 			<section className="dashboard-status-strip" aria-label="Patient dashboard status">
 				<div className="dashboard-status-item">
-					<p className="dashboard-status-label">Care Episodes</p>
+					<p className="dashboard-status-label">Episodes</p>
 					<p className="dashboard-status-value">{metricValue(episodes.length)}</p>
-					<p className="dashboard-status-description">Active and past rehab concerns</p>
+					<p className="dashboard-status-description">Current and past concerns</p>
 				</div>
 				<div className="dashboard-status-item">
-					<p className="dashboard-status-label">Needs context</p>
+					<p className="dashboard-status-label">Waiting for triage</p>
 					<p className="dashboard-status-value">{metricValue(episodes.filter((episode) => episode.safety_gate_status === "needs_triage").length)}</p>
-					<p className="dashboard-status-description">Episodes waiting for triage context</p>
+					<p className="dashboard-status-description">Answer the safety questions to unlock rehab</p>
 				</div>
 				<div className="dashboard-status-item">
-					<p className="dashboard-status-label">Professional Care</p>
+					<p className="dashboard-status-label">With a doctor</p>
 					<p className="dashboard-status-value">{metricValue(episodes.filter((episode) => episode.selected_doctor_id).length)}</p>
-					<p className="dashboard-status-description">Episodes with selected clinician support</p>
+					<p className="dashboard-status-description">Episodes where you chose a doctor</p>
 				</div>
 			</section>
 
@@ -131,11 +131,10 @@ export default function PatientDashboardPage() {
 				<SectionHeader
 					className="dashboard-section-header"
 					title="Care Episode List"
-					description="Open the episode that matches your current rehab concern. Deeper triage, rehab, Professional Care, and history actions stay inside each episode."
 				/>
 
-				{error ? <p className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
-				{statusMessage ? <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{statusMessage}</p> : null}
+				{error ? <p className="notice notice-danger">{error}</p> : null}
+				{statusMessage ? <p className="notice" role="status">{statusMessage}</p> : null}
 				{loading ? <p className="text-sm text-slate-500">Loading Care Episodes...</p> : null}
 
 				{episodesLoaded && episodes.length === 0 ? (
@@ -178,7 +177,7 @@ export default function PatientDashboardPage() {
 							</div>
 							<div className="dashboard-episode-actions">
 								<Link className="btn-primary" href={`/episodes/${episode.care_episode_id}`}>Open</Link>
-								<AppButton className="dashboard-delete-button" variant="secondary" onClick={() => deleteEpisode(episode)} disabled={deletingEpisodeId === episode.care_episode_id}>
+								<AppButton className="dashboard-delete-button" variant="ghost" onClick={() => deleteEpisode(episode)} disabled={deletingEpisodeId === episode.care_episode_id}>
 									{deletingEpisodeId === episode.care_episode_id ? "Deleting" : "Delete"}
 								</AppButton>
 							</div>

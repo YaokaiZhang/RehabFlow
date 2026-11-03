@@ -8,7 +8,43 @@ const config: Config = {
 	],
 	theme: {
 		extend: {
+			fontSize: {
+				xs: ['0.8125rem', { lineHeight: '1.25rem' }],
+				sm: ['0.9375rem', { lineHeight: '1.45rem' }],
+				base: ['1rem', { lineHeight: '1.6rem' }],
+				lg: ['1.125rem', { lineHeight: '1.65rem' }],
+				xl: ['1.3125rem', { lineHeight: '1.75rem' }],
+				'2xl': ['1.625rem', { lineHeight: '2rem' }],
+				'3xl': ['2rem', { lineHeight: '2.3rem' }],
+				'4xl': ['2.5rem', { lineHeight: '2.75rem' }],
+			},
+			fontFamily: {
+				sans: ['var(--rf-font)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+			},
+			ringColor: {
+				DEFAULT: 'rgba(52, 42, 33, 0.18)',
+			},
+			borderRadius: {
+				control: '8px',
+				card: '12px',
+				feature: '20px',
+			},
 			colors: {
+				canvas: 'var(--rf-champagne)',
+				surface: 'var(--rf-surface)',
+				ink: 'var(--rf-coffee)',
+				line: 'var(--rf-line)',
+				action: 'var(--rf-olive-deep)',
+				danger: '#8b3f31',
+				red: {
+					50: '#f2e5d9',
+					100: '#e8d4c4',
+					200: '#d8bba2',
+					500: '#93604c',
+					600: '#8b3f31',
+					700: '#7a3528',
+					800: '#5f2a20',
+				},
 				white: '#fffaf1',
 				slate: {
 					50: '#f7efdf',

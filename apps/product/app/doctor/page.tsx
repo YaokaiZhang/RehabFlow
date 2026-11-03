@@ -50,7 +50,7 @@ export default function DoctorPage() {
 	if (!auth || auth.role !== "doctor") {
 		return (
 			<section className="card max-w-2xl">
-				<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Care Worklist</p>
+				<p className="text-sm font-semibold text-emerald-700">Care Worklist</p>
 				<h1 className="mt-2 text-2xl font-semibold text-slate-950">Sign in as a doctor</h1>
 				<p className="mt-2 text-sm leading-6 text-slate-600">Doctors review incoming Care Connection Requests and active Care Relationships here.</p>
 				<div className="mt-4 flex flex-wrap gap-2">
@@ -62,108 +62,91 @@ export default function DoctorPage() {
 	}
 
 	return (
-		<div className="space-y-5">
-			<section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-				<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-					<div>
-						<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Professional Care</p>
-						<h1 className="mt-2 text-2xl font-semibold text-slate-950 md:text-3xl">Care Worklist</h1>
-						<p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Review incoming Care Connection Requests, continue Care Conversation, and generate AI Care Summary for the selected Care Relationship.</p>
-					</div>
-					<Link className="btn-secondary" href="/doctor">Care Worklist</Link>
-				</div>
+		<div className="page-column space-y-6">
+			<section className="page-header">
+				<p className="page-header-kicker"><Link href="/doctor">Professional Care</Link></p>
+				<h1>Care Worklist</h1>
+				<p className="page-header-lead">New requests, patients waiting to choose you, and the patients you are working with.</p>
 			</section>
 
 			{loading ? <p className="text-sm text-slate-500">Loading Care Worklist...</p> : null}
-			{statusMessage ? <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">{statusMessage}</p> : null}
-			{errorMessage ? <p className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{errorMessage}</p> : null}
+			{statusMessage ? <p className="notice" role="status">{statusMessage}</p> : null}
+			{errorMessage ? <p className="notice notice-danger">{errorMessage}</p> : null}
 
-			<section className="card">
-				<SectionHeader eyebrow="Care Worklist" title="Incoming requests" description="Review new Care Connection Requests before they become active Care Relationships." />
-				{worklist.incoming_requests.length === 0 ? <p className="mt-2 text-sm text-slate-500">No pending Care Connection Requests.</p> : null}
-				<div className="mt-4 space-y-3">
+			<div className="doctor-worklist-grid">
+			<div className="doctor-queue">
+			<section className="doctor-queue-section">
+				<SectionHeader title="Incoming requests" description={worklist.incoming_requests.length ? undefined : "No new requests."} />
+				<div className="mt-3 space-y-3">
 					{worklist.incoming_requests.map((request) => (
-						<DashboardCard key={request.request_id} className="rounded-md p-4 shadow-none hover:border-slate-200 hover:shadow-none">
-							<div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-								<div>
-									<p className="text-sm font-semibold text-slate-950">{request.issue_title || "Care Episode"}</p>
-									<p className="mt-1 text-xs text-slate-500">Patient: {displayPatientName(request.patient_name)}</p>
-									<p className="mt-2 text-sm leading-6 text-slate-600">{request.request_reason}</p>
-								</div>
-								<div className="flex gap-2">
-									<AppButton onClick={() => respond(request, "accept")} disabled={busyRequestId === request.request_id}>Accept</AppButton>
-									<AppButton variant="secondary" onClick={() => respond(request, "reject")} disabled={busyRequestId === request.request_id}>Reject</AppButton>
-								</div>
+						<DashboardCard key={request.request_id} className="p-4">
+							<p className="font-bold text-slate-950">{request.issue_title || "Care Episode"}</p>
+							<p className="mt-0.5 text-sm text-slate-600">{displayPatientName(request.patient_name)}</p>
+							<p className="mt-2 line-clamp-3 text-sm leading-relaxed text-slate-700">{request.latest_triage_summary ? request.latest_triage_summary.recommendation : request.request_reason}</p>
+							{request.latest_triage_summary ? <p className="mt-1 text-xs text-slate-500">From the patient&apos;s Triage Summary</p> : null}
+							<div className="mt-3 flex gap-2">
+								<AppButton className="flex-1" onClick={() => respond(request, "accept")} disabled={busyRequestId === request.request_id}>Accept</AppButton>
+								<AppButton variant="secondary" className="flex-1" onClick={() => respond(request, "reject")} disabled={busyRequestId === request.request_id}>Decline</AppButton>
 							</div>
-							{request.latest_triage_summary ? (
-								<div className="mt-3 rounded-md border border-emerald-100 bg-emerald-50 p-3 text-sm text-slate-700">
-									<p className="font-semibold text-slate-950">Latest Triage Summary</p>
-									<p className="mt-1">{request.latest_triage_summary.recommendation}</p>
-								</div>
-							) : null}
 						</DashboardCard>
 					))}
 				</div>
 			</section>
 
-			<section className="card">
-				<SectionHeader eyebrow="Care Worklist" title="Accepted requests" description="These doctors have accepted a request and are waiting for patient selection." />
-				{worklist.accepted_requests.length === 0 ? <p className="mt-2 text-sm text-slate-500">No accepted Care Connection Requests are waiting for patient selection.</p> : null}
-				<div className="mt-4 space-y-3">
-					{worklist.accepted_requests.map((request) => (
-						<DashboardCard key={request.request_id} className="rounded-md border-emerald-200 bg-emerald-50 p-4 shadow-none hover:border-emerald-200 hover:shadow-none">
-							<div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-								<div>
-									<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Awaiting patient selection</p>
-									<p className="mt-1 text-sm font-semibold text-slate-950">{request.issue_title || "Care Episode"}</p>
-									<p className="mt-1 text-xs text-slate-500">Patient: {displayPatientName(request.patient_name)}</p>
-									<p className="mt-2 text-sm leading-6 text-slate-600">{request.request_reason}</p>
+			{worklist.accepted_requests.length ? (
+				<section className="doctor-queue-section">
+					<SectionHeader title="Awaiting patient selection" description="You accepted. The patient now chooses a doctor." />
+					<div className="mt-3 space-y-2">
+						{worklist.accepted_requests.map((request) => (
+							<DashboardCard key={request.request_id} className="p-4">
+								<div className="flex items-start justify-between gap-3">
+									<div className="min-w-0">
+										<p className="font-bold text-slate-950">{request.issue_title || "Care Episode"}</p>
+										<p className="mt-0.5 text-sm text-slate-600">{displayPatientName(request.patient_name)}</p>
+									</div>
+									<StatusBadge tone="neutral">Accepted</StatusBadge>
 								</div>
-								<StatusBadge tone="success">Accepted</StatusBadge>
-							</div>
-							{request.latest_triage_summary ? (
-								<div className="mt-3 rounded-md border border-emerald-100 bg-white p-3 text-sm text-slate-700">
-									<p className="font-semibold text-slate-950">Latest Triage Summary</p>
-									<p className="mt-1">{request.latest_triage_summary.recommendation}</p>
-								</div>
-							) : null}
-						</DashboardCard>
-					))}
-				</div>
-			</section>
+							</DashboardCard>
+						))}
+					</div>
+				</section>
+			) : null}
 
-			<section className="card">
-				<SectionHeader
-					eyebrow="Professional Care"
-					title="Active Care Relationships"
-					description="Choose one active relationship to review the Care Episode Brief and deeper Professional Care details."
-					action={selectedRelationship ? <StatusBadge tone="info">Selected relationship</StatusBadge> : undefined}
-				/>
-				{worklist.active_relationships.length === 0 ? <p className="mt-3 text-sm text-slate-500">Patients appear here after they select you for an accepted request.</p> : null}
-				<div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+			<section className="doctor-queue-section">
+				<SectionHeader title="Your patients" description={worklist.active_relationships.length ? undefined : "Patients appear here after they choose you."} />
+				<div className="mt-3 space-y-2" role="list">
 					{worklist.active_relationships.map((relationship) => (
 						<button
 							key={relationship.relationship_id}
 							type="button"
-							className={`rounded-md border p-4 text-left transition ${selectedRelationshipId === relationship.relationship_id ? "border-emerald-500 bg-emerald-50 shadow-sm" : "border-slate-200 bg-white hover:border-emerald-300"}`}
+							role="listitem"
+							aria-current={selectedRelationshipId === relationship.relationship_id ? "true" : undefined}
+							className={`doctor-patient-row ${selectedRelationshipId === relationship.relationship_id ? "doctor-patient-row-active" : ""}`}
 							onClick={() => setSelectedRelationshipId(relationship.relationship_id)}
 						>
-							<StatusBadge tone="info">Active Care Relationship</StatusBadge>
-							<h3 className="mt-1 text-base font-semibold text-slate-950">{relationship.issue_title || "Care Episode"}</h3>
-							<p className="mt-1 text-sm text-slate-600">Patient: {displayPatientName(relationship.patient_name)}</p>
-							<p className="mt-2 text-xs text-slate-500">{relationship.last_activity_label}: {new Date(relationship.last_activity_at).toLocaleString()}</p>
-							{relationship.latest_triage_summary ? <p className="mt-2 line-clamp-2 text-sm leading-5 text-slate-600">{relationship.latest_triage_summary.recommendation}</p> : null}
+							<span className="block font-bold text-slate-950">{relationship.issue_title || "Care Episode"}</span>
+							<span className="mt-0.5 block text-sm text-slate-600">{displayPatientName(relationship.patient_name)}</span>
+							{relationship.latest_triage_summary ? <span className="mt-1.5 line-clamp-2 block text-sm leading-snug text-slate-600">{relationship.latest_triage_summary.recommendation}</span> : null}
+							<span className="mt-1.5 block text-xs text-slate-500">{relationship.last_activity_label}: {new Date(relationship.last_activity_at).toLocaleString()}</span>
 						</button>
 					))}
 				</div>
 			</section>
+			</div>
 
+			<div className="doctor-detail">
+			{!selectedRelationship ? (
+				<div className="doctor-detail-empty">
+					<p className="font-bold text-ink">No patient selected</p>
+					<p className="mt-1 text-sm text-slate-600">{worklist.active_relationships.length ? "Choose a patient from Your patients to see their episode." : "When a patient chooses you, their episode opens here."}</p>
+				</div>
+			) : null}
 			{selectedRelationship ? (
 				<section className="space-y-4">
-					{selectedWorkspace ? <CareEpisodeBrief workspace={selectedWorkspace} role="doctor" /> : <p className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-500">Loading Care Episode Brief...</p>}
+					{selectedWorkspace ? <CareEpisodeBrief workspace={selectedWorkspace} role="doctor" /> : <p className="notice">Loading Care Episode Brief...</p>}
 					{selectedWorkspace ? (
 						<div className="space-y-3">
-							<AccordionSection title="Full Triage Summary" summary={selectedTriage ? selectedTriage.recommendation : "No saved Triage Summary yet."} defaultOpen>
+							<AccordionSection title="Full Triage Summary" summary={selectedTriage ? selectedTriage.recommendation : "No saved Triage Summary yet."} defaultOpen={Boolean(selectedTriage)}>
 								{selectedTriage ? (
 									<div className="space-y-3 leading-6">
 										<p><span className="font-semibold text-slate-950">Concern:</span> {selectedTriage.concern}</p>
@@ -189,9 +172,9 @@ export default function DoctorPage() {
 
 							<AccordionSection title="Care Conversation" summary={`${selectedMessages.length} message${selectedMessages.length === 1 ? "" : "s"}`}>
 								<div className="space-y-3">
-									<div className="max-h-64 space-y-2 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3">
+									<div className="max-h-64 space-y-2 overflow-auto rounded-control border border-line bg-[var(--rf-surface-muted)] p-3">
 										{selectedMessages.length === 0 ? <p className="text-sm text-slate-500">No messages yet.</p> : null}
-										{selectedMessages.map((message) => <div key={message.message_id} className="rounded-md border border-slate-200 bg-white p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{message.sender_role}</p><p className="mt-1 text-slate-700">{message.content}</p></div>)}
+										{selectedMessages.map((message) => <div key={message.message_id} className="rounded-control border border-line bg-white p-3"><p className="text-xs font-bold text-action">{message.sender_role === "doctor" ? "You" : displayPatientName(selectedRelationship.patient_name)}</p><p className="mt-1 text-slate-700">{message.content}</p></div>)}
 									</div>
 									<div className="flex flex-col gap-2 sm:flex-row">
 										<input className="input" value={selectedDraft} onChange={(event) => setDraftForEpisode(selectedRelationship.care_episode_id, event.target.value)} placeholder="Reply to patient" />
@@ -205,9 +188,9 @@ export default function DoctorPage() {
 								<AppButton className="mt-3" onClick={() => summarize(selectedRelationship.care_episode_id)} disabled={selectedBusy}>Generate Summary</AppButton>
 							</AccordionSection>
 
-							<AccordionSection title="Optional Live Movement Monitoring" summary="Open the episode-scoped live movement review console.">
+							<AccordionSection title="Optional Live Movement Monitoring" summary="Watch the patient's movement live during a session.">
 								<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-									<p className="leading-6 text-slate-600">Use this only when the active Care Relationship needs live movement context for this Care Episode.</p>
+									<p className="leading-6 text-slate-600">Useful when you need to see how the patient moves. The patient starts the session from AI Daily Rehab.</p>
 									<Link className="btn-secondary" href={`/episodes/${selectedRelationship.care_episode_id}/professional-care/live-monitor`}>Open Optional Live Movement Monitoring</Link>
 								</div>
 							</AccordionSection>
@@ -215,6 +198,8 @@ export default function DoctorPage() {
 					) : null}
 				</section>
 			) : null}
+			</div>
+			</div>
 		</div>
 	);
 }

@@ -53,7 +53,6 @@ type AgentProgressStep = {
 };
 
 const PENDING_TRIAGE_SUMMARY_KEY = "rehab_pending_triage_summary";
-const starterPrompt = "My shoulder feels stiff after rotator cuff rehab. What should I do today?";
 
 const suggestedPrompts = [
 	"My shoulder feels stiff after rotator cuff rehab. What should I do today?",
@@ -83,9 +82,13 @@ function makeId() {
 	return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+// routing_decision values from backend/app/ai/router.py, in patient language.
 function prettyRoute(route: string) {
-	if (!route) return "Awaiting triage";
-	return route.replaceAll("_", " ");
+	if (!route) return "Not assessed yet";
+	if (route.includes("urgent")) return "Seek care now";
+	if (route === "ask_clarification") return "Needs more detail";
+	if (route === "unsupported") return "Outside RehabFlow's scope";
+	return "Assessment in progress";
 }
 
 function agentProgressForStage(progress: AiChatProgress): AgentProgressStep {
@@ -138,15 +141,27 @@ function HomePageContent() {
 	const urlSessionId = searchParams.get("session_id") || "";
 	const urlEpisodeId = searchParams.get("episode_id") || "";
 	const activeTurnRef = useRef<string | null>(null);
+	const chatLogRef = useRef<HTMLDivElement | null>(null);
+
+	useEffect(() => {
+		const auth = loadAuth();
+		// Doctors have their own workspace; triage intake is for patients and visitors.
+		if (auth?.role === "doctor") {
+			router.replace("/doctor");
+			return;
+		}
+		setViewerRole(auth ? auth.role : null);
+	}, [router]);
 	const sessionIdRef = useRef("new");
 	const originatingEventIdRef = useRef<string | null>(null);
 	const pendingSubmissionRef = useRef<PendingAiChatSubmission | null>(null);
+	const [viewerRole, setViewerRole] = useState<string | null | undefined>(undefined);
 	const [sessionId, setSessionId] = useState("new");
 	const [episodeId, setEpisodeId] = useState("");
 	const [episodeTitle, setEpisodeTitle] = useState("");
 	const [episodeTitleLoading, setEpisodeTitleLoading] = useState(false);
 	const [patientId, setPatientId] = useState("");
-	const [prompt, setPrompt] = useState(starterPrompt);
+	const [prompt, setPrompt] = useState("");
 	const [isWaiting, setIsWaiting] = useState(false);
 	const [agentProgress, setAgentProgress] = useState(initialAgentProgress);
 	const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
@@ -238,7 +253,7 @@ function HomePageContent() {
 				role: "assistant",
 				text: "Welcome. Describe your current symptoms, rehab stage, and what changes the discomfort. I will triage your situation and suggest a safe next step for today.",
 			}]);
-			setPrompt(starterPrompt);
+			setPrompt("");
 			setRouteState({ routingDecision: "", needsMoreInfo: null, safetyPassed: null });
 			setHistoryLoading(false);
 		}
@@ -441,137 +456,144 @@ function HomePageContent() {
 		void sendChatTurn(turnId, submission);
 	};
 
+	const conversationStarted = messages.some((message) => message.role === "user");
+
 	const routeSummary = useMemo(() => {
-		if (!routeState.routingDecision) return "Answer a few triage questions to receive today’s recommended path.";
-		if (routeState.needsMoreInfo) return "The assistant needs one or two more details before recommending today’s plan.";
-		if (routeState.safetyPassed === false || routeState.routingDecision.includes("urgent")) {
-			return "This response may need Professional Care guidance or urgent care if symptoms are severe.";
+		if (!routeState.routingDecision) {
+			return conversationStarted
+				? "When you've answered the follow-up questions, request a Triage Summary to save this chat to an episode."
+				: "Describe what hurts. RehabFlow asks follow-up questions, then you can request a Triage Summary.";
 		}
-		return "You have enough triage context to move into a guided self-serve rehab session.";
-	}, [routeState]);
+		if (routeState.safetyPassed === false || routeState.routingDecision.includes("urgent")) {
+			return "Your answers suggest getting checked in person. If symptoms are severe, contact emergency services.";
+		}
+		if (routeState.needsMoreInfo || routeState.routingDecision === "ask_clarification") return "Answer the follow-up question so the advice fits your situation.";
+		if (routeState.routingDecision === "unsupported") return "This question is outside rehab triage. A clinician is the right person to ask.";
+		return "Keep answering until the advice feels complete, then request a Triage Summary to save it to an episode.";
+	}, [routeState, conversationStarted]);
+
+	// Keep the newest message in view, like any chat.
+	useEffect(() => {
+		const log = chatLogRef.current;
+		if (log) log.scrollTop = log.scrollHeight;
+	}, [messages, isWaiting, historyLoading]);
 
 	const tone = routeTone(routeState);
 	return (
-		<div className="space-y-6">
-			<section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-				<div>
-					<h1 className="mt-0 max-w-3xl text-3xl font-semibold text-slate-950 md:text-4xl">Start with AI triage, leave with today’s rehab route.</h1>
-					<p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-					Tell RehabFlow what hurts, where you are in recovery, and what changed recently.
-					</p>
-				</div>
-			</section>
-
-			<section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-				<div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-					<div className="border-b border-slate-200 p-4 md:p-5">
-						<div className="flex flex-wrap items-start justify-between gap-3">
-							<div>
-								<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">AI triage intake</p>
-								<h2 className="mt-1 text-xl font-semibold text-slate-950">{episodeTitleLoading ? "Loading rehab episode..." : episodeTitle || "What does your body need today?"}</h2>
-							</div>
-							<span className={`route-badge route-${tone}`}>{prettyRoute(routeState.routingDecision)}</span>
-						</div>
+		<div className="triage-layout">
+			<section className="triage-chat" aria-labelledby="triage-chat-title">
+				<header className="triage-chat-header">
+					<div className="min-w-0">
+						<p className="text-sm font-semibold text-action">AI Triage Intake</p>
+						<h1 id="triage-chat-title" className="mt-0.5 text-2xl font-bold leading-tight">{episodeTitleLoading ? "Loading rehab episode..." : episodeTitle || "What does your body need today?"}</h1>
 					</div>
+					{routeState.routingDecision ? <span className={`route-badge route-${tone}`}>{prettyRoute(routeState.routingDecision)}</span> : null}
+				</header>
 
-					<div className="max-h-[520px] space-y-3 overflow-auto bg-slate-50 p-4 md:p-5">
-						{historyLoading ? <p className="chat-history-state">Loading previous chat...</p> : null}
-						{historyError ? <p className="chat-history-state chat-history-state-error">{historyError}</p> : null}
-						{!historyLoading && !historyError && !messages.length ? <p className="chat-history-state">This chat has no messages yet.</p> : null}
-						{!historyLoading && !historyError ? messages.map((message) => (
-							<div
-								key={message.id}
-								className={`chat-card ${
-									message.role === "user" ? "chat-card-user" : message.role === "system" ? "chat-card-system" : "chat-card-assistant"
-								}`}
-							>
-								<p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{message.role === "user" ? "You" : message.role === "system" ? "System" : "RehabFlow"}</p>
-								<p className="mt-1 whitespace-pre-wrap text-sm leading-6">{message.text}</p>
-								{message.sources?.length ? (
-									<div className="mt-2 flex flex-wrap gap-2">
-										{message.sources.map((source) => (
-											<a key={source.url} className="inline-flex max-w-full items-center gap-1 text-xs font-medium text-emerald-700 underline decoration-emerald-300 underline-offset-2" href={source.url} target="_blank" rel="noreferrer" title={source.title}>
-												<svg aria-hidden="true" className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9.5 2.5h4v4M13.25 2.75 7.5 8.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M13 9v3.25A1.25 1.25 0 0 1 11.75 13.5h-8A1.25 1.25 0 0 1 2.5 12.25v-8A1.25 1.25 0 0 1 3.75 3H7" strokeLinecap="round" /></svg>
-												<span className="truncate">{source.title || source.label}</span>
-											</a>
-										))}
-									</div>
-								) : null}
-							</div>
-						)) : null}
-						{isWaiting ? (
-							<div className="chat-card chat-card-assistant agent-progress-card">
-								<div className="flex items-center gap-2">
-									<span className="agent-progress-dot" />
-									<p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">RehabFlow is working</p>
+				<div className="triage-chat-log" aria-live="polite" ref={chatLogRef}>
+					{historyLoading ? <p className="chat-history-state">Loading previous chat...</p> : null}
+					{historyError ? <p className="chat-history-state chat-history-state-error">{historyError}</p> : null}
+					{!historyLoading && !historyError && !messages.length ? <p className="chat-history-state">This chat has no messages yet.</p> : null}
+					{!historyLoading && !historyError ? messages.map((message) => (
+						<div
+							key={message.id}
+							className={`chat-card ${
+								message.role === "user" ? "chat-card-user" : message.role === "system" ? "chat-card-system" : "chat-card-assistant"
+							}`}
+						>
+							{message.role === "user" ? null : <p className="chat-card-author">{message.role === "system" ? "Something went wrong" : "RehabFlow"}</p>}
+							<p className="whitespace-pre-wrap text-[0.9875rem] leading-relaxed">{message.text}</p>
+							{message.sources?.length ? (
+								<div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-line pt-2">
+									{message.sources.map((source) => (
+										<a key={source.url} className="inline-flex max-w-full items-center gap-1 text-xs font-medium text-action underline decoration-[rgba(82,97,78,0.35)] underline-offset-2" href={source.url} target="_blank" rel="noreferrer" title={source.title}>
+											<svg aria-hidden="true" className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9.5 2.5h4v4M13.25 2.75 7.5 8.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M13 9v3.25A1.25 1.25 0 0 1 11.75 13.5h-8A1.25 1.25 0 0 1 2.5 12.25v-8A1.25 1.25 0 0 1 3.75 3H7" strokeLinecap="round" /></svg>
+											<span className="truncate">{source.title || source.label}</span>
+										</a>
+									))}
 								</div>
-								<p className="mt-2 text-sm font-semibold text-slate-800">{agentProgress.label}</p>
-								<p className="mt-1 text-sm leading-6 text-slate-500">{agentProgress.detail}</p>
+							) : null}
+						</div>
+					)) : null}
+					{isWaiting ? (
+						<div className="chat-card chat-card-assistant agent-progress-card" role="status">
+							<div className="flex items-center gap-2">
+								<span className="agent-progress-dot" />
+								<p className="text-sm font-semibold">{agentProgress.label}</p>
 							</div>
-						) : null}
-					</div>
-
-					<div className="border-t border-slate-200 p-4 md:p-5">
-						<div className="flex flex-wrap gap-2 pb-3">
-							{suggestedPrompts.map((item) => (
-								<button key={item} className="suggestion-chip" onClick={() => setPrompt(item)} disabled={isWaiting}>
-									{item}
-								</button>
-							))}
+							{agentProgress.detail ? <p className="mt-1 text-sm text-[var(--rf-ink-muted)]">{agentProgress.detail}</p> : null}
 						</div>
-						<div className="flex flex-col gap-2 sm:flex-row">
-							<textarea
-								className="textarea min-h-24 flex-1 resize-none"
-								value={prompt}
-								onChange={(event) => setPrompt(event.target.value)}
-								disabled={historyLoading || Boolean(historyError)}
-								onKeyDown={(event) => {
-									if ((event.metaKey || event.ctrlKey) && event.key === "Enter") sendPrompt();
-								}}
-							/>
-							<button className="btn-primary sm:w-32" onClick={() => sendPrompt()} disabled={isWaiting || historyLoading || Boolean(historyError) || !prompt.trim()}>
-								{isWaiting ? "Sending" : "Send"}
-							</button>
+					) : null}
+					{!conversationStarted && !historyLoading && !historyError ? (
+						<div className="triage-examples">
+							<p className="text-sm font-semibold text-[var(--rf-ink-muted)]">Not sure how to start? Try one of these.</p>
+							<div className="mt-2 flex flex-wrap gap-2">
+								{suggestedPrompts.map((item) => (
+									<button key={item} className="suggestion-chip" onClick={() => setPrompt(item)} disabled={isWaiting}>
+										{item}
+									</button>
+								))}
+							</div>
 						</div>
-					</div>
+					) : null}
 				</div>
 
-				<aside className="space-y-4">
-					<div className="summary-request-card rounded-lg border p-4 shadow-sm">
-						<p className="text-xs font-semibold uppercase tracking-wide text-[var(--rf-coffee)]">Triage Summary Request</p>
-						<p className="mt-2 text-sm leading-6 text-slate-700">When you are done answering triage questions, request a summary.</p>
-						<button className="btn-coffee mt-4 w-full" onClick={finishTriage} disabled={isWaiting || isGeneratingSummary}>
-							{isGeneratingSummary ? "Requesting" : "Request Summary"}
-						</button>
-						{summaryError ? <p className="mt-3 text-sm leading-6 text-rose-600">{summaryError}</p> : null}
-					</div>
-
-					<div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-						<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recommended route</p>
-						<p className="mt-2 text-lg font-semibold capitalize text-slate-950">{prettyRoute(routeState.routingDecision)}</p>
-						<p className="mt-2 text-sm leading-6 text-slate-600">{routeSummary}</p>
-					</div>
-
-					<Link className="next-step-card next-step-primary" href="/rehab/session">
-						<p className="text-sm font-semibold text-slate-950">Try guided rehab demo</p>
-						<p className="mt-1 text-sm text-slate-600">Open pose-guided exercise feedback for today’s rehab session.</p>
-					</Link>
-
-					<Link className="next-step-card" href="/episodes">
-						<p className="text-sm font-semibold text-slate-950">Professional Care</p>
-						<p className="mt-1 text-sm text-slate-600">Continue to your Care Episodes to connect with a clinician when recovery needs shared support.</p>
-					</Link>
-
-					<div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-						<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Safety notes</p>
-						<ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
-							<li>Stop exercise for sharp pain, new instability, fever, or sudden swelling.</li>
-							<li>Consider Professional Care for worsening symptoms or post-op uncertainty.</li>
-							<li>Call emergency services for severe trauma, chest pain, or neurologic symptoms.</li>
-						</ul>
-					</div>
-				</aside>
+				<form
+					className="triage-composer"
+					onSubmit={(event) => {
+						event.preventDefault();
+						sendPrompt();
+					}}
+				>
+					<label htmlFor="triage-message" className="sr-only">Your message</label>
+					<textarea
+						id="triage-message"
+						className="textarea triage-composer-input"
+						rows={2}
+						placeholder="Describe what hurts, since when, and what makes it better or worse"
+						value={prompt}
+						onChange={(event) => setPrompt(event.target.value)}
+						disabled={historyLoading || Boolean(historyError)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+								event.preventDefault();
+								sendPrompt();
+							}
+						}}
+					/>
+					<button type="submit" className="btn-primary triage-composer-send" disabled={isWaiting || historyLoading || Boolean(historyError) || !prompt.trim()}>
+						{isWaiting ? "Sending" : "Send"}
+					</button>
+					<p className="triage-composer-hint">Enter to send, Shift + Enter for a new line.</p>
+				</form>
 			</section>
+
+			<aside className="triage-side" aria-label="Triage progress and safety">
+				<div className="card summary-request-card">
+					<h2 className="section-title">Save this triage</h2>
+					<p className="mt-1.5 text-sm text-[var(--rf-ink-muted)]">{routeSummary}</p>
+					<button className="btn-secondary mt-4 w-full" onClick={finishTriage} disabled={isWaiting || isGeneratingSummary || !conversationStarted}>
+						{isGeneratingSummary ? "Requesting" : "Request Summary"}
+					</button>
+					{summaryError ? <p className="notice notice-danger mt-3 text-sm">{summaryError}</p> : null}
+					<p className="mt-3 text-xs text-[var(--rf-ink-soft)]">The summary is saved to a Care Episode, where you can start AI Daily Rehab or ask for Professional Care.</p>
+				</div>
+
+				<div className="triage-safety">
+					<h2 className="text-base font-bold">Stop and get help if</h2>
+					<ul className="mt-2 space-y-1.5 text-sm">
+						<li>pain is sharp, the joint gives way, or swelling comes on suddenly</li>
+						<li>you have a fever, numbness, or weakness that is spreading</li>
+						<li>there was a serious fall or injury: call emergency services</li>
+					</ul>
+				</div>
+
+				{viewerRole === null ? (
+					<p className="px-1 text-sm text-[var(--rf-ink-muted)]">
+						Just looking? <Link className="font-semibold text-action underline underline-offset-4" href="/rehab/session">Try a demo exercise session</Link>
+					</p>
+				) : null}
+			</aside>
 		</div>
 	);
 }

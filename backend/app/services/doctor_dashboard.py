@@ -175,7 +175,10 @@ def _briefing_context(db: Session, doctor_id: UUID) -> dict:
 	if not buckets:
 		buckets.append({"bucket": "quiet_panel", "label": "Quiet panel", "items": quiet_items})
 	attention_map = {
-		"summary": f"{len(relationship_rows)} active Care Relationship(s), {len(appointments)} upcoming appointment(s).",
+		"summary": (
+			f"{len(relationship_rows)} active {'patient' if len(relationship_rows) == 1 else 'patients'}, "
+			f"{len(appointments)} upcoming {'appointment' if len(appointments) == 1 else 'appointments'}."
+		),
 		"buckets": buckets,
 	}
 

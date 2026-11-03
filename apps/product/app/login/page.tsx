@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
@@ -24,6 +25,15 @@ function safeInitialRole(value: string | null): LoginRole | "" {
 function readStoredRole(): LoginRole {
 	if (typeof window === "undefined") return "patient";
 	return safeInitialRole(window.sessionStorage.getItem(LOGIN_ROLE_KEY)) || "patient";
+}
+
+function friendlyAuthError(err: unknown) {
+	const message = err instanceof Error ? err.message : "";
+	if (!message || /failed to fetch|networkerror|load failed/i.test(message)) {
+		return "RehabFlow can't reach its server right now. Check your connection and try again.";
+	}
+	if (/invalid credentials/i.test(message)) return "That username and password don't match. Check both and try again.";
+	return message;
 }
 
 function doctorRedirectPath(nextPath: string) {
@@ -64,54 +74,52 @@ export default function LoginPage() {
 			saveAuth(auth);
 			router.push(auth.role === "doctor" ? doctorRedirectPath(nextPath) : nextPath || "/episodes");
 		} catch (err) {
-			setError((err as Error).message);
+			setError(friendlyAuthError(err));
 		} finally {
 			setLoading(false);
 		}
 	};
 
 	return (
-		<section className="card max-w-lg">
-			<h1 className="text-xl font-semibold">Login</h1>
-			<form onSubmit={onSubmit} className="mt-4 space-y-3">
-				<div>
-					<label className="mb-1 block text-sm text-slate-600">Role</label>
-					<select
-						name="role"
-						value={role}
-						onChange={(e) => updateRole(e.target.value as LoginRole)}
-						className="w-full rounded border border-slate-300 px-3 py-2"
-					>
-						<option value="patient">Patient</option>
-						<option value="doctor">Doctor</option>
-					</select>
-				</div>
-				<div>
-					<label className="mb-1 block text-sm text-slate-600">Name</label>
-					<input
-						required
-						name="name"
-						autoComplete="username"
-						className="w-full rounded border border-slate-300 px-3 py-2"
-					/>
-				</div>
-				<div>
-					<label className="mb-1 block text-sm text-slate-600">Password</label>
-					<input
-						type="password"
-						required
-						minLength={8}
-						name="password"
-						autoComplete="current-password"
-						placeholder="At least 8 characters"
-						className="w-full rounded border border-slate-300 px-3 py-2"
-					/>
-				</div>
-				{error ? <p className="text-sm text-red-600">{error}</p> : null}
-				<AppButton type="submit" disabled={loading}>
-					Login
-				</AppButton>
-			</form>
+		<section className="auth-page">
+			<div className="auth-card">
+				<h1>Log in</h1>
+				<p className="auth-lead">Pick up where you left off with your rehab or your patients.</p>
+				<form onSubmit={onSubmit} className="auth-form">
+					<fieldset className="auth-role">
+						<legend className="sr-only">I am a</legend>
+						<label className={role === "patient" ? "auth-role-option auth-role-option-active" : "auth-role-option"}>
+							<input type="radio" name="role" value="patient" checked={role === "patient"} onChange={() => updateRole("patient")} />
+							Patient
+						</label>
+						<label className={role === "doctor" ? "auth-role-option auth-role-option-active" : "auth-role-option"}>
+							<input type="radio" name="role" value="doctor" checked={role === "doctor"} onChange={() => updateRole("doctor")} />
+							Doctor
+						</label>
+					</fieldset>
+					<div>
+						<label className="field-label mt-0" htmlFor="login-name">Username</label>
+						<input id="login-name" required name="name" autoComplete="username" className="input" />
+					</div>
+					<div>
+						<label className="field-label mt-0" htmlFor="login-password">Password</label>
+						<input
+							id="login-password"
+							type="password"
+							required
+							minLength={8}
+							name="password"
+							autoComplete="current-password"
+							className="input"
+						/>
+					</div>
+					{error ? <p className="notice notice-danger" role="alert">{error}</p> : null}
+					<AppButton type="submit" className="w-full" disabled={loading}>
+						{loading ? "Logging in" : "Log in"}
+					</AppButton>
+				</form>
+				<p className="auth-switch">New to RehabFlow? <Link href={role === "doctor" ? "/register?role=doctor" : "/register"}>Create an account</Link></p>
+			</div>
 		</section>
 	);
 }

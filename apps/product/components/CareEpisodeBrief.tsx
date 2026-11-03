@@ -13,7 +13,7 @@ function listText(items: string[] | undefined, fallback: string) {
 }
 
 function summaryRisk(summary: TriageSummaryArtifact | null | undefined) {
-	if (!summary) return "No saved Triage Summary yet.";
+	if (!summary) return "Not triaged yet";
 	if (summary.clinician_review_needed) return "Clinician review recommended";
 	if (summary.safety_signals.length) return summary.safety_signals.join(" ");
 	return "No major safety signals captured.";
@@ -26,7 +26,7 @@ function triageContextSummary(summary: TriageSummaryArtifact | null | undefined)
 function TriageContextSummary({ text }: { text: string }) {
 	return (
 		<details className="episode-context mt-3 text-sm text-slate-600">
-			<summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">Triage context summary</summary>
+			<summary className="cursor-pointer text-sm font-semibold text-slate-500">Triage context summary</summary>
 			<p className="mt-2 whitespace-pre-line leading-6">{text}</p>
 		</details>
 	);
@@ -55,23 +55,22 @@ export function CareEpisodeBrief({ workspace, role, compact = false, showTitle =
 					{showTitle ? <p className="episode-brief-subtitle">{episode.issue_title}</p> : null}
 					{showContext && triageContext ? <TriageContextSummary text={triageContext} /> : null}
 				</div>
-				<span className="episode-brief-view">
-					{role === "doctor" ? "Doctor review" : "Patient view"}
-				</span>
 			</div>
 
 			<div className="episode-brief-facts">
 				<p className="episode-brief-fact"><span className="episode-brief-label">Body area</span><span>{episode.body_area}</span></p>
 				<p className="episode-brief-fact"><span className="episode-brief-label">Goal</span><span>{episode.goal}</span></p>
 				{role === "doctor" ? <p className="episode-brief-fact"><span className="episode-brief-label">Safety</span><span>{summaryRisk(triage)}</span></p> : null}
-				<p className="episode-brief-fact"><span className="episode-brief-label">Rehab</span><span>{total ? `${completed}/${total} complete` : "No rehab session yet"}</span></p>
-				<p className="episode-brief-fact"><span className="episode-brief-label">Professional Care</span><span>{professionalCare.has_active_relationship ? "Active Care Relationship" : "No active relationship"}</span></p>
+				<p className="episode-brief-fact"><span className="episode-brief-label">Rehab</span><span>{total ? `${completed} of ${total} exercises done` : "Not started"}</span></p>
+				<p className="episode-brief-fact"><span className="episode-brief-label">Professional Care</span><span>{professionalCare.has_active_relationship ? "Working with a doctor" : "No doctor yet"}</span></p>
 			</div>
 
-			<div className="episode-brief-triage">
-				<span className="episode-brief-label">Triage</span>
-				<p>{triage ? triage.recommendation : "No saved summary"}</p>
-			</div>
+			{triage && (role === "doctor" || compact) ? (
+				<div className="episode-brief-triage">
+					<span className="episode-brief-label">Triage</span>
+					<p>{triage.recommendation}</p>
+				</div>
+			) : null}
 
 			{role === "doctor" && !compact && triage ? (
 				<div className="episode-brief-doctor-note text-sm text-slate-700">

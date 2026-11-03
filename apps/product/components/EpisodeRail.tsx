@@ -141,6 +141,11 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 	const [pendingDeleteId, setPendingDeleteId] = useState("");
 	const [deletingId, setDeletingId] = useState("");
 	const [reloadToken, setReloadToken] = useState(0);
+	const [railOpen, setRailOpen] = useState(false);
+
+	useEffect(() => {
+		setRailOpen(false);
+	}, [pathname, querySessionId]);
 	const activeEpisodeId = routeEpisodeId(pathname, queryEpisodeId);
 	const episodeNames = new Map(episodes.map((episode) => [episode.care_episode_id, episodeLabel(episode)]));
 	const unassignedChats = chatSessions.filter((session) => !session.care_episode_id);
@@ -231,16 +236,30 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 		}
 	};
 
+	const activeEpisode = episodes.find((episode) => episode.care_episode_id === activeEpisodeId);
+
 	return (
-		<aside className="episode-rail" aria-label="Care episodes and AI triage chats">
+		<aside className={railOpen ? "episode-rail episode-rail-open" : "episode-rail"} aria-label="Care episodes and AI triage chats">
+			<button
+				type="button"
+				className="episode-rail-toggle"
+				aria-expanded={railOpen}
+				aria-controls="episode-rail-body"
+				onClick={() => setRailOpen((open) => !open)}
+			>
+				<span className="episode-rail-toggle-label">
+					{activeEpisode ? <>{episodeLabel(activeEpisode)} <span>· switch episode</span></> : "Your episodes and chats"}
+				</span>
+				<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+			</button>
+			<div className="episode-rail-body" id="episode-rail-body">
 			<div className="episode-rail-heading">
 				<span className="episode-rail-heading-title">Episodes</span>
 				<Link href="/episodes" className="episode-rail-all">View all</Link>
 			</div>
-			<p className="episode-rail-intro">Open an episode to work through its sessions.</p>
 			<div className="episode-rail-actions">
-				<Link href="/episodes/new" className="episode-rail-new">+ New episode</Link>
-				<Link href="/" className="episode-rail-new episode-rail-new-chat">+ New chat</Link>
+				<Link href="/episodes/new" className="episode-rail-new">New episode</Link>
+				<Link href="/" className="episode-rail-new episode-rail-new-chat">New chat</Link>
 			</div>
 
 			<div className="episode-rail-list">
@@ -269,7 +288,6 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 									<span className="episode-folder-title">{episodeLabel(episode)}</span>
 									<span className="episode-folder-meta">{episode.body_area || "Care episode"}</span>
 								</span>
-								{isActive ? <span className="episode-folder-state">Open</span> : null}
 							</Link>
 							{isActive ? (
 								<>
@@ -300,7 +318,7 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 												href={`/?episode_id=${episode.care_episode_id}`}
 												className="episode-chat-new"
 											>
-												+ New chat
+												New chat
 											</Link>
 										</div>
 										{chatLoading ? <p className="episode-chat-feedback">Loading chats...</p> : null}
@@ -358,9 +376,10 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 								/>
 							))}
 						</div>
-					) : <p className="episode-chat-feedback">No chats started outside an episode yet.</p>
+					) : <p className="episode-chat-feedback">Chats you start without an episode appear here.</p>
 				) : null}
 			</section>
+			</div>
 		</aside>
 	);
 }

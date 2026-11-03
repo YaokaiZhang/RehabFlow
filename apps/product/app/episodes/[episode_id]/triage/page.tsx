@@ -17,7 +17,7 @@ import {
 } from "@rehab/shared/api";
 import { loadAuth, type AuthState } from "@rehab/shared/auth";
 
-import { AppButton } from "../../../../components/ui";
+import { AppButton, StatusBadge } from "../../../../components/ui";
 
 type Params = { episode_id?: string };
 type SummaryLike = TriageSummaryArtifact | TriageSummaryDraft;
@@ -41,26 +41,26 @@ function SummaryPanel({
 }) {
     const saved = isSavedSummary(summary);
     return (
-        <section className={`card max-w-3xl ${saved ? "border-emerald-200" : "border-amber-200"}`}>
+        <section className={`card ${saved ? "" : "border-[rgba(157,119,79,0.45)]"}`}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                    <p className={saved ? "text-xs font-semibold uppercase tracking-wide text-emerald-700" : "text-xs font-semibold uppercase tracking-wide text-amber-700"}>
-                        {saved ? `Triage Summary v${summary.version}` : "Unsaved Triage Summary"}
-                    </p>
-                    <h2 className="mt-1 text-xl font-semibold text-slate-950">{summary.concern || episodeIssueTitle}</h2>
+                    <StatusBadge tone={saved ? "success" : "attention"}>
+                        {saved ? `Saved summary, version ${summary.version}` : "Draft: review before saving"}
+                    </StatusBadge>
+                    <h2 className="mt-3 text-xl font-bold leading-snug text-slate-950">{summary.concern || episodeIssueTitle}</h2>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    {!saved && onSave ? <AppButton onClick={onSave} disabled={busy}>{busy ? "Saving" : "Save Summary"}</AppButton> : null}
-                    {!saved && onDelete ? <AppButton variant="secondary" onClick={onDelete} disabled={busy}>{busy ? "Working" : "Delete"}</AppButton> : null}
+                    {!saved && onSave ? <AppButton onClick={onSave} disabled={busy}>{busy ? "Saving" : "Save to episode"}</AppButton> : null}
+                    {!saved && onDelete ? <AppButton variant="ghost" className="text-danger" onClick={onDelete} disabled={busy}>{busy ? "Working" : "Discard"}</AppButton> : null}
                 </div>
             </div>
             <div className="mt-5">
-                <h3 className="text-sm font-semibold text-slate-950">What we heard</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-700">{summary.relevant_context}</p>
+                <h3 className="text-base font-bold text-slate-950">What we heard</h3>
+                <p className="mt-1.5 max-w-[68ch] leading-relaxed text-slate-700">{summary.relevant_context}</p>
             </div>
-            <div className="mt-5 border-t border-slate-200 pt-4">
-                <h3 className="text-sm font-semibold text-slate-950">Suggested next step</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-700">{summary.recommendation}</p>
+            <div className="mt-5 border-t border-line pt-4">
+                <h3 className="text-base font-bold text-slate-950">Suggested next step</h3>
+                <p className="mt-1.5 max-w-[68ch] leading-relaxed text-slate-700">{summary.recommendation}</p>
             </div>
         </section>
     );
@@ -122,7 +122,7 @@ export default function EpisodeTriagePage() {
             const draft = await createTriageSummaryDraft(episode.care_episode_id, { additional_context: additionalContext }, auth.access_token);
             setDrafts((prev) => [draft, ...prev]);
             setAdditionalContext("");
-            setStatusMessage("Unsaved Triage Summary generated.");
+            setStatusMessage("Draft summary ready. Review it below, then save it to the episode.");
         } catch (err) {
             setError((err as Error).message);
         } finally {
@@ -156,7 +156,7 @@ export default function EpisodeTriagePage() {
         try {
             await deleteTriageSummaryDraft(episode.care_episode_id, draftId, auth.access_token);
             setDrafts((prev) => prev.filter((draft) => draft.triage_summary_draft_id !== draftId));
-            setStatusMessage("Unsaved Triage Summary deleted.");
+            setStatusMessage("Draft discarded.");
         } catch (err) {
             setError((err as Error).message);
         } finally {
@@ -165,38 +165,38 @@ export default function EpisodeTriagePage() {
     };
 
     if (loading) return <p className="text-sm text-slate-500">Loading episode triage...</p>;
-    if (error && !episode) return <section className="card max-w-2xl text-sm text-rose-700">{error}</section>;
+    if (error && !episode) return <section className="page-column-narrow"><p className="notice notice-danger">{error}</p></section>;
     if (!episode) return null;
 
     const latestSummary = summaries[0] || episode.latest_triage_summary || null;
 
     return (
-        <div className="space-y-5">
-            <section className="card max-w-3xl">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">AI Triage Intake</p>
-                <h1 className="mt-2 text-2xl font-semibold text-slate-950">{episode.issue_title}</h1>
-                <p className="mt-2 text-sm leading-6 text-slate-600">Generate a structured Triage Summary, review it, then save the selected summary into this Care Episode.</p>
-                <div className="mt-4 flex flex-wrap gap-2">
+        <div className="page-column-narrow space-y-6">
+            <section className="page-header">
+                <p className="page-header-kicker">AI Triage Intake</p>
+                <h1>{episode.issue_title}</h1>
+                <p className="page-header-lead">Turn your triage chat into a summary, check it, and save it to this episode. A saved summary unlocks AI Daily Rehab.</p>
+                <div className="page-header-actions">
                     <Link className="btn-secondary" href={`/?episode_id=${episode.care_episode_id}`}>Continue AI Triage Chat</Link>
                     <Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}`}>Episode Overview</Link>
                 </div>
             </section>
 
-            <section className="card max-w-3xl">
-                <h2 className="section-title">Triage Summary Request</h2>
+            <section className="card">
+                <h2 className="section-title">{latestSummary ? "Update the summary" : "Create a summary"}</h2>
                 <label className="block">
-                    <span className="field-label">New context since the last summary</span>
+                    <span className="field-label">Anything new since your last chat? (optional)</span>
                     <textarea
                         className="textarea min-h-28"
                         value={additionalContext}
                         onChange={(event) => setAdditionalContext(event.target.value)}
-                        placeholder="Add answers from triage chat, symptom changes, red-flag negatives, or current limits."
+                        placeholder="For example: swelling went down, stairs still hurt, no numbness"
                     />
                 </label>
-                {error ? <p className="mt-3 text-sm text-rose-600">{error}</p> : null}
-                {statusMessage ? <p className="mt-3 text-sm text-emerald-700">{statusMessage}</p> : null}
+                {error ? <p className="notice notice-danger mt-3">{error}</p> : null}
+                {statusMessage ? <p className="notice mt-3" role="status">{statusMessage}</p> : null}
                 <AppButton className="mt-4" onClick={generateSummary} disabled={generating}>
-                    {generating ? "Generating" : latestSummary ? "Generate New Unsaved Summary" : "Generate Unsaved Summary"}
+                    {generating ? "Writing summary" : latestSummary ? "Write a new draft" : "Write a draft summary"}
                 </AppButton>
             </section>
 
@@ -218,11 +218,11 @@ export default function EpisodeTriagePage() {
             {latestSummary ? <SummaryPanel summary={latestSummary} episodeIssueTitle={episode.issue_title} /> : null}
 
             {summaries.length > 1 ? (
-                <section className="card max-w-3xl">
-                    <h2 className="section-title">Saved Summary History</h2>
+                <section className="card">
+                    <h2 className="section-title">Earlier summaries</h2>
                     <div className="mt-3 space-y-2">
                         {summaries.slice(1).map((summary) => (
-                            <div key={summary.triage_summary_id} className="rounded-md border border-slate-200 p-3 text-sm text-slate-600">
+                            <div key={summary.triage_summary_id} className="rounded-control border border-line p-4 text-sm text-slate-700">
                                 <p className="font-semibold text-slate-950">Version {summary.version}</p>
                                 <p className="mt-1">{summary.recommendation}</p>
                             </div>

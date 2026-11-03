@@ -95,8 +95,13 @@ export function usePatientProfessionalCareWorkspace(episodeId: string) {
     useEffect(() => {
         const nextAuth = loadAuth();
         setAuth(nextAuth);
+        if (nextAuth?.role === "doctor") {
+            // Doctors review episodes from the Care Worklist, not the patient view.
+            window.location.replace("/doctor");
+            return;
+        }
         if (!nextAuth || nextAuth.role !== "patient") {
-            setError("Login as a patient to open Professional Care.");
+            setError("Log in as a patient to open Professional Care.");
             setLoading(false);
             return;
         }

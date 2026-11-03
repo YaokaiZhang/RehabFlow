@@ -61,25 +61,13 @@ export default function SettingsPageClient() {
 		<div className="settings-page">
 			<section className="settings-intro">
 				<div>
-					<h1>Account and preferences</h1>
-					<p>Manage account basics and role-specific RehabFlow settings without changing care workflow data.</p>
-				</div>
-				<div className="settings-intro-actions">
-					<Link className="product-auth-link product-auth-link-secondary" href={roleHome(auth)}>Back to workspace</Link>
-					<AppButton variant="ghost" onClick={signOut}>Sign out</AppButton>
+					<h1>Settings</h1>
+					<p>{role === "patient" ? "Your account, and what RehabFlow remembers about you." : "Your account and the profile patients see when they choose a doctor."}</p>
 				</div>
 			</section>
 
 			<div className="settings-layout">
 				<aside className="settings-sidebar">
-					<div className="settings-account-summary">
-						<p className="settings-side-label">Signed in as</p>
-						<h2>{auth.username}</h2>
-						<div className="settings-account-badges">
-							<StatusBadge tone="info">{auth.role}</StatusBadge>
-							<StatusBadge tone="neutral">Signed in</StatusBadge>
-						</div>
-					</div>
 					<nav className="settings-nav" aria-label="Settings sections">
 						<a className={showAccount ? "settings-nav-link settings-nav-link-active" : "settings-nav-link"} href="/settings">Account</a>
 						{role === "patient" ? <a className={showPatientMemory ? "settings-nav-link settings-nav-link-active" : "settings-nav-link"} href="/settings?section=patient-memory">Patient Memory</a> : null}
@@ -87,30 +75,31 @@ export default function SettingsPageClient() {
 					</nav>
 				</aside>
 
-				<main className="settings-content">
+				<div className="settings-content">
 					{showAccount ? (
 						<DashboardCard className="settings-content-card p-5 md:p-6">
-								<SectionHeader
-									title="Account settings"
-								description="Your current RehabFlow identity and role. Care Episodes, Professional Care, and doctor workflow data stay in their own workspaces."
-							/>
+							<SectionHeader title="Account" />
 							<dl className="settings-detail-grid mt-4 grid gap-3 text-sm sm:grid-cols-2">
-								<div className="settings-detail-item rounded-md bg-slate-50 p-3 ring-1 ring-slate-200">
-									<dt className="font-semibold text-slate-600">Name</dt>
-									<dd className="mt-1 text-slate-950">{auth.username}</dd>
+								<div className="settings-detail-item rounded-control border border-line p-3">
+									<dt className="font-semibold text-slate-600">Username</dt>
+									<dd className="mt-1 break-all text-slate-950">{auth.username}</dd>
 								</div>
-								<div className="settings-detail-item rounded-md bg-slate-50 p-3 ring-1 ring-slate-200">
-									<dt className="font-semibold text-slate-600">Role</dt>
+								<div className="settings-detail-item rounded-control border border-line p-3">
+									<dt className="font-semibold text-slate-600">Account type</dt>
 									<dd className="mt-1 capitalize text-slate-950">{auth.role}</dd>
 								</div>
 							</dl>
+							<div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
+								<p className="text-sm text-slate-600">Signing out removes your login from this browser.</p>
+								<AppButton variant="secondary" onClick={signOut}>Sign out</AppButton>
+							</div>
 						</DashboardCard>
 					) : null}
 
 					{role === "patient" && showPatientMemory ? <PatientMemorySettingsSection /> : null}
 
 					{role === "doctor" && showProfessionalProfile ? <DoctorProfessionalProfileSection /> : null}
-				</main>
+				</div>
 			</div>
 		</div>
 	);

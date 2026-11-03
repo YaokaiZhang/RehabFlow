@@ -13,9 +13,21 @@ import { AppButton, StatusBadge } from "../../../components/ui";
 type Params = { episode_id?: string };
 
 function safetyLabel(status: CareEpisode["safety_gate_status"]) {
-	if (status === "needs_triage") return "Rehab Safety Gate: AI triage needed";
-	if (status === "clinician_reviewed") return "Rehab Safety Gate: clinician-reviewed";
-	return "Rehab Safety Gate: AI triage complete";
+	if (status === "needs_triage") return "Opens after AI triage";
+	if (status === "clinician_reviewed") return "Cleared by a clinician";
+	return "Cleared by AI triage";
+}
+
+function tierLabel(tier: string) {
+	if (tier === "professional_care") return "Professional Care plan";
+	if (tier === "self_serve") return "Self-guided plan";
+	return tier.replace(/_/g, " ");
+}
+
+function requestSummary(counts: Record<string, number>) {
+	const entries = Object.entries(counts).filter(([, count]) => count > 0);
+	if (!entries.length) return "No doctor requests yet";
+	return entries.map(([status, count]) => `${count} ${status.replace(/_/g, " ")}`).join(", ");
 }
 
 function countCompleted(checklist: Array<{ completed?: boolean }>) {
@@ -35,7 +47,7 @@ function fullTriageHistory(summary: SummaryWithContext | null | undefined) {
 function TriageContextSummary({ text }: { text: string }) {
 	return (
 		<details className="episode-context mt-3 text-sm text-slate-600">
-			<summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">Triage context summary</summary>
+			<summary className="cursor-pointer text-sm font-semibold text-slate-500">Triage context summary</summary>
 			<p className="mt-2 whitespace-pre-line leading-6">{text}</p>
 		</details>
 	);
@@ -44,7 +56,7 @@ function TriageContextSummary({ text }: { text: string }) {
 function FullAiTriageHistory({ text }: { text: string }) {
 	return (
 		<details className="rounded-md border border-slate-200 bg-slate-50 p-3 text-slate-600">
-			<summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">Full AI triage history</summary>
+			<summary className="cursor-pointer text-sm font-semibold text-slate-500">Full AI triage history</summary>
 			<p className="mt-2 whitespace-pre-line text-sm leading-6">{text || "No full AI triage history was saved for this summary."}</p>
 		</details>
 	);
@@ -127,114 +139,102 @@ export default function CareEpisodeOverviewPage() {
 		<div className="episode-overview">
 			<section className="episode-overview-header">
 				<div className="episode-overview-header-content">
-					<div>
+					<div className="min-w-0">
 						<h1>{episode.issue_title}</h1>
 						{triageContext ? <TriageContextSummary text={triageContext} /> : null}
 					</div>
 					<div className="episode-overview-actions">
-						<Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}/history`}>View full history</Link>
-						<Link className="btn-secondary" href="/episodes">All Episodes</Link>
-					</div>
-				</div>
-			</section>
-
-			<CareEpisodeBrief workspace={workspace} role="patient" showTitle={false} showContext={false} />
-
-			<section className="episode-summary-grid">
-				<div className="card episode-summary-card episode-summary-card-triage">
-					<h2 className="section-title">Latest Triage Summary</h2>
-					{triage ? (
-						<div className="mt-3 space-y-3 text-sm text-slate-700">
-							<p>{triage.recommendation}</p>
-							<FullAiTriageHistory text={latestFullHistory} />
-						</div>
-					) : (
-						<p className="mt-2 text-sm text-slate-500">No saved Triage Summary yet. Build safety context before AI Daily Rehab progression.</p>
-					)}
-					{unsavedTriageSummaries.length ? (
-						<div className="mt-4 space-y-2 border-t border-slate-200 pt-4">
-							<p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Unsaved summaries</p>
-							{statusMessage ? <p className="text-sm text-emerald-700">{statusMessage}</p> : null}
-							{error ? <p className="text-sm text-rose-600">{error}</p> : null}
-							{unsavedTriageSummaries.map((draft) => {
-								const draftFullHistory = fullTriageHistory(draft);
-								return (
-									<div key={draft.triage_summary_draft_id} className="rounded-md border border-amber-200 bg-amber-50 p-3">
-										<p className="text-sm text-slate-700">{draft.recommendation}</p>
-										<div className="mt-3">
-											<FullAiTriageHistory text={draftFullHistory} />
-										</div>
-										<AppButton variant="secondary" className="mt-3" onClick={() => deleteUnsavedSummary(draft.triage_summary_draft_id)} disabled={deletingDraftId === draft.triage_summary_draft_id}>
-											{deletingDraftId === draft.triage_summary_draft_id ? "Deleting" : "Delete"}
-										</AppButton>
-									</div>
-								);
-							})}
-						</div>
-					) : null}
-				</div>
-
-				<div className="card episode-summary-card">
-					<h2 className="section-title">Latest Rehab Summary</h2>
-					{rehab ? (
-						<div className="mt-3 space-y-3 text-sm text-slate-700">
-							<p><span className="font-semibold text-slate-950">Checklist:</span> {completedCount}/{rehab.checklist.length} complete</p>
-							<p><span className="font-semibold text-slate-950">Notes:</span> {rehab.patient_notes || "No notes captured."}</p>
-							<p>{rehab.session_summary || "No generated session summary yet."}</p>
-						</div>
-					) : (
-						<p className="mt-2 text-sm text-slate-500">No rehab session yet for this episode.</p>
-					)}
-				</div>
-
-				<div className="card episode-summary-card">
-					<h2 className="section-title">Professional Care Summary</h2>
-					<div className="mt-3 space-y-3 text-sm text-slate-700">
-						<p className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-950">Subscription:</span> <StatusBadge tone="info">{professionalCare.subscription_tier}</StatusBadge></p>
-						<p><span className="font-semibold text-slate-950">Selected doctor:</span> {selectedDoctorLabel}</p>
-						<p><span className="font-semibold text-slate-950">Requests:</span> {Object.entries(professionalCare.request_counts).map(([status, count]) => `${status}: ${count}`).join(", ") || "None"}</p>
-						{careSummary ? (
-							<>
-								<p>{careSummary.conversation_digest}</p>
-								<p><span className="font-semibold text-slate-950">Plan:</span> {careSummary.plan_digest}</p>
-							</>
-						) : (
-							<p>No AI Care Summary yet.</p>
-						)}
+						<Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}/history`}>History</Link>
 					</div>
 				</div>
 			</section>
 
 			<section className="episode-next-action" aria-live="polite">
 				<div>
+					<p className="episode-next-action-kicker">Next step</p>
 					<h2>{nextAction.title}</h2>
 					<p>{nextAction.description}</p>
 				</div>
 				<Link className="btn-primary shrink-0" href={nextAction.href}>{nextAction.cta}</Link>
 			</section>
 
-			<section className="episode-session-directory">
+			<CareEpisodeBrief workspace={workspace} role="patient" showTitle={false} showContext={false} />
+
+			<section className="episode-session-directory" aria-labelledby="episode-sessions-title">
 				<div className="episode-session-directory-header">
-					<h2>Sessions in this episode</h2>
-					<p>Choose another care workspace. The episode folder keeps the working context together, while each session has one clear job.</p>
+					<h2 id="episode-sessions-title">Sessions in this episode</h2>
 				</div>
-				<div className="mt-4 grid gap-3 md:grid-cols-3">
-					<Link className="next-step-card next-step-primary" href={`/episodes/${episode.care_episode_id}/triage`}>
-						<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">AI Triage Intake</p>
-						<h3 className="mt-2 text-lg font-semibold text-slate-950">Build safety context</h3>
-						<p className="mt-2 text-sm leading-6 text-slate-600">Ask follow-up questions and request or regenerate a Triage Summary.</p>
-					</Link>
+				<div className="episode-summary-grid mt-4">
+					<div className="card episode-summary-card episode-summary-card-triage">
+						<div className="flex flex-wrap items-start justify-between gap-3">
+							<div>
+								<h3 className="section-title">AI Triage Intake</h3>
+								<p className="mt-1 text-sm text-[var(--rf-ink-muted)]">Safety questions that decide which care path is right.</p>
+							</div>
+							<StatusBadge tone={triage ? "success" : "attention"}>{triage ? "Summary saved" : "Not started"}</StatusBadge>
+						</div>
+						{triage ? (
+							<div className="mt-4 space-y-3 text-sm text-slate-700">
+								<p className="max-w-[68ch]">{triage.recommendation}</p>
+								<FullAiTriageHistory text={latestFullHistory} />
+							</div>
+						) : null}
+						{unsavedTriageSummaries.length ? (
+							<div className="mt-4 space-y-2 border-t border-line pt-4">
+								<p className="text-sm font-semibold">Draft summaries you haven&apos;t saved</p>
+								{statusMessage ? <p className="text-sm text-emerald-700">{statusMessage}</p> : null}
+								{error ? <p className="text-sm text-rose-600">{error}</p> : null}
+								{unsavedTriageSummaries.map((draft) => {
+									const draftFullHistory = fullTriageHistory(draft);
+									return (
+										<div key={draft.triage_summary_draft_id} className="rounded-control border border-line bg-[var(--rf-surface-muted)] p-4">
+											<p className="text-sm text-slate-700">{draft.recommendation}</p>
+											<div className="mt-3">
+												<FullAiTriageHistory text={draftFullHistory} />
+											</div>
+											<AppButton variant="ghost" className="mt-2 px-2 text-danger" onClick={() => deleteUnsavedSummary(draft.triage_summary_draft_id)} disabled={deletingDraftId === draft.triage_summary_draft_id}>
+												{deletingDraftId === draft.triage_summary_draft_id ? "Deleting" : "Delete draft"}
+											</AppButton>
+										</div>
+									);
+								})}
+							</div>
+						) : null}
+						<Link className="mt-4 inline-flex font-semibold text-action underline-offset-4 hover:underline" href={`/episodes/${episode.care_episode_id}/triage`}>
+							{triage ? "Review or update triage" : "Open triage intake"}
+						</Link>
+					</div>
+
 					<Link className="next-step-card" href={`/episodes/${episode.care_episode_id}/rehab`}>
-						<p className="text-xs font-semibold uppercase tracking-wide text-amber-700">{safetyLabel(episode.safety_gate_status)}</p>
-						<h3 className="mt-2 text-lg font-semibold text-slate-950">AI Daily Rehab</h3>
-						<p className="mt-2 text-sm leading-6 text-slate-600">Start today's session, update the checklist, and save a summary.</p>
+						<div className="flex flex-wrap items-start justify-between gap-3">
+							<h3 className="section-title">AI Daily Rehab</h3>
+							<StatusBadge tone={episode.safety_gate_status === "needs_triage" ? "neutral" : "success"}>{safetyLabel(episode.safety_gate_status)}</StatusBadge>
+						</div>
+						{rehab ? (
+							<div className="mt-3 space-y-2 text-sm text-slate-700">
+								<p><span className="font-semibold text-slate-950">Last session:</span> {completedCount} of {rehab.checklist.length} exercises done</p>
+								{rehab.session_summary ? <p>{rehab.session_summary}</p> : null}
+							</div>
+						) : (
+							<p className="mt-3 text-sm text-[var(--rf-ink-muted)]">Guided exercise sessions with a checklist and a saved summary.</p>
+						)}
 					</Link>
+
 					<Link className="next-step-card" href={`/episodes/${episode.care_episode_id}/professional-care`}>
-						<p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Professional Care</p>
-						<h3 className="mt-2 text-lg font-semibold text-slate-950">Work with a doctor</h3>
-						<p className="mt-2 text-sm leading-6 text-slate-600">Manage requests, Care Conversation, and the AI Care Summary.</p>
+						<div className="flex flex-wrap items-start justify-between gap-3">
+							<h3 className="section-title">Professional Care</h3>
+							<StatusBadge tone={professionalCare.has_active_relationship ? "success" : "neutral"}>{tierLabel(professionalCare.subscription_tier)}</StatusBadge>
+						</div>
+						<div className="mt-3 space-y-2 text-sm text-slate-700">
+							<p><span className="font-semibold text-slate-950">Doctor:</span> {selectedDoctorLabel}</p>
+							<p><span className="font-semibold text-slate-950">Requests:</span> {requestSummary(professionalCare.request_counts)}</p>
+							{careSummary ? <p>{careSummary.plan_digest || careSummary.conversation_digest}</p> : null}
+						</div>
 					</Link>
 				</div>
+				<p className="mt-6 text-sm">
+					<Link className="font-semibold text-action underline-offset-4 hover:underline" href="/episodes">All episodes</Link>
+				</p>
 			</section>
 		</div>
 	);
