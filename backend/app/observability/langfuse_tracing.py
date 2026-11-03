@@ -161,6 +161,113 @@ def langfuse_trace_attributes(
         yield
 
 
+def _current_langchain_observation() -> Any | None:
+    """The Langfuse span of the LangChain run (e.g. graph node) we are inside.
+
+    The LangChain handler parents its spans explicitly rather than making them
+    the active OpenTelemetry span, so a direct SDK call inside a node would
+    otherwise start a separate trace. LangChain exposes the current run's
+    callback manager through its run-config context variable; it carries the
+    parent run id, which the handler maps to its span.
+    """
+    try:
+        from langchain_core.runnables.config import var_child_runnable_config
+        from langfuse.langchain import CallbackHandler
+    except Exception:
+        return None
+    config = var_child_runnable_config.get()
+    if not config:
+        return None
+    manager = config.get("callbacks")
+    parent_run_id = getattr(manager, "parent_run_id", None)
+    handlers = getattr(manager, "handlers", None)
+    if parent_run_id is None or not handlers:
+        return None
+    for handler in handlers:
+        if isinstance(handler, CallbackHandler):
+            runs = getattr(handler, "_runs", None)
+            if isinstance(runs, Mapping) and parent_run_id in runs:
+                return runs[parent_run_id]
+    return None
+
+
+class _NoopObservation:
+    def update(self, **_kwargs: Any) -> "_NoopObservation":
+        return self
+
+
+@contextmanager
+def langfuse_generation(
+    *,
+    name: str,
+    model: str | None = None,
+    input: Any = None,
+    model_parameters: Mapping[str, Any] | None = None,
+    metadata: Mapping[str, Any] | None = None,
+) -> Iterator[Any]:
+    """Record a direct (non-LangChain) model call as a Langfuse generation.
+
+    Nests under the current span, so a call made inside a graph node appears
+    inside that turn's trace. Yields an object with ``update(...)`` for the
+    output and usage; it is a no-op when tracing is off or unavailable.
+    """
+    client = get_langfuse_client()
+    if client is None:
+        yield _NoopObservation()
+        return
+    try:
+        parent = _current_langchain_observation() or client
+        manager = parent.start_as_current_observation(
+            name=name,
+            as_type="generation",
+            model=model,
+            input=input,
+            model_parameters=dict(model_parameters) if model_parameters else None,
+            metadata=dict(metadata) if metadata else None,
+        )
+        observation = manager.__enter__()
+    except Exception:
+        logger.debug("langfuse_generation_unavailable", exc_info=True)
+        yield _NoopObservation()
+        return
+    try:
+        yield observation
+    except BaseException as exc:
+        try:
+            observation.update(level="ERROR", status_message=type(exc).__name__)
+        except Exception:
+            pass
+        manager.__exit__(type(exc), exc, exc.__traceback__)
+        raise
+    else:
+        try:
+            manager.__exit__(None, None, None)
+        except Exception:
+            logger.debug("langfuse_generation_end_failed", exc_info=True)
+
+
+def anthropic_usage_details(response: Any) -> dict[str, int]:
+    """Map an Anthropic ``usage`` object to Langfuse usage details."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return {}
+    details: dict[str, int] = {}
+    for source, target in (
+        ("input_tokens", "input"),
+        ("output_tokens", "output"),
+        ("cache_read_input_tokens", "cache_read_input_tokens"),
+        ("cache_creation_input_tokens", "cache_creation_input_tokens"),
+    ):
+        value = getattr(usage, source, None)
+        if isinstance(value, int):
+            details[target] = value
+    server_tools = getattr(usage, "server_tool_use", None)
+    searches = getattr(server_tools, "web_search_requests", None)
+    if isinstance(searches, int):
+        details["web_search_requests"] = searches
+    return details
+
+
 def flush_langfuse() -> None:
     client = _client if _initialized else None
     if client is None:

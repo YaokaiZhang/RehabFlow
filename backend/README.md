@@ -257,6 +257,9 @@ outputs, latency and token usage of each LLM call nested under it. Traces are
 grouped into Langfuse sessions by the RehabFlow chat session UUID, so a Langfuse
 session lines up with the `ai_internal_messages` rows for that session.
 Triage-summary generation is traced separately as `triage_summary`.
+Allowlisted web search calls the Anthropic SDK directly and is recorded as a
+`reliable_web_search` generation (prompt, response blocks, token usage and
+search count) inside the graph node that ran it.
 
 ```bash
 REHABFLOW_LANGFUSE=1 ./start-dev.sh

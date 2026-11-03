@@ -207,12 +207,12 @@ class ReliableWebSearch:
         }
         content: list[Any] = []
         try:
-            response = client.messages.create(messages=messages, **request)
+            response = self._create(client, messages, request, step=1)
             content.extend(response.content)
             # A paused server-tool loop resumes by resending the assistant turn.
             if response.stop_reason == "pause_turn":
                 messages.append({"role": "assistant", "content": response.content})
-                response = client.messages.create(messages=messages, **request)
+                response = self._create(client, messages, request, step=2)
                 content.extend(response.content)
         except anthropic.APIStatusError as exc:
             logger.warning("reliable web search provider returned HTTP %s", exc.status_code)
@@ -245,6 +245,54 @@ class ReliableWebSearch:
                 "results": [],
             }
         return {"results": results}
+
+
+    @staticmethod
+    def _create(
+        client: Any,
+        messages: list[dict[str, Any]],
+        request: dict[str, Any],
+        *,
+        step: int,
+    ) -> Any:
+        """One Messages API call, recorded as a Langfuse generation when tracing is on."""
+        from app.observability.langfuse_tracing import (
+            anthropic_usage_details,
+            langfuse_generation,
+        )
+
+        with langfuse_generation(
+            name="reliable_web_search",
+            model=request["model"],
+            input=list(messages),
+            model_parameters={
+                "max_tokens": request["max_tokens"],
+                "effort": request["output_config"]["effort"],
+            },
+            metadata={
+                "step": step,
+                "allowed_domains": request["tools"][0]["allowed_domains"],
+            },
+        ) as generation:
+            response = client.messages.create(messages=messages, **request)
+            generation.update(
+                output=_generation_output(response),
+                usage_details=anthropic_usage_details(response) or None,
+                metadata={"stop_reason": getattr(response, "stop_reason", None), "step": step},
+            )
+            return response
+
+
+def _generation_output(response: Any) -> list[dict[str, Any]]:
+    """A compact, JSON-safe view of the response blocks for tracing."""
+    output: list[dict[str, Any]] = []
+    for block in getattr(response, "content", None) or []:
+        to_dict = getattr(block, "model_dump", None)
+        try:
+            output.append(to_dict(mode="json") if callable(to_dict) else {"value": str(block)})
+        except Exception:
+            output.append({"type": str(getattr(block, "type", "unknown"))})
+    return output
 
 
 def default_reliable_web_search(query: str) -> dict[str, Any]:

@@ -8,6 +8,7 @@ authorized evidence content; telemetry and requests remain bounded and sanitized
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import inspect
 import json
@@ -308,7 +309,10 @@ def _search_adapter_result(
         return {"error": "search adapter is unavailable"}
     timeout = max(0.1, min(float(timeout_seconds), 60.0))
     call = (lambda: search(query)) if limit is None else (lambda: search(query, limit))
-    future = _TOOL_EXECUTOR.submit(call)
+    # Carry context variables (including the active tracing span) into the
+    # worker thread so the adapter's work nests under the current turn.
+    context = contextvars.copy_context()
+    future = _TOOL_EXECUTOR.submit(context.run, call)
     try:
         result = future.result(timeout=timeout)
     except FutureTimeoutError as exc:
