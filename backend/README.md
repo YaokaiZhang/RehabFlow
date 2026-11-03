@@ -15,7 +15,7 @@ with `cd backend`.
 | PostgreSQL | `localhost:5432` | Application records and LangGraph checkpoints |
 | Redis | `localhost:6379` | Single-use movement-stream tickets |
 | Qdrant | `http://localhost:6333` | Authorized rehabilitation knowledge |
-| Langfuse (optional) | `http://localhost:3100` | Self-hosted LLM trace viewer |
+| Langfuse | `http://localhost:3100` | Self-hosted LLM trace viewer |
 
 Use Python 3.11 or newer (LangGraph needs 3.11+ to pass tracing callbacks into nested model calls). The frontend workspaces require Node.js 20 or newer.
 On hosts with multiple runtimes, verify `python --version`, `node --version`,
@@ -250,7 +250,7 @@ different feature and require a short-lived single-use ticket from
 
 ## LLM tracing with self-hosted Langfuse
 
-For debugging prompts and agent behaviour, the backend can send every LangGraph
+For debugging prompts and agent behaviour, the backend sends every LangGraph
 turn to a self-hosted [Langfuse](https://langfuse.com) instance. Each turn is
 one `rehab_turn` trace, with a span per graph node and the exact prompts, model
 outputs, latency and token usage of each LLM call nested under it. Traces are
@@ -261,11 +261,14 @@ Allowlisted web search calls the Anthropic SDK directly and is recorded as a
 `reliable_web_search` generation (prompt, response blocks, token usage and
 search count) inside the graph node that ran it.
 
+`./start-dev.sh` starts Langfuse by default; pass `--no-langfuse` to skip it
+(the backend then sends no traces).
+
 ```bash
-REHABFLOW_LANGFUSE=1 ./start-dev.sh
+./start-dev.sh --no-langfuse
 ```
 
-This adds `docker-compose.langfuse.yml` to the stack: Langfuse web and worker
+Langfuse comes from `docker-compose.langfuse.yml`: Langfuse web and worker
 plus their own Postgres, ClickHouse, Redis and MinIO, all bound to
 `127.0.0.1`. The first start pulls images and runs migrations, which can take a
 few minutes. Open `http://localhost:3100` and log in with

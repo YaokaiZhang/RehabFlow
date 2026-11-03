@@ -15,10 +15,11 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: ./start-dev.sh [start|restart|shutdown|stop] [port options]
+Usage: ./start-dev.sh [start|restart|shutdown|stop] [--no-langfuse] [port options]
 
 Start the local RehabFlow development stack with Docker Compose. PostgreSQL,
-Redis, Qdrant, FastAPI, and Product run as Compose services.
+Redis, Qdrant, FastAPI, Product, and a self-hosted Langfuse (LLM traces) run as
+Compose services.
 
 Commands:
   start       Start or reuse the stack (the default)
@@ -35,12 +36,13 @@ Port options (ports are configured here only; .env port values are ignored):
   --qdrant-grpc-port N  Qdrant gRPC                (default 6334)
   --langfuse-port N     Langfuse UI                (default 3100)
 
-Other overrides:
-  REHABFLOW_LANGFUSE=1      Also start self-hosted Langfuse and send LLM traces to it
+Options:
+  --no-langfuse         Do not start Langfuse; the backend sends no LLM traces
 EOF
 }
 
 action=""
+langfuse_enabled=1
 declare -A port_value=(
   [backend]=8000
   [product]=3000
@@ -57,6 +59,9 @@ while (( $# > 0 )); do
     -h|--help)
       usage
       exit 0
+      ;;
+    --no-langfuse)
+      langfuse_enabled=0
       ;;
     --*-port=*|--*-port)
       if [[ "$arg" == *=* ]]; then
@@ -151,10 +156,6 @@ export LANGFUSE_PORT="$langfuse_port"
 
 compose_args=(--project-directory "$repo_root" -f "$repo_root/docker-compose.yml")
 
-langfuse_enabled=0
-case "$(resolve_env_value REHABFLOW_LANGFUSE 0 | tr '[:upper:]' '[:lower:]')" in
-  1|true|yes|on) langfuse_enabled=1 ;;
-esac
 if [[ "$action" == "shutdown" || "$action" == "stop" ]]; then
   # Always include the overlay so Langfuse containers stop too if they ran.
   compose_args+=(-f "$repo_root/docker-compose.langfuse.yml")
@@ -191,8 +192,10 @@ fi
 compose "${compose_args[@]}" config >/dev/null || die "Docker Compose configuration is invalid"
 
 if [[ "$action" == "restart" ]]; then
+  restart_flags=()
+  (( langfuse_enabled )) || restart_flags+=(--no-langfuse)
   "$0" shutdown
-  exec "$0" start --backend-port "$backend_port" --product-port "$product_port" \
+  exec "$0" start ${restart_flags[@]+"${restart_flags[@]}"} --backend-port "$backend_port" --product-port "$product_port" \
     --postgres-port "$postgres_port" --redis-port "$redis_port" \
     --qdrant-port "$qdrant_port" --qdrant-grpc-port "$qdrant_grpc_port" \
     --langfuse-port "$langfuse_port"

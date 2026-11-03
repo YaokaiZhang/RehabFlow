@@ -1,7 +1,7 @@
 # Self-hosted Langfuse for local LLM trace debugging.
 #
 # Overlay on top of docker-compose.yml; start it with
-#   REHABFLOW_LANGFUSE=1 ./start-dev.sh
+#   ./start-dev.sh            (started by default; --no-langfuse skips it)
 # or directly:
 #   docker compose -f docker-compose.yml -f docker-compose.langfuse.yml up -d
 #
