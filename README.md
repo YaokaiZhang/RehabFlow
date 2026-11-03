@@ -100,9 +100,17 @@ Product from the checked-out Python and Node dependencies. The first run pulls
 the container images through Apptainer. Runtime data defaults to
 `/scratch/project_2020551/rehabflow-runtime` when that path is writable, or to
 `.rehabflow-runtime` in the repository otherwise. The default Product and API
-ports are 3000 and 8001; override them with `REHABFLOW_PRODUCT_PORT` and
-`REHABFLOW_BACKEND_PORT`. The launcher stays in the foreground and reuses
-healthy services already running on those ports.
+ports are 3000 and 8001. Ports are set on the start command, not in `.env`:
+
+```bash
+./start-dev-apptainer.sh --product-port 3005 --backend-port 8005
+```
+
+`--postgres-port`, `--redis-port`, `--qdrant-port` and `--qdrant-grpc-port`
+work the same way, and `./start-dev.sh` (Docker) takes the same options.
+`shutdown` and `restart` reuse the ports of the last start unless you pass new
+ones. The launcher stays in the foreground and reuses a service that is already
+running on its chosen port.
 
 RehabFlow needs Python 3.10+, Node.js 20+, PostgreSQL, Redis, and either Qdrant
 or an explicitly configured embedded Qdrant path.

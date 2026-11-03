@@ -37,7 +37,7 @@ Required runtime settings are grouped below. Never commit real credentials.
 | Embeddings | `EMBEDDING_PROVIDER`, `EMBEDDING_API_KEY`, `EMBEDDING_API_BASE`, `EMBEDDING_MODEL` |
 | Security | unique `JWT_SECRET_KEY`, unique `REHAB_TRACE_HMAC_KEY`, `REHAB_TRACE_HMAC_KEY_VERSION` |
 | Streaming | `STREAM_TICKET_TTL_SECONDS` (1-60 seconds) |
-| Frontends | `PRODUCT_FRONTEND_PORT=3000`, `CONSOLE_FRONTEND_PORT=3001`, `BACKEND_PORT=8000` |
+| Ports | Set on the start command (`--product-port`, `--backend-port`, ...), not in `.env`; see `./start-dev.sh --help` |
 
 All chat/LLM calls (router, consultant, safety and grounding reviewers,
 session compaction, memory agents, triage summary and allowlisted web search)

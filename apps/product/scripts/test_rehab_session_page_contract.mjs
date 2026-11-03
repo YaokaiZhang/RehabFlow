@@ -121,8 +121,8 @@ assert(runtime.includes("NEXT_PUBLIC_BACKEND_PORT"), "shared runtime should allo
 assert(runtime.includes("DEFAULT_BACKEND_PORT = \"8000\""), "shared runtime should default to the active FastAPI backend port");
 assert(runtime.includes("`ws://localhost:${backendPort}`"), "server websocket runtime should derive its port from the backend port setting");
 assert(runtime.includes("window.location.host"), "browser websocket runtime should inspect the public same-origin host");
-assert(rootEnvExample.includes("BACKEND_PORT=8000"), "root env example should document the configurable backend port");
-assert(rootEnvExample.includes("PRODUCT_FRONTEND_PORT=3000"), "root env example should document the Product frontend port");
+assert(!/^\s*(BACKEND_PORT|PRODUCT_FRONTEND_PORT|NEXT_PUBLIC_BACKEND_PORT)=/m.test(rootEnvExample), "root env example should not configure ports; the start command does");
+assert(rootEnvExample.includes("--product-port"), "root env example should point to the start command port options");
 assert(productEnvExample.includes("Root .env is canonical"), "product env example should point to the root template");
 assert(productPackage.includes("node ../../scripts/dev-next.mjs\""), "product dev script should let dev-next read FRONTEND_PORT from .env");
 assert(!productPackage.includes("dev-next.mjs 3002"), "product dev script should not hard-code the frontend port");

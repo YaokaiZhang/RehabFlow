@@ -4,8 +4,6 @@ set -Eeuo pipefail
 repo_root="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$repo_root"
 
-action="${1:-start}"
-
 log() {
   printf '[rehabflow] %s\n' "$*" >&2
 }
@@ -17,7 +15,7 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: ./start-dev.sh [start|restart|shutdown|stop]
+Usage: ./start-dev.sh [start|restart|shutdown|stop] [port options]
 
 Start the local RehabFlow development stack with Docker Compose. PostgreSQL,
 Redis, Qdrant, FastAPI, and Product run as Compose services.
@@ -28,27 +26,63 @@ Commands:
   shutdown    Stop the stack while preserving containers and volumes
   stop        Alias for shutdown
 
-Useful overrides:
-  BACKEND_PORT=8000
-  PRODUCT_FRONTEND_PORT=3000
-  REHABFLOW_POSTGRES_PORT=5432
-  REHABFLOW_REDIS_PORT=6379
-  REHABFLOW_QDRANT_PORT=6333
+Port options (ports are configured here only; .env port values are ignored):
+  --product-port N      Product web app            (default 3000)
+  --backend-port N      FastAPI                    (default 8000)
+  --postgres-port N     PostgreSQL                 (default 5432)
+  --redis-port N        Redis                      (default 6379)
+  --qdrant-port N       Qdrant HTTP                (default 6333)
+  --qdrant-grpc-port N  Qdrant gRPC                (default 6334)
+  --langfuse-port N     Langfuse UI                (default 3100)
+
+Other overrides:
   REHABFLOW_LANGFUSE=1      Also start self-hosted Langfuse and send LLM traces to it
-  LANGFUSE_PORT=3100        Langfuse UI port (with REHABFLOW_LANGFUSE=1)
 EOF
 }
 
-if [[ "$action" == "--help" || "$action" == "-h" ]]; then
-  usage
-  exit 0
-fi
-
-[[ $# -le 1 ]] || die "expected at most one command (use --help for usage)"
-case "$action" in
-  start|restart|shutdown|stop) ;;
-  *) die "unknown command: $action (use --help for usage)" ;;
-esac
+action=""
+declare -A port_value=(
+  [backend]=8000
+  [product]=3000
+  [postgres]=5432
+  [redis]=6379
+  [qdrant]=6333
+  [qdrant_grpc]=6334
+  [langfuse]=3100
+)
+while (( $# > 0 )); do
+  arg="$1"
+  shift
+  case "$arg" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --*-port=*|--*-port)
+      if [[ "$arg" == *=* ]]; then
+        value="${arg#*=}"
+        arg="${arg%%=*}"
+      else
+        (( $# > 0 )) || die "$arg needs a port number"
+        value="$1"
+        shift
+      fi
+      name="${arg#--}"
+      name="${name%-port}"
+      name="${name//-/_}"
+      [[ -n "${port_value[$name]:-}" ]] || die "unknown option: $arg (use --help for usage)"
+      port_value["$name"]="$value"
+      ;;
+    start|restart|shutdown|stop)
+      [[ -z "$action" ]] || die "expected at most one command (use --help for usage)"
+      action="$arg"
+      ;;
+    *)
+      die "unknown argument: $arg (use --help for usage)"
+      ;;
+  esac
+done
+action="${action:-start}"
 
 command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v docker >/dev/null 2>&1 || die "Docker is required. Install Docker Engine/Desktop or enable rootless Docker."
@@ -96,32 +130,28 @@ resolve_env_value() {
   printf '%s\n' "${process_value:-${file_value:-$default_value}}"
 }
 
-backend_port=""
-product_port=""
-postgres_port=""
-redis_port=""
-qdrant_port=""
-qdrant_grpc_port=""
+backend_port="${port_value[backend]}"
+product_port="${port_value[product]}"
+postgres_port="${port_value[postgres]}"
+redis_port="${port_value[redis]}"
+qdrant_port="${port_value[qdrant]}"
+qdrant_grpc_port="${port_value[qdrant_grpc]}"
+langfuse_port="${port_value[langfuse]}"
 if [[ "$action" == "start" || "$action" == "restart" ]]; then
   [[ -f .env ]] || die "missing .env; copy .env.example to .env and configure provider credentials"
-  backend_port="${REHABFLOW_BACKEND_PORT:-$(resolve_env_value BACKEND_PORT 8000)}"
-  product_port="${REHABFLOW_PRODUCT_PORT:-$(resolve_env_value PRODUCT_FRONTEND_PORT 3000)}"
-  postgres_port="${REHABFLOW_POSTGRES_PORT:-$(resolve_env_value REHABFLOW_POSTGRES_PORT 5432)}"
-  redis_port="${REHABFLOW_REDIS_PORT:-$(resolve_env_value REHABFLOW_REDIS_PORT 6379)}"
-  qdrant_port="${REHABFLOW_QDRANT_PORT:-$(resolve_env_value REHABFLOW_QDRANT_PORT 6333)}"
-  qdrant_grpc_port="${REHABFLOW_QDRANT_GRPC_PORT:-$(resolve_env_value REHABFLOW_QDRANT_GRPC_PORT 6334)}"
-  export BACKEND_PORT="$backend_port"
-  export PRODUCT_FRONTEND_PORT="$product_port"
-  export REHABFLOW_POSTGRES_PORT="$postgres_port"
-  export REHABFLOW_REDIS_PORT="$redis_port"
-  export REHABFLOW_QDRANT_PORT="$qdrant_port"
-  export REHABFLOW_QDRANT_GRPC_PORT="$qdrant_grpc_port"
 fi
+# Compose would otherwise interpolate these from .env; the options win.
+export BACKEND_PORT="$backend_port"
+export PRODUCT_FRONTEND_PORT="$product_port"
+export REHABFLOW_POSTGRES_PORT="$postgres_port"
+export REHABFLOW_REDIS_PORT="$redis_port"
+export REHABFLOW_QDRANT_PORT="$qdrant_port"
+export REHABFLOW_QDRANT_GRPC_PORT="$qdrant_grpc_port"
+export LANGFUSE_PORT="$langfuse_port"
 
 compose_args=(--project-directory "$repo_root" -f "$repo_root/docker-compose.yml")
 
 langfuse_enabled=0
-langfuse_port=""
 case "$(resolve_env_value REHABFLOW_LANGFUSE 0 | tr '[:upper:]' '[:lower:]')" in
   1|true|yes|on) langfuse_enabled=1 ;;
 esac
@@ -130,8 +160,6 @@ if [[ "$action" == "shutdown" || "$action" == "stop" ]]; then
   compose_args+=(-f "$repo_root/docker-compose.langfuse.yml")
 elif (( langfuse_enabled )); then
   compose_args+=(-f "$repo_root/docker-compose.langfuse.yml")
-  langfuse_port="$(resolve_env_value LANGFUSE_PORT 3100)"
-  export LANGFUSE_PORT="$langfuse_port"
 fi
 
 validate_port() {
@@ -145,14 +173,14 @@ if [[ "$action" == "shutdown" || "$action" == "stop" ]]; then
   exit 0
 fi
 
-validate_port BACKEND_PORT "$backend_port"
-validate_port PRODUCT_FRONTEND_PORT "$product_port"
-validate_port REHABFLOW_POSTGRES_PORT "$postgres_port"
-validate_port REHABFLOW_REDIS_PORT "$redis_port"
-validate_port REHABFLOW_QDRANT_PORT "$qdrant_port"
-validate_port REHABFLOW_QDRANT_GRPC_PORT "$qdrant_grpc_port"
+validate_port --backend-port "$backend_port"
+validate_port --product-port "$product_port"
+validate_port --postgres-port "$postgres_port"
+validate_port --redis-port "$redis_port"
+validate_port --qdrant-port "$qdrant_port"
+validate_port --qdrant-grpc-port "$qdrant_grpc_port"
 if (( langfuse_enabled )); then
-  validate_port LANGFUSE_PORT "$langfuse_port"
+  validate_port --langfuse-port "$langfuse_port"
 fi
 
 if [[ -z "${IMAGE_REGISTRY:-}" ]] && ! curl -sS --max-time 5 https://registry-1.docker.io/v2/ >/dev/null 2>&1; then
@@ -164,7 +192,10 @@ compose "${compose_args[@]}" config >/dev/null || die "Docker Compose configurat
 
 if [[ "$action" == "restart" ]]; then
   "$0" shutdown
-  exec "$0" start
+  exec "$0" start --backend-port "$backend_port" --product-port "$product_port" \
+    --postgres-port "$postgres_port" --redis-port "$redis_port" \
+    --qdrant-port "$qdrant_port" --qdrant-grpc-port "$qdrant_grpc_port" \
+    --langfuse-port "$langfuse_port"
 fi
 
 stopping=0
