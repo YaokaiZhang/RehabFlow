@@ -27,8 +27,8 @@ Commands:
   stop        Alias for shutdown
 
 Port options (ports are configured here only; .env port values are ignored):
-  --product-port N      Product web app            (default 3000)
-  --backend-port N      FastAPI                    (default 8000)
+  --product-port N      Product web app            (default 3002)
+  --backend-port N      FastAPI                    (default 8002)
   --postgres-port N     PostgreSQL                 (default 5432)
   --redis-port N        Redis                      (default 6379)
   --qdrant-port N       Qdrant HTTP                (default 6333)
@@ -42,8 +42,8 @@ EOF
 
 action=""
 declare -A port_value=(
-  [backend]=8000
-  [product]=3000
+  [backend]=8002
+  [product]=3002
   [postgres]=5432
   [redis]=6379
   [qdrant]=6333
