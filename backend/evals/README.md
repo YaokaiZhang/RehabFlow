@@ -38,7 +38,7 @@ revision. `database/setup.sh` is for the normal developer database; the
 evaluator provisions its own namespace so parallel cases do not share it.
 
 The run requires `LLM_KEY`: the evaluator backends generate with the Anthropic
-API, like the product. The judge is `claude-opus-5-5` at `high` effort
+API, like the product. The judge is `claude-haiku-5-5` at `high` effort
 (`--judge-model`, `--judge-effort`) and uses `LLM_JUDGE_KEY`, which defaults
 to `LLM_KEY`. Full conversation capture is enabled by
 default. Artifacts include the input and output dialog, model and tool events,

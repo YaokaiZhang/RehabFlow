@@ -331,7 +331,7 @@ scripts/run_llm_judge_eval.sh \
 Prerequisites are isolated evaluation PostgreSQL/application and checkpoint
 databases, an isolated Qdrant namespace or path, and catalog data. Generation
 uses the Anthropic API with `LLM_KEY`, like the product. The judge is
-`claude-opus-5-5` at `high` effort and uses `LLM_JUDGE_KEY`, which defaults to
+`claude-haiku-5-5` at `high` effort and uses `LLM_JUDGE_KEY`, which defaults to
 `LLM_KEY`. Run `scripts/run_llm_judge_eval.sh --help` for concurrency, case,
 baseline, judge model and judge effort options.
 

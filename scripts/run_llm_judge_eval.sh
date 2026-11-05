@@ -30,14 +30,14 @@ Example using every user-facing argument:
     --include-conversation \
     --max-parallel-cases 2 \
     --max-parallel-judge-calls 1 \
-    --judge-model claude-opus-5-5 \
+    --judge-model claude-haiku-5-5 \
     --judge-effort high \
     --langfuse-port 3100
 
 REHAB_EVAL_MAX_PARALLEL_CASES and REHAB_EVAL_MAX_PARALLEL_JUDGE_CALLS
 set the same concurrency limits.
 --judge-model and --judge-effort (alias --judge-thinking-level) configure the
-Anthropic judge; they default to REAL_MODEL_JUDGE_MODEL (claude-opus-5-5) and
+Anthropic judge; they default to REAL_MODEL_JUDGE_MODEL (claude-haiku-5-5) and
 REAL_MODEL_JUDGE_EFFORT (high).
 The default artifact directory is backend/evals/artifacts/combined-v2.
 Successful evaluator runs retain their test database/resources by default.

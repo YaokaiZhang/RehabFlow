@@ -84,7 +84,7 @@ def build_generation_prompt(case: dict[str, Any]) -> str:
     )
 
 
-JUDGE_DEFAULT_MODEL = "claude-opus-5-5"
+JUDGE_DEFAULT_MODEL = "claude-haiku-5-5"
 JUDGE_DEFAULT_EFFORT = "high"
 JUDGE_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 _EFFORT_DISABLED = frozenset({"", "none", "off", "disabled", "default"})
