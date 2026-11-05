@@ -1,12 +1,20 @@
 """Evaluator results in the self-hosted Langfuse.
 
-Three things land in Langfuse when the evaluator runs with Langfuse enabled:
+When the evaluator runs with Langfuse enabled, it sends:
 
+* the eval fixtures as the Langfuse dataset ``rehabflow-eval`` (override with
+  ``LANGFUSE_EVAL_DATASET``): one item per case, upserted at the start of every
+  run, with the fixture as the input and its oracles as the expected output.
+  Items whose case left the fixtures are archived (see :meth:`sync_dataset`);
+* each run as one experiment run on that dataset, named after the run id, with
+  the pass rate and mean weighted score as run-level scores;
 * every case backend tags its turn traces ``eval``, ``eval-run:<run id>`` and
   ``eval-case:<suite>:<case id>`` and reports them under the Langfuse
   environment ``evaluation`` (see :func:`case_backend_environment`);
 * each case gets one ``eval_case`` trace with the same tags, placed in the
-  case's first chat session, holding the judge calls as generations;
+  case's first chat session, holding the judge calls as generations. It is the
+  case's experiment item trace, so it reports under the environment Langfuse
+  uses for experiments (``sdk-experiment``);
 * the judge's rubric scores, weighted score, pass/fail and judge status are
   attached to that trace as Langfuse scores, with the justification as the
   comment.
@@ -21,6 +29,7 @@ from contextlib import contextmanager
 import logging
 import os
 from typing import Any
+import uuid
 
 from evals.trace import redact_trace_value
 
@@ -31,6 +40,60 @@ CASE_TRACE_NAME = "eval_case"
 JUDGE_GENERATION_NAME = "eval_judge"
 _TRUE = {"1", "true", "yes", "on"}
 _COMMENT_LIMIT = 2000
+DEFAULT_DATASET_NAME = "rehabflow-eval"
+_DATASET_ITEM_NAMESPACE = uuid.UUID("5d1f3a52-7c0e-4f39-9b8a-2e6f0c4d7a11")
+
+
+def dataset_name_from_environment() -> str:
+    return os.getenv("LANGFUSE_EVAL_DATASET", "").strip() or DEFAULT_DATASET_NAME
+
+
+def dataset_item_id(dataset_name: str, suite: str, case_id: str) -> str:
+    """Stable item id, so every run upserts the same item for a case.
+
+    Langfuse item ids are global across datasets, so the dataset name is part
+    of the seed.
+    """
+    return str(uuid.uuid5(_DATASET_ITEM_NAMESPACE, f"{dataset_name}/{suite}/{case_id}"))
+
+
+def real_model_dataset_item(case: Mapping[str, Any]) -> dict[str, Any]:
+    case_id = str(case["case_id"])
+    return {
+        "suite": "real_model",
+        "case_id": case_id,
+        "input": {
+            "messages": case.get("messages"),
+            "authorized_evidence": case.get("authorized_evidence"),
+        },
+        "expected_output": {
+            "route": case.get("route"),
+            "review_contract": case.get("review_contract"),
+        },
+        "metadata": {"suite": "real_model", "case_id": case_id},
+    }
+
+
+def longitudinal_dataset_item(scenario: Any) -> dict[str, Any]:
+    case_id = str(scenario.scenario_id)
+    return {
+        "suite": "longitudinal",
+        "case_id": case_id,
+        "input": {
+            "initial_state": scenario.initial_state,
+            "timeline": list(scenario.timeline),
+            "script": scenario.script,
+        },
+        "expected_output": {
+            "oracles": scenario.oracles,
+            "rubric_applicability": scenario.rubric_applicability,
+        },
+        "metadata": {
+            "suite": "longitudinal",
+            "case_id": case_id,
+            "schema_version": scenario.schema_version,
+        },
+    }
 
 
 def _tag_part(value: object) -> str:
@@ -76,9 +139,22 @@ class _NoopObservation:
 class EvalLangfuseReporter:
     """Writes evaluator case traces, judge generations and scores to Langfuse."""
 
-    def __init__(self, client: Any, *, run_id: str) -> None:
+    def __init__(
+        self,
+        client: Any,
+        *,
+        run_id: str,
+        dataset_name: str = DEFAULT_DATASET_NAME,
+        secrets: Sequence[str] = (),
+    ) -> None:
         self.client = client
         self.run_id = run_id
+        self.dataset_name = dataset_name
+        self.secrets = tuple(str(item) for item in secrets if str(item or "").strip())
+        self.experiment_id = _experiment_id(run_id)
+        self.experiment_metadata: dict[str, Any] = {}
+        self.dataset_id: str | None = None
+        self._item_ids: dict[tuple[str, str], str] = {}
 
     @classmethod
     def from_environment(
@@ -116,7 +192,82 @@ class EvalLangfuseReporter:
         except Exception:
             logger.warning("langfuse_disabled: client initialization failed", exc_info=True)
             return None
-        return cls(client, run_id=run_id)
+        return cls(
+            client,
+            run_id=run_id,
+            dataset_name=dataset_name_from_environment(),
+            secrets=secrets,
+        )
+
+    def sync_dataset(
+        self,
+        items: Sequence[Mapping[str, Any]],
+        *,
+        experiment_metadata: Mapping[str, Any] | None = None,
+    ) -> bool:
+        """Upsert the eval cases as dataset items and archive dropped cases.
+
+        Items come from :func:`real_model_dataset_item` and
+        :func:`longitudinal_dataset_item`. Returns whether the dataset is ready;
+        when it is not, case traces are still sent, just not linked to it.
+        """
+        self.experiment_metadata = dict(experiment_metadata or {})
+        try:
+            try:
+                dataset = self.client.get_dataset(self.dataset_name)
+            except Exception:
+                dataset = self.client.create_dataset(
+                    name=self.dataset_name,
+                    description="RehabFlow LLM-judge eval cases (real_model and longitudinal suites).",
+                    metadata={"source": "backend/evals"},
+                )
+                dataset = self.client.get_dataset(self.dataset_name)
+            dataset_id = str(dataset.id)
+            existing = {str(item.id): item for item in getattr(dataset, "items", None) or ()}
+        except Exception:
+            logger.warning("langfuse_dataset_unavailable name=%s", self.dataset_name, exc_info=True)
+            return False
+        item_ids: dict[tuple[str, str], str] = {}
+        for item in items:
+            suite = str(item["suite"])
+            case_id = str(item["case_id"])
+            item_id = dataset_item_id(self.dataset_name, suite, case_id)
+            try:
+                self.client.create_dataset_item(
+                    dataset_name=self.dataset_name,
+                    id=item_id,
+                    input=self._redact(item.get("input")),
+                    expected_output=self._redact(item.get("expected_output")),
+                    metadata=self._redact(item.get("metadata")),
+                    status="ACTIVE",
+                )
+            except Exception:
+                logger.warning("langfuse_dataset_item_failed case=%s:%s", suite, case_id, exc_info=True)
+                continue
+            item_ids[(suite, case_id)] = item_id
+        current = set(item_ids.values())
+        for item_id, stale in existing.items():
+            status = str(getattr(stale, "status", "") or "").upper()
+            if item_id in current or status.endswith("ARCHIVED"):
+                continue
+            try:
+                # create_dataset_item upserts by id; keep the stale content.
+                self.client.create_dataset_item(
+                    dataset_name=self.dataset_name,
+                    id=item_id,
+                    input=getattr(stale, "input", None),
+                    expected_output=getattr(stale, "expected_output", None),
+                    metadata=getattr(stale, "metadata", None),
+                    status="ARCHIVED",
+                )
+            except Exception:
+                logger.debug("langfuse_dataset_item_archive_failed id=%s", item_id, exc_info=True)
+        self.dataset_id = dataset_id
+        self._item_ids = item_ids
+        return True
+
+    def _redact(self, value: Any) -> Any:
+        return redact_trace_value(value, secrets=self.secrets)
 
     def backend_environment(self, suite: str, case_id: str) -> dict[str, str]:
         return case_backend_environment(self.run_id, suite, case_id)
@@ -156,6 +307,8 @@ class EvalLangfuseReporter:
             attributes.__exit__(None, None, None)
             yield _NoopObservation()
             return
+        experiment = self._link_experiment_item(span, suite=suite, case_id=case_id)
+        managers = [manager for manager in (experiment, span_manager, attributes) if manager is not None]
         error: BaseException | None = None
         try:
             yield span
@@ -163,7 +316,7 @@ class EvalLangfuseReporter:
             error = exc
             raise
         finally:
-            for manager in (span_manager, attributes):
+            for manager in managers:
                 try:
                     if error is None:
                         manager.__exit__(None, None, None)
@@ -171,6 +324,91 @@ class EvalLangfuseReporter:
                         manager.__exit__(type(error), error, error.__traceback__)
                 except Exception:
                     logger.debug("langfuse_case_close_failed", exc_info=True)
+
+    def _link_experiment_item(self, span: Any, *, suite: str, case_id: str) -> Any:
+        """Make the open case trace this run's experiment item for the case.
+
+        Mirrors what ``Langfuse.run_experiment`` does for each item: the
+        experiment attributes propagate to the case span and everything opened
+        under it, and the case span is the item's root observation. These
+        helpers are private to the SDK, so ``langfuse`` stays pinned in
+        requirements.txt; on any failure the trace is sent unlinked.
+        """
+        item_id = self._item_ids.get((suite, case_id))
+        if not item_id or not self.dataset_id:
+            return None
+        try:
+            from opentelemetry import context as otel_context
+            from langfuse._client.attributes import _serialize
+            from langfuse._client.propagation import (
+                PropagatedExperimentAttributes,
+                _get_propagated_attributes_from_context,
+                _propagate_attributes,
+            )
+            from langfuse._client.span import _set_span_attributes_within_limit
+
+            manager = _propagate_attributes(
+                experiment=PropagatedExperimentAttributes(
+                    experiment_id=self.experiment_id,
+                    experiment_name=self.run_id,
+                    experiment_metadata=_serialize(self.experiment_metadata or None),
+                    experiment_dataset_id=self.dataset_id,
+                    experiment_item_id=item_id,
+                    experiment_item_metadata=_serialize({"suite": suite, "case_id": case_id}),
+                    experiment_item_root_observation_id=span.id,
+                )
+            )
+            manager.__enter__()
+        except Exception:
+            logger.debug("langfuse_experiment_link_failed", exc_info=True)
+            return None
+        try:
+            # Propagation covers spans opened from here on; the case span is
+            # already open, so copy the attributes onto it too.
+            _set_span_attributes_within_limit(
+                span._otel_span,
+                _get_propagated_attributes_from_context(otel_context.get_current()),
+            )
+        except Exception:
+            logger.debug("langfuse_experiment_root_backfill_failed", exc_info=True)
+        return manager
+
+    def record_run_summary(self, reports: Sequence[Mapping[str, Any]]) -> None:
+        """Run-level scores on the experiment run: pass rate and mean weighted score."""
+        if not self._item_ids:
+            return
+        passed: list[bool] = []
+        weighted: list[float] = []
+        for report in reports:
+            summary = report.get("rubric_summary")
+            if not isinstance(summary, Mapping):
+                continue
+            if isinstance(summary.get("passed"), bool):
+                passed.append(summary["passed"])
+            value = summary.get("weighted_score")
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                weighted.append(float(value))
+        scores = []
+        if passed:
+            scores.append({
+                "name": "eval.pass_rate",
+                "value": sum(passed) / len(passed),
+                "comment": f"{sum(passed)}/{len(passed)} cases passed",
+            })
+        if weighted:
+            scores.append({
+                "name": "rubric.mean_weighted_score",
+                "value": sum(weighted) / len(weighted),
+            })
+        for score in scores:
+            try:
+                self.client.create_score(
+                    dataset_run_id=self.experiment_id,
+                    data_type="NUMERIC",
+                    **score,
+                )
+            except Exception:
+                logger.debug("langfuse_run_score_failed name=%s", score["name"], exc_info=True)
 
     @contextmanager
     def judge_generation(
@@ -233,6 +471,12 @@ class EvalLangfuseReporter:
             self.client.flush()
         except Exception:
             logger.debug("langfuse_flush_failed", exc_info=True)
+
+
+def _experiment_id(run_id: str) -> str:
+    from langfuse import Langfuse
+
+    return Langfuse.create_trace_id(seed=f"rehabflow-eval-run/{run_id}")
 
 
 def case_output(report: Mapping[str, Any]) -> dict[str, Any]:

@@ -21,7 +21,11 @@ from evals.corpus import DEFAULT_CASES_PATH, load_longitudinal_cases
 from evals.longitudinal.contract import RUBRIC_DIMENSIONS, ScenarioV2
 from evals.longitudinal.judge import evaluate_with_repair
 from evals.trace import TraceRecorder, redact_trace_value
-from evals.langfuse_reporting import EvalLangfuseReporter
+from evals.langfuse_reporting import (
+    EvalLangfuseReporter,
+    longitudinal_dataset_item,
+    real_model_dataset_item,
+)
 from evals.real_model.run import (
     JUDGE_DEFAULT_EFFORT,
     JUDGE_DEFAULT_MODEL,
@@ -1742,6 +1746,18 @@ def main(argv: list[str] | None = None) -> int:
         run_id=run_manifest.run_id,
         secrets=(judge_key, args.backend_generation_key),
     )
+    if langfuse is not None:
+        langfuse.sync_dataset(
+            [
+                *(real_model_dataset_item(case) for case in real_model_cases),
+                *(longitudinal_dataset_item(scenario) for scenario in longitudinal_scenarios),
+            ],
+            experiment_metadata={
+                "backend_revision": args.backend_revision,
+                "judge_model": args.judge_model,
+                "judge_effort": args.judge_effort,
+            },
+        )
     judge = _AnthropicJudgeProvider(
         effort=args.judge_effort,
         api_key=judge_key,
@@ -2022,6 +2038,8 @@ def main(argv: list[str] | None = None) -> int:
             execution_gate=Semaphore(args.max_parallel_cases),
         )
         all_reports = progress.load_case_results()
+        if langfuse is not None:
+            langfuse.record_run_summary(all_reports)
         for report in all_reports:
             identifier = str(report.get("case_id") or report.get("scenario_id") or "")
             if "ai_messages" in report and "ai_internal_messages" in report:

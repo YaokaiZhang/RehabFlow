@@ -217,6 +217,107 @@ def test_case_trace_holds_judge_generations_and_scores() -> None:
     }
 
 
+class _FakeDatasets:
+    """Dataset calls of the Langfuse client, kept in memory."""
+
+    def __init__(self, existing: list[Any] | None = None) -> None:
+        self.dataset: Any = None
+        self.items: dict[str, dict[str, Any]] = {
+            item.id: {"id": item.id, "status": item.status, "input": item.input} for item in existing or []
+        }
+        self.existing = list(existing or [])
+
+    def get_dataset(self, name: str) -> Any:
+        if self.dataset is None:
+            raise RuntimeError("not found")
+        return SimpleNamespace(id=self.dataset, name=name, items=self.existing)
+
+    def create_dataset(self, *, name: str, **_kwargs: Any) -> Any:
+        self.dataset = f"ds-{name}"
+        return SimpleNamespace(id=self.dataset)
+
+    def create_dataset_item(self, *, id: str, **kwargs: Any) -> None:
+        self.items[id] = {"id": id, **kwargs}
+
+
+def test_dataset_sync_upserts_cases_and_links_case_traces() -> None:
+    from evals.combined.run import DEFAULT_CASES, _load_longitudinal_scenarios, _load_real_model_cases
+
+    reporter, exporter, scores = _memory_reporter("pk-lf-test-dataset")
+    dropped_id = langfuse_reporting.dataset_item_id(reporter.dataset_name, "longitudinal", "retired-case")
+    fake = _FakeDatasets([SimpleNamespace(id=dropped_id, status="ACTIVE", input={"old": True})])
+    for name in ("get_dataset", "create_dataset", "create_dataset_item"):
+        setattr(reporter.client, name, getattr(fake, name))
+
+    real = _load_real_model_cases(DEFAULT_CASES)
+    scenarios = _load_longitudinal_scenarios()
+    items = [
+        *(langfuse_reporting.real_model_dataset_item(case) for case in real),
+        *(langfuse_reporting.longitudinal_dataset_item(scenario) for scenario in scenarios),
+    ]
+    assert reporter.sync_dataset(items, experiment_metadata={"judge_model": "claude-opus-5-5"})
+    assert reporter.dataset_name == "rehabflow-eval" and fake.dataset == "ds-rehabflow-eval"
+    active = {key: value for key, value in fake.items.items() if value["status"] == "ACTIVE"}
+    assert len(active) == len(real) + len(scenarios)
+    # A case that left the fixtures is archived with its content, not deleted.
+    assert fake.items[dropped_id]["status"] == "ARCHIVED"
+    assert fake.items[dropped_id]["input"] == {"old": True}
+    first_real = langfuse_reporting.dataset_item_id("rehabflow-eval", "real_model", str(real[0]["case_id"]))
+    assert active[first_real]["input"]["messages"] == real[0]["messages"]
+    assert active[first_real]["expected_output"]["route"] == real[0]["route"]
+    # Ids are stable across runs and distinct across datasets.
+    assert first_real == langfuse_reporting.dataset_item_id("rehabflow-eval", "real_model", str(real[0]["case_id"]))
+    assert first_real != langfuse_reporting.dataset_item_id("other", "real_model", str(real[0]["case_id"]))
+
+    with reporter.case(suite="real_model", case_id=str(real[0]["case_id"])) as case_trace:
+        with reporter.judge_generation(model="claude-opus-5-5", prompt="grade"):
+            pass
+        reporter.record_case_result(case_trace, _REPORT)
+    with reporter.case(suite="real_model", case_id="not-in-the-dataset"):
+        pass
+    reporter.record_run_summary([_REPORT, {"rubric_summary": {"passed": True, "weighted_score": 3.5}}])
+    reporter.flush()
+
+    spans = exporter.get_finished_spans()
+    linked = [span for span in spans if span.attributes.get("langfuse.experiment.item.id") == first_real]
+    assert {span.name for span in linked} == {
+        langfuse_reporting.CASE_TRACE_NAME,
+        langfuse_reporting.JUDGE_GENERATION_NAME,
+    }
+    (case_span,) = [span for span in linked if span.name == langfuse_reporting.CASE_TRACE_NAME]
+    for span in linked:
+        assert span.attributes.get("langfuse.experiment.id") == reporter.experiment_id
+        assert span.attributes.get("langfuse.experiment.name") == "run-1"
+        assert span.attributes.get("langfuse.experiment.dataset.id") == "ds-rehabflow-eval"
+        assert span.attributes.get("langfuse.experiment.item.root_observation_id") == format(
+            case_span.context.span_id, "016x"
+        )
+    # A case without a dataset item is still traced, just not linked.
+    unlinked = [span for span in spans if span not in linked]
+    assert unlinked and all("langfuse.experiment.id" not in span.attributes for span in unlinked)
+
+    run_scores = {score["name"]: score for score in scores if "dataset_run_id" in score}
+    assert run_scores["eval.pass_rate"]["value"] == 0.5
+    assert run_scores["eval.pass_rate"]["dataset_run_id"] == reporter.experiment_id
+    assert run_scores["rubric.mean_weighted_score"]["value"] == 3.0
+
+
+def test_dataset_unavailable_leaves_traces_unlinked() -> None:
+    reporter, exporter, _scores = _memory_reporter("pk-lf-test-dataset-down")
+
+    def _down(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("server down")
+
+    reporter.client.get_dataset = _down
+    reporter.client.create_dataset = _down
+    assert reporter.sync_dataset([langfuse_reporting.real_model_dataset_item({"case_id": "rm-1"})]) is False
+    with reporter.case(suite="real_model", case_id="rm-1"):
+        pass
+    reporter.flush()
+    (span,) = exporter.get_finished_spans()
+    assert "langfuse.experiment.id" not in span.attributes
+
+
 def test_reporter_is_off_without_explicit_enable() -> None:
     saved = {key: os.environ.get(key) for key in ("LANGFUSE_ENABLED", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY")}
     try:
@@ -281,6 +382,8 @@ def main() -> None:
     test_case_backend_environment_tags_the_case()
     test_case_scores_map_rubric_and_summary()
     test_case_trace_holds_judge_generations_and_scores()
+    test_dataset_sync_upserts_cases_and_links_case_traces()
+    test_dataset_unavailable_leaves_traces_unlinked()
     test_reporter_is_off_without_explicit_enable()
     test_judge_errors_do_not_depend_on_langfuse()
     test_child_backend_gets_anthropic_key_but_not_the_judge_key()

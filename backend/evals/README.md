@@ -75,8 +75,20 @@ matches a non-default port. `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY` and
 `LANGFUSE_SECRET_KEY` override the local development defaults. If Langfuse is
 down, the run continues without it.
 
-- Everything goes to the Langfuse environment `evaluation`, apart from normal
-  development traces.
+- The fixtures are the Langfuse dataset `rehabflow-eval` (set
+  `LANGFUSE_EVAL_DATASET` to use another name), one item per case. Every run
+  upserts the items first: input is the fixture (messages and evidence, or the
+  longitudinal state, timeline and script), expected output is its oracles
+  (route and review contract, or oracles and rubric applicability). A case
+  removed from the fixtures is archived, not deleted.
+- Each run is an experiment on that dataset, named after the run id, with
+  backend revision and judge model as metadata and `eval.pass_rate` and
+  `rubric.mean_weighted_score` as run scores. Compare runs side by side on
+  the dataset's experiments page. A resumed run only sends traces for the
+  cases it judges in that process.
+- Case backends report to the Langfuse environment `evaluation`, apart from
+  normal development traces. The `eval_case` traces are experiment items, so
+  Langfuse files them under its experiment environment `sdk-experiment`.
 - Each case backend tags its turn traces `eval`, `eval-run:<run id>` and
   `eval-case:<suite>:<case id>`; filter by a case tag to see all its turns.
 - Each case gets one `eval_case` trace with the same tags, placed in the
