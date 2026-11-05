@@ -130,6 +130,24 @@ def test_structured_output_parses_text_json() -> None:
     assert result == Plan(concern="Knee stiffness", urgent=False)
 
 
+def test_structured_output_keeps_token_usage_for_usage_reporting_schemas() -> None:
+    from langchain_core.messages import AIMessage
+
+    from app.ai.review_nodes import ReviewerOutput, _response_usage
+
+    usage = {"input_tokens": 120, "output_tokens": 30, "total_tokens": 150}
+    parse = _model().with_structured_output(ReviewerOutput).last
+    result = parse.invoke(AIMessage(
+        content='{"safety_passed": true, "safety_feedback": "Safe."}',
+        usage_metadata=usage,
+    ))
+    assert result.usage_metadata == usage
+    assert _response_usage(result) == (120, 30, 150)
+    # Usage is a private attribute: not part of the data or the schema sent to the model.
+    assert result.model_dump() == {"safety_passed": True, "safety_feedback": "Safe."}
+    assert "usage_metadata" not in str(ReviewerOutput.model_json_schema())
+
+
 def test_thinking_blocks_are_dropped_and_content_is_plain_text() -> None:
     result = _model()._format_output(
         _message([

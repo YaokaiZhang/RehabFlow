@@ -7,12 +7,13 @@ from typing import Any, Mapping
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.structured_output import UsageReportingOutput
 from app.ai.active_turn_context import active_triaged_context
 from app.ai.runtime_dependencies import structured_output_model
 from app.ai.workflow_state import ReviewStatus, ReviewerDecision
 
 
-class GroundingReviewerOutput(BaseModel):
+class GroundingReviewerOutput(UsageReportingOutput):
     """Minimal model output; clinical critique remains natural language."""
 
     model_config = ConfigDict(extra="forbid")

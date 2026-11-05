@@ -21,6 +21,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.types import Send
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.structured_output import UsageReportingOutput
 from app.ai.active_turn_context import active_consultant_snapshot, active_triaged_context, active_tool_records
 from app.ai.grounding_reviewer import GroundingReviewerOutput
 from app.ai.model_input_budget import (
@@ -31,7 +32,7 @@ from app.ai.runtime_dependencies import ReviewerRuntimeConfig, structured_output
 from app.ai.workflow_state import ReviewStatus, ReviewerDecision
 
 
-class ReviewerOutput(BaseModel):
+class ReviewerOutput(UsageReportingOutput):
     model_config = ConfigDict(extra="forbid")
 
     safety_passed: bool = Field(description="Whether the draft is safe and ethically cautious.")

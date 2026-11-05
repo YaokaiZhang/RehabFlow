@@ -21,6 +21,7 @@ from typing import Any, Callable, Literal, Mapping, Protocol
 from langchain_core.messages import AIMessage as LangChainAIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel
 
+from app.ai.structured_output import UsageReportingOutput
 from app.ai.active_turn_context import store_consultant_snapshot, store_tool_record, store_web_sources
 from app.ai.model_input_budget import model_messages_estimated_tokens
 from app.ai.policy_gate import GateResult, GateSeverity
@@ -151,7 +152,7 @@ class ConsultantRetrievalCall(BaseModel):
     reason: str
 
 
-class ConsultantRetrievalPlan(BaseModel):
+class ConsultantRetrievalPlan(UsageReportingOutput):
     """One provider-validated batch of independent retrieval calls."""
 
     model_config = {"extra": "forbid"}

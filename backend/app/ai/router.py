@@ -9,6 +9,7 @@ from typing import Any, Literal, Mapping
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from app.ai.structured_output import UsageReportingOutput
 from app.ai.graph_dependencies import _qwen_70b
 from app.ai.graph_prompt_context import (
     _history_messages,
@@ -61,7 +62,7 @@ class ClarificationField(BaseModel):
     reason: str = Field(description="Decision-specific reason; required when status is unknown.")
 
 
-class RouterOutput(BaseModel):
+class RouterOutput(UsageReportingOutput):
     intent_class: Literal["clinical", "non_clinical"] = Field(
         default="clinical",
         description="Whether the current request is clinical or non-clinical.",

@@ -30,6 +30,8 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable, RunnableLambda, RunnableMap, RunnablePassthrough
 from pydantic import BaseModel
 
+from app.ai.structured_output import attach_usage
+
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
@@ -136,7 +138,8 @@ class RehabChatAnthropic(ChatAnthropic):
         def parse(message: Any) -> Any:
             text = message_text(message).strip()
             if is_model:
-                return schema.model_validate_json(text)  # type: ignore[union-attr]
+                # Usage-reporting schemas keep the call's token usage.
+                return attach_usage(schema.model_validate_json(text), message)  # type: ignore[union-attr]
             return json.loads(text)
 
         if not include_raw:
