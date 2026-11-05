@@ -4,15 +4,15 @@
     "messages": [
       {
         "role": "user",
-        "content": "I've been doing rehab after a knee injury and I'm not sure what a normal plan should include. Can you explain the stages?"
+        "content": "I broke my knee years ago and did rehab back then, but I never really understood how the plan was put together. What are the usual stages?"
       },
       {
         "role": "user",
-        "content": "It was a knee fracture six years ago; I recovered and have no current pain or swelling. I mainly want a general explanation."
+        "content": "It was a knee fracture about six years ago. It healed well and I have no pain or swelling now, so this is just for my own understanding."
       },
       {
         "role": "user",
-        "content": "I'd like to understand what goals and warning signs would change the plan, even if I am not asking for personal medical advice."
+        "content": "What kinds of goals usually shape a plan like that, and what would make a physio slow things down or hold off on progressing?"
       }
     ],
     "authorized_evidence": [
