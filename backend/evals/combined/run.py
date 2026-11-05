@@ -16,7 +16,7 @@ from typing import Any, Callable, Mapping, Protocol
 from sqlalchemy.engine import make_url
 
 from app.ai.workflow_state import WORKFLOW_VERSION
-from app.core.config import backend_source_revision, redact_exception
+from app.core.config import backend_source_revision, get_settings, redact_exception
 from evals.corpus import DEFAULT_CASES_PATH, load_longitudinal_cases
 from evals.longitudinal.contract import RUBRIC_DIMENSIONS, ScenarioV2
 from evals.longitudinal.judge import evaluate_with_repair
@@ -1597,6 +1597,13 @@ def main(argv: list[str] | None = None) -> int:
             application_database_url,
             expected_revision=application_schema_revision,
         )
+        # The evaluator itself builds app objects (the case Qdrant store loads
+        # app settings). Point them at the isolated databases so the run needs
+        # no backend/.env and can never fall back to a developer database.
+        os.environ["DATABASE_URL"] = application_database_url
+        os.environ["CHECKPOINT_DATABASE_URL"] = checkpoint_database_url
+        os.environ.pop("POSTGRES_URL", None)
+        get_settings.cache_clear()
         if run_manifest.qdrant_endpoint_binding is None:
             if run_manifest.exact_qdrant_collection_names():
                 verify_qdrant_endpoint_binding(
@@ -1862,6 +1869,10 @@ def main(argv: list[str] | None = None) -> int:
                 "judge_status": "not_attempted",
                 "fault_profile": profile,
                 "failures": [type(exc).__name__],
+                "failure_detail": _privacy_safe_error_message(
+                    exc,
+                    secrets=(judge_key, args.backend_generation_key),
+                )[:2000],
             }
         finally:
             if case_harness is not None:
