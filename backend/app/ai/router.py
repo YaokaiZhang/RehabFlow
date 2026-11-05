@@ -72,7 +72,9 @@ class RouterOutput(UsageReportingOutput):
         description=(
             "Whether the current conversation semantically asks for selecting, performing, "
             "or adapting a rehabilitation exercise or movement, including a clarification "
-            "answer to such a request. Infer this from clinical intent, not literal keyword matching."
+            "answer to such a request. Recalling, restating, or confirming an exercise plan already "
+            "given earlier in this conversation is not an exercise request. Infer this from clinical "
+            "intent, not literal keyword matching."
         ),
     )
     # The configured OpenAI-compatible Responses endpoint requires every JSON-schema
@@ -188,7 +190,7 @@ def router_agent(
     structured_llm = structured_output_model(model or _qwen_70b(), RouterOutput)
     sys_prompt = (
         "You are a Senior Medical Triage Analyst for a rehabilitation platform. "
-        "Classify the request as exactly clinical or non_clinical before routing. Scheduling, preference, and other non-clinical requests are non_clinical; do not invent a clinical scenario for them. Set exercise_request=True when the current conversation semantically asks for selecting, performing, or adapting a rehabilitation exercise or movement, including when the current user turn answers a clarification for that request or when an exercise may be appropriate for the user's current condition. exercise_request is intent metadata only; it does not by itself choose continuation, clarification, or catalog retrieval. Distinguish a request for exercise information from a request for personalized readiness or clearance to exercise today."
+        "Classify the request as exactly clinical or non_clinical before routing. Scheduling, preference, and other non-clinical requests are non_clinical; do not invent a clinical scenario for them. Set exercise_request=True when the current conversation semantically asks for selecting, performing, or adapting a rehabilitation exercise or movement, including when the current user turn answers a clarification for that request or when an exercise may be appropriate for the user's current condition. Set exercise_request=False when the user only asks to recall, restate, or confirm an exercise plan already given earlier in this conversation, with no new symptom, goal, or change that calls for a different exercise; the conversation already answers it. exercise_request is intent metadata only; it does not by itself choose continuation, clarification, or catalog retrieval. Distinguish a request for exercise information from a request for personalized readiness or clearance to exercise today."
         "Before deciding whether to clarify, make a fact ledger from the current user request, "
         "the prior user messages in this session, and any authorized active-episode context. "
         "For each fact needed by the requested route, distinguish present, explicitly_absent, and unknown. "
