@@ -154,7 +154,7 @@ class ServiceHarnessConfig:
     qdrant_path: Path | None = None
     catalog_dir: Path | None = None
     embedding_provider: str | None = None
-    backend_generation_provider: str = "openai"
+    backend_generation_provider: str = "anthropic"
     backend_generation_key: str | None = None
     # Backend imports, schema checks, and evaluator startup can exceed 30s on a
     # loaded host. Keep the wait bounded while allowing normal cold starts.
@@ -353,9 +353,10 @@ class ServiceHarness:
     def _environment(self) -> dict[str, str]:
         environment = dict(os.environ)
         environment.update({str(key): str(value) for key, value in self.config.extra_environment.items()})
-        backend_provider = self.config.backend_generation_provider.strip().lower()
-        backend_key_name = "OPENAI_API_KEY" if backend_provider == "openai" else "QWEN_API_KEY"
-        backend_base_name = "OPENAI_API_BASE" if backend_provider == "openai" else "QWEN_API_BASE"
+        # Backend chat generation runs on Anthropic (LLM_KEY). OpenAI/Qwen keys
+        # pass through untouched because they now only serve embeddings.
+        backend_key_name = "LLM_KEY"
+        backend_base_name = "ANTHROPIC_BASE_URL"
         backend_key = self.config.backend_generation_key or environment.get(backend_key_name, "")
         backend_base = environment.get(backend_base_name, "")
         for key in (
@@ -377,14 +378,15 @@ class ServiceHarness:
             "EXERCISE_CATALOG_PATH",
             "REHAB_EVAL_CATALOG_DIR",
             "REHAB_EVAL_FAULT_PROFILE",
+            "LLM_KEY",
+            "LLM_JUDGE_KEY",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_JUDGE_BASE_URL",
             "QWEN_JUDGE_API_KEY",
             "QWEN_JUDGE_API_BASE",
-            "QWEN_API_KEY",
-            "QWEN_API_BASE",
             "OPENAI_JUDGE_API_KEY",
             "OPENAI_JUDGE_API_BASE",
-            "OPENAI_API_KEY",
-            "OPENAI_API_BASE",
         ):
             environment.pop(key, None)
         environment.update({

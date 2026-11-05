@@ -21,8 +21,12 @@ from evals.corpus import DEFAULT_CASES_PATH, load_longitudinal_cases
 from evals.longitudinal.contract import RUBRIC_DIMENSIONS, ScenarioV2
 from evals.longitudinal.judge import evaluate_with_repair
 from evals.trace import TraceRecorder, redact_trace_value
+from evals.langfuse_reporting import EvalLangfuseReporter
 from evals.real_model.run import (
-    _OpenAICompatibleProvider,
+    JUDGE_DEFAULT_EFFORT,
+    JUDGE_DEFAULT_MODEL,
+    _AnthropicJudgeProvider,
+    normalize_judge_effort,
     _content,
     _conversation_messages,
     _metadata,
@@ -921,7 +925,7 @@ def _run_configuration_fingerprint(
         "backend_generation_provider": str(argument("backend_generation_provider")),
         "generation_model": str(argument("generation_model")),
         "judge_model": str(argument("judge_model")),
-        "judge_thinking_level": str(argument("judge_thinking_level")),
+        "judge_effort": str(argument("judge_effort")),
         "include_conversation": bool(argument("include_conversation", False)),
         "evaluator_sql_namespace": str(argument("evaluator_sql_namespace")),
         "evaluator_application_database_name": str(argument("evaluator_application_database_name")),
@@ -1302,16 +1306,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--qdrant-api-key", default=os.getenv("REHAB_EVAL_QDRANT_API_KEY", ""))
     parser.add_argument("--catalog-dir", type=Path, default=Path(os.getenv("REHAB_EVAL_CATALOG_DIR", "")))
     parser.add_argument("--embedding-provider", default=os.getenv("REHAB_EVAL_EMBEDDING_PROVIDER", os.getenv("REHAB_EMBEDDING_PROVIDER", "hash")))
-    parser.add_argument("--backend-generation-provider", default=os.getenv("REHAB_EVAL_BACKEND_GENERATION_PROVIDER", "openai"))
-    parser.add_argument("--backend-generation-key", default=os.getenv("OPENAI_API_KEY", ""))
+    parser.add_argument("--backend-generation-provider", default=os.getenv("REHAB_EVAL_BACKEND_GENERATION_PROVIDER", "anthropic"))
+    parser.add_argument("--backend-generation-key", default=os.getenv("LLM_KEY", ""))
     parser.add_argument("--baseline", type=Path, help="Accepted for wrapper compatibility; ignored by combined-v2.")
-    parser.add_argument("--generation-model", default=os.getenv("REAL_MODEL_GENERATION_MODEL", "gpt-5.4-mini"))
+    parser.add_argument("--generation-model", default=os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5"))
     parser.add_argument(
+        "--judge-effort",
         "--judge-thinking-level",
-        default=os.getenv("REAL_MODEL_JUDGE_THINKING_LEVEL", "high"),
-        help="OpenAI judge reasoning effort, for example minimal, low, medium, high, or none.",
+        dest="judge_effort",
+        default=os.getenv("REAL_MODEL_JUDGE_EFFORT", os.getenv("REAL_MODEL_JUDGE_THINKING_LEVEL", JUDGE_DEFAULT_EFFORT)),
+        help="Anthropic judge effort: low, medium, high, xhigh, max, or none for the model default.",
     )
-    parser.add_argument("--judge-model", default=os.getenv("REAL_MODEL_JUDGE_MODEL", "gpt-5.6-luna"))
+    parser.add_argument("--judge-model", default=os.getenv("REAL_MODEL_JUDGE_MODEL", JUDGE_DEFAULT_MODEL))
     parser.add_argument("--include-conversation", action="store_true", default=True)
     parser.add_argument("--no-conversation", action="store_false", dest="include_conversation")
     parser.add_argument(
@@ -1336,6 +1342,10 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(f"could not derive latest Alembic revision: {type(exc).__name__}")
     if args.max_parallel_cases < 1:
         parser.error("--max-parallel-cases must be a positive integer")
+    try:
+        normalize_judge_effort(args.judge_effort)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.max_parallel_judge_calls < 1:
         parser.error("--max-parallel-judge-calls must be a positive integer")
     if args.startup_timeout_seconds <= 0:
@@ -1348,9 +1358,9 @@ def main(argv: list[str] | None = None) -> int:
     _ = args.generation_model
     if not _enabled():
         parser.error("set REHAB_REAL_MODEL_ENABLED=1 explicitly to run service-backed evaluation")
-    judge_key = (os.getenv("OPENAI_JUDGE_API_KEY") or os.getenv("OPENAI_API_KEY", "")).strip()
+    judge_key = (os.getenv("LLM_JUDGE_KEY") or os.getenv("LLM_KEY", "")).strip()
     if not judge_key:
-        parser.error("OPENAI_JUDGE_API_KEY or OPENAI_API_KEY is required for judging")
+        parser.error("LLM_JUDGE_KEY or LLM_KEY is required for judging")
     if not args.evaluator_sql_admin_url.strip():
         parser.error("separate evaluator SQL administrator connection is required")
     if not args.evaluator_sql_namespace.strip():
@@ -1721,14 +1731,20 @@ def main(argv: list[str] | None = None) -> int:
         }, sort_keys=True))
         return 2 if cleanup.ok else 1
 
-    judge = _OpenAICompatibleProvider(
-        reasoning_effort=args.judge_thinking_level,
+    langfuse = EvalLangfuseReporter.from_environment(
+        run_id=run_manifest.run_id,
+        secrets=(judge_key, args.backend_generation_key),
+    )
+    judge = _AnthropicJudgeProvider(
+        effort=args.judge_effort,
         api_key=judge_key,
-        base_url=os.getenv(
-            "OPENAI_JUDGE_API_BASE",
-            os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
+        base_url=(
+            os.getenv("ANTHROPIC_JUDGE_BASE_URL", "").strip()
+            or os.getenv("ANTHROPIC_BASE_URL", "").strip()
+            or None
         ),
         model_name=args.judge_model,
+        langfuse=langfuse,
     )
     config = ServiceHarnessConfig(
         backend_dir=args.backend_dir,
@@ -1804,7 +1820,16 @@ def main(argv: list[str] | None = None) -> int:
                     scenario,
                     fixture_store=fixture_store,
                 )
-            case_harness = ServiceHarness(replace(config, port=0))
+            case_config = replace(config, port=0)
+            if langfuse is not None:
+                case_config = replace(
+                    case_config,
+                    extra_environment={
+                        **dict(config.extra_environment),
+                        **langfuse.backend_environment(suite, identifier),
+                    },
+                )
+            case_harness = ServiceHarness(case_config)
             if identity.case_resources is not None:
                 case_harness.activate_case_resources(identity.case_resources)
             if profile != "none":
@@ -1943,6 +1968,23 @@ def main(argv: list[str] | None = None) -> int:
             case_key: str,
             service_result: Mapping[str, Any],
         ) -> Mapping[str, Any]:
+            if langfuse is None:
+                return judge_case(case_key, service_result)
+            suite, _, identifier = case_key.partition(":")
+            case_manifest = run_manifest.cases.get(identifier)
+            with langfuse.case(
+                suite=suite,
+                case_id=identifier,
+                session_ids=getattr(case_manifest, "ai_session_ids", None),
+            ) as case_trace:
+                report = judge_case(case_key, service_result)
+                langfuse.record_case_result(case_trace, report)
+            return report
+
+        def judge_case(
+            case_key: str,
+            service_result: Mapping[str, Any],
+        ) -> Mapping[str, Any]:
             suite, _, identifier = case_key.partition(":")
             if suite == "real_model":
                 return judge_service_result(
@@ -2011,6 +2053,8 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         service_failure = exc
     finally:
+        if langfuse is not None:
+            langfuse.flush()
         try:
             harness.stop()
         except Exception as exc:

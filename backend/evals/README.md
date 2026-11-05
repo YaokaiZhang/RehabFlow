@@ -23,7 +23,7 @@ contains human-readable AI messages and AI internal messages.
 
 ## Running the combined evaluator
 
-From the repository root, after setting `OPENAI_API_KEY`, run:
+From the repository root, after setting `LLM_KEY` (an Anthropic API key), run:
 
     ./scripts/run_llm_judge_eval.sh --max-parallel-cases 2
 
@@ -37,8 +37,10 @@ and Qdrant resources, and checks that every child reports the resolved backend
 revision. `database/setup.sh` is for the normal developer database; the
 evaluator provisions its own namespace so parallel cases do not share it.
 
-The run requires `OPENAI_API_KEY`. If `OPENAI_JUDGE_API_KEY` is unset, the
-generation key is used for judging. Full conversation capture is enabled by
+The run requires `LLM_KEY`: the evaluator backends generate with the Anthropic
+API, like the product. The judge is `claude-opus-5-5` at `high` effort
+(`--judge-model`, `--judge-effort`) and uses `LLM_JUDGE_KEY`, which defaults
+to `LLM_KEY`. Full conversation capture is enabled by
 default. Artifacts include the input and output dialog, model and tool events,
 reviewer and repair events, judge scores and rubric rationale, count
 cross-checks, and explicit unavailable reasons.
@@ -64,6 +66,28 @@ For focused evaluator contract coverage:
 These tests do not replace the live 8+36 verification. A completed run requires
 the configured provider and judge, isolated databases and Qdrant/catalog
 resources, successful service startup, and successful cleanup.
+
+## Langfuse
+
+When the self-hosted Langfuse from `./start-dev.sh` is reachable, the runner
+reports to it by default; `--no-langfuse` opts out and `--langfuse-port N`
+matches a non-default port. `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY` and
+`LANGFUSE_SECRET_KEY` override the local development defaults. If Langfuse is
+down, the run continues without it.
+
+- Everything goes to the Langfuse environment `evaluation`, apart from normal
+  development traces.
+- Each case backend tags its turn traces `eval`, `eval-run:<run id>` and
+  `eval-case:<suite>:<case id>`; filter by a case tag to see all its turns.
+- Each case gets one `eval_case` trace with the same tags, placed in the
+  case's first chat session. It holds every judge call (including repair
+  attempts) as an `eval_judge` generation with prompt, output and token use.
+- Scores on the `eval_case` trace: `rubric.<dimension>` (0-4, the judge's
+  justification as the comment), `rubric.weighted_score`, `eval.passed` and
+  `eval.judge_status`.
+
+Open a low-scoring `eval_case` trace and follow its session to the turn traces
+behind the grade.
 
 ## Corpus behavior
 

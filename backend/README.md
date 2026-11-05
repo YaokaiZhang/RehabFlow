@@ -329,10 +329,21 @@ scripts/run_llm_judge_eval.sh \
 ```
 
 Prerequisites are isolated evaluation PostgreSQL/application and checkpoint
-databases, an isolated Qdrant namespace or path, catalog data, a generation
-provider key, and a judge key (or the documented generation-key reuse). Run
-`scripts/run_llm_judge_eval.sh --help` for concurrency, case, baseline, model,
-and judge-thinking options. The default artifacts are JSON, Markdown, message,
+databases, an isolated Qdrant namespace or path, and catalog data. Generation
+uses the Anthropic API with `LLM_KEY`, like the product. The judge is
+`claude-opus-5-5` at `high` effort and uses `LLM_JUDGE_KEY`, which defaults to
+`LLM_KEY`. Run `scripts/run_llm_judge_eval.sh --help` for concurrency, case,
+baseline, judge model and judge effort options.
+
+Eval runs report to Langfuse by default when it is reachable (start it with
+`./start-dev.sh`; `--no-langfuse` opts out, `--langfuse-port N` matches a
+non-default port). Filter by the Langfuse environment `evaluation` to keep eval
+traces apart from development traces. Every case backend tags its turn traces
+`eval`, `eval-run:<run id>` and `eval-case:<suite>:<case id>`. Each case also
+gets an `eval_case` trace in its first chat session, holding the judge calls as
+`eval_judge` generations and these scores: one `rubric.<dimension>` score per
+rubric dimension (0-4, with the judge's justification as the comment),
+`rubric.weighted_score`, `eval.passed` and `eval.judge_status`. The default artifacts are JSON, Markdown, message,
 judge, and ledger files under `backend/evals/artifacts/combined-v2`.
 Successful runs retain their isolated resources by default; set
 `REHAB_EVAL_KEEP_TEST_DATA=0` to clean runner-owned resources.

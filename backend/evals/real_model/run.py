@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 import json
 import os
 from threading import Lock
@@ -83,34 +84,131 @@ def build_generation_prompt(case: dict[str, Any]) -> str:
     )
 
 
-class _OpenAICompatibleProvider:
+JUDGE_DEFAULT_MODEL = "claude-opus-5-5"
+JUDGE_DEFAULT_EFFORT = "high"
+JUDGE_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+_EFFORT_DISABLED = frozenset({"", "none", "off", "disabled", "default"})
+
+
+def normalize_judge_effort(value: str | None) -> str | None:
+    """Anthropic effort for the judge; ``None`` leaves the model default."""
+    effort = str(value or "").strip().lower()
+    if effort in _EFFORT_DISABLED:
+        return None
+    if effort not in JUDGE_EFFORTS:
+        raise ValueError(
+            f"judge effort must be one of {', '.join(sorted(JUDGE_EFFORTS))} or none; got {value!r}"
+        )
+    return effort
+
+
+def _usage_details(usage: object) -> dict[str, int]:
+    details: dict[str, int] = {}
+    for source, target in (
+        ("input_tokens", "input"),
+        ("output_tokens", "output"),
+        ("cache_read_input_tokens", "cache_read_input_tokens"),
+        ("cache_creation_input_tokens", "cache_creation_input_tokens"),
+    ):
+        value = getattr(usage, source, None)
+        if isinstance(value, int):
+            details[target] = value
+    return details
+
+
+class _AnthropicJudgeProvider:
+    """LLM judge on the Anthropic Messages API (adaptive thinking + effort).
+
+    Returns a LangChain ``AIMessage`` so the judge parser and the report code,
+    which read ``content`` and ``usage_metadata``, need no provider branches.
+    Each call is a Langfuse generation when a reporter is configured.
+    """
+
     def __init__(
         self,
         *,
         api_key: str,
-        base_url: str,
-        model_name: str = "gpt-5.6-luna",
-        temperature: float = 0.0,
-        request_timeout_seconds: float = 120.0,
+        base_url: str | None = None,
+        model_name: str = JUDGE_DEFAULT_MODEL,
+        effort: str | None = JUDGE_DEFAULT_EFFORT,
+        max_tokens: int = 32000,
+        request_timeout_seconds: float = 600.0,
         max_retries: int = 2,
-        reasoning_effort: str | None = "medium",
+        langfuse: object | None = None,
+        client: object | None = None,
     ) -> None:
-        from langchain_openai import ChatOpenAI
-
         self.model_name = model_name
+        self.effort = normalize_judge_effort(effort)
+        self.max_tokens = max(1024, int(max_tokens))
+        self.langfuse = langfuse
         self._invoke_lock = Lock()
-        model_kwargs: dict[str, object] = {
-            "model": model_name,
-            "base_url": base_url,
-            "api_key": api_key,
-            "timeout": max(1.0, float(request_timeout_seconds)),
-            "max_retries": max(0, int(max_retries)),
-            "use_responses_api": True,
+        if client is None:
+            import anthropic
+
+            client = anthropic.Anthropic(
+                api_key=api_key,
+                base_url=base_url or None,
+                timeout=max(1.0, float(request_timeout_seconds)),
+                max_retries=max(0, int(max_retries)),
+            )
+        self.client = client
+
+    def _request(self, prompt: str) -> dict[str, Any]:
+        request: dict[str, Any] = {
+            "model": self.model_name,
+            "max_tokens": self.max_tokens,
+            "thinking": {"type": "adaptive"},
+            "messages": [{"role": "user", "content": prompt}],
         }
-        normalized_reasoning_effort = str(reasoning_effort or "").strip().lower()
-        if normalized_reasoning_effort not in {"", "none", "off", "disabled"}:
-            model_kwargs["reasoning_effort"] = normalized_reasoning_effort
-        self.model = ChatOpenAI(**model_kwargs)
+        if self.effort:
+            request["output_config"] = {"effort": self.effort}
+        return request
+
+    def _generation(self, prompt: str):
+        if self.langfuse is None:
+            return nullcontext(None)
+        return self.langfuse.judge_generation(
+            model=self.model_name,
+            prompt=prompt,
+            model_parameters={"max_tokens": self.max_tokens, "effort": self.effort or "default"},
+        )
+
+    def _call(self, prompt: str) -> object:
+        from langchain_core.messages import AIMessage
+
+        with self._generation(prompt) as generation:
+            # Streaming keeps long high-effort judge calls clear of request timeouts.
+            with self.client.messages.stream(**self._request(prompt)) as stream:
+                message = stream.get_final_message()
+            text = "\n".join(
+                block.text
+                for block in message.content
+                if getattr(block, "type", None) == "text" and getattr(block, "text", "")
+            )
+            usage = _usage_details(getattr(message, "usage", None))
+            if generation is not None:
+                try:
+                    generation.update(
+                        output=text,
+                        usage_details=usage,
+                        metadata={"stop_reason": getattr(message, "stop_reason", None)},
+                    )
+                except Exception:
+                    pass
+        input_tokens = usage.get("input", 0)
+        output_tokens = usage.get("output", 0)
+        return AIMessage(
+            content=text,
+            usage_metadata={
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+            },
+            response_metadata={
+                "model": getattr(message, "model", self.model_name),
+                "stop_reason": getattr(message, "stop_reason", None),
+            },
+        )
 
     def invoke(self, prompt: str, *, model: str) -> object:
         if model != self.model_name:
@@ -118,4 +216,4 @@ class _OpenAICompatibleProvider:
                 f"provider was configured for {self.model_name!r}, received {model!r}"
             )
         with self._invoke_lock:
-            return self.model.invoke(prompt)
+            return self._call(prompt)

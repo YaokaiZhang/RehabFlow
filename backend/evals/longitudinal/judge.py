@@ -288,9 +288,9 @@ def _build_repair_payload(payload: str, error: str) -> str:
 
 def _is_api_connection_error(error: BaseException) -> bool:
     try:
-        from openai import APIConnectionError
+        from anthropic import APIConnectionError
     except ImportError:
-        return type(error).__name__ == "APIConnectionError"
+        return type(error).__name__ in {"APIConnectionError", "APITimeoutError"}
     return isinstance(error, APIConnectionError)
 
 

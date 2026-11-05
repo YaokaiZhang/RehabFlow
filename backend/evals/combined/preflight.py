@@ -70,6 +70,11 @@ class PreflightResult:
         return {"status": self.status, "checks": dict(self.checks), "identity": dict(self.safe_identity)}
 
 
+def _embedding_credential_present(provider: str) -> bool:
+    provider_key = "OPENAI_API_KEY" if provider == "openai" else "QWEN_API_KEY"
+    return any(os.getenv(name, "").strip() for name in ("EMBEDDING_API_KEY", provider_key))
+
+
 def validate_preflight_config(config: PreflightConfig) -> PreflightResult:
     if not config.evaluator_mode:
         raise PreflightError("evaluator-only mode is required")
@@ -118,16 +123,16 @@ def validate_preflight_config(config: PreflightConfig) -> PreflightResult:
     if not root.exists() or not root.is_dir() or not os.access(root, os.W_OK):
         raise PreflightError("generated catalog directory is not writable")
     provider = config.backend_generation_provider.strip().lower()
-    if provider not in {"openai", "qwen", "dashscope", "hash"}:
-        raise PreflightError("backend generation provider is unsupported")
-    if provider in {"openai", "qwen", "dashscope"} and not str(config.backend_generation_key or "").strip():
-        raise PreflightError("backend generation credential is required")
+    if provider not in {"anthropic", "hash"}:
+        raise PreflightError("backend generation provider is unsupported; the backend generates with anthropic")
+    if provider == "anthropic" and not str(config.backend_generation_key or "").strip():
+        raise PreflightError("backend generation credential (LLM_KEY) is required")
     embedding_provider = config.embedding_provider.strip().lower()
     if embedding_provider == "dashscope":
         raise PreflightError("embedding provider alias dashscope is unsupported; use qwen")
     if embedding_provider not in {"hash", "openai", "qwen"}:
         raise PreflightError("embedding provider is unsupported")
-    if embedding_provider in {"openai", "qwen", "dashscope"} and not str(config.backend_generation_key or "").strip():
+    if embedding_provider in {"openai", "qwen"} and not _embedding_credential_present(embedding_provider):
         raise PreflightError("embedding credential is required")
     if not str(config.judge_key or "").strip():
         raise PreflightError("judge credential is required")

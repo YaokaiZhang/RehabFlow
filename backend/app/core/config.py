@@ -349,6 +349,17 @@ class Settings(BaseSettings):
 		default=False,
 		validation_alias=AliasChoices("LANGFUSE_ALLOW_PRODUCTION", "langfuse_allow_production"),
 	)
+	# Langfuse environment label; defaults to ENVIRONMENT. The evaluator sets
+	# "evaluation" so eval traces stay apart from normal development traces.
+	langfuse_tracing_environment: str | None = Field(
+		default=None,
+		validation_alias=AliasChoices("LANGFUSE_TRACING_ENVIRONMENT", "langfuse_tracing_environment"),
+	)
+	# Comma-separated tags added to every trace (the evaluator tags run and case).
+	langfuse_trace_tags: str | None = Field(
+		default=None,
+		validation_alias=AliasChoices("LANGFUSE_TRACE_TAGS", "langfuse_trace_tags"),
+	)
 
 	model_config = SettingsConfigDict(
 		env_file=_DEFAULT_ENV_FILES,

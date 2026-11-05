@@ -3,13 +3,23 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/run_llm_judge_eval.sh [runner options]
+Usage: scripts/run_llm_judge_eval.sh [--no-langfuse] [--langfuse-port N] [runner options]
 
 Runs the combined 44-case service-backed real-model and longitudinal v2 diagnostics.
-OPENAI_JUDGE_API_KEY is used only for judging and defaults to OPENAI_API_KEY.
-OPENAI_API_KEY is used for backend generation.
+Backend generation uses the Anthropic API with LLM_KEY (as the product does).
+The judge uses LLM_JUDGE_KEY, which defaults to LLM_KEY.
 Separate isolated application, checkpoint, Qdrant, catalog,
 embedding, generation, and judge configuration is required.
+
+Langfuse (on by default, like ./start-dev.sh):
+  Each case's turn traces are tagged eval, eval-run:<id> and
+  eval-case:<suite>:<id> under the Langfuse environment "evaluation". Each case
+  also gets an eval_case trace with the judge calls and the rubric scores.
+  If Langfuse is not reachable the run continues without it.
+  --no-langfuse         Do not send anything to Langfuse.
+  --langfuse-port N     Local Langfuse port (default 3100). LANGFUSE_BASE_URL,
+                        LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY override the
+                        local development defaults.
 
 Example using every user-facing argument:
   scripts/run_llm_judge_eval.sh \
@@ -20,13 +30,15 @@ Example using every user-facing argument:
     --include-conversation \
     --max-parallel-cases 2 \
     --max-parallel-judge-calls 1 \
-    --judge-model gpt-5.6-luna \
-    --judge-thinking-level high
+    --judge-model claude-opus-5-5 \
+    --judge-effort high \
+    --langfuse-port 3100
 
 REHAB_EVAL_MAX_PARALLEL_CASES and REHAB_EVAL_MAX_PARALLEL_JUDGE_CALLS
 set the same concurrency limits.
---judge-model and --judge-thinking-level are forwarded to the judge provider; the
-judge model defaults to REAL_MODEL_JUDGE_MODEL and thinking level to REAL_MODEL_JUDGE_THINKING_LEVEL.
+--judge-model and --judge-effort (alias --judge-thinking-level) configure the
+Anthropic judge; they default to REAL_MODEL_JUDGE_MODEL (claude-opus-5-5) and
+REAL_MODEL_JUDGE_EFFORT (high).
 The default artifact directory is backend/evals/artifacts/combined-v2.
 Successful evaluator runs retain their test database/resources by default.
 Set REHAB_EVAL_KEEP_TEST_DATA=0 to clean even a successful run.
@@ -38,6 +50,8 @@ backend_dir="$repo_dir/backend"
 python_bin="${REHAB_BACKEND_PYTHON:-$backend_dir/.venv/bin/python}"
 reuse_generation_key=1
 runner_args=(--include-conversation)
+langfuse_enabled=1
+langfuse_port=3100
 
 while (($#)); do
   case "$1" in
@@ -54,13 +68,26 @@ while (($#)); do
       runner_args+=(--judge-model "${1#*=}")
       shift
       ;;
-    --judge-thinking-level)
-      [[ $# -ge 2 ]] || { echo "--judge-thinking-level requires a value" >&2; exit 2; }
-      runner_args+=(--judge-thinking-level "$2")
+    --judge-effort|--judge-thinking-level)
+      [[ $# -ge 2 ]] || { echo "$1 requires a value" >&2; exit 2; }
+      runner_args+=(--judge-effort "$2")
       shift 2
       ;;
-    --judge-thinking-level=*)
-      runner_args+=(--judge-thinking-level "${1#*=}")
+    --judge-effort=*|--judge-thinking-level=*)
+      runner_args+=(--judge-effort "${1#*=}")
+      shift
+      ;;
+    --no-langfuse)
+      langfuse_enabled=0
+      shift
+      ;;
+    --langfuse-port)
+      [[ $# -ge 2 ]] || { echo "--langfuse-port requires a value" >&2; exit 2; }
+      langfuse_port="$2"
+      shift 2
+      ;;
+    --langfuse-port=*)
+      langfuse_port="${1#*=}"
       shift
       ;;
     -h|--help)
@@ -103,11 +130,17 @@ load_dotenv_value() {
   done
 }
 
+load_dotenv_value LLM_KEY
+load_dotenv_value LLM_JUDGE_KEY
+load_dotenv_value ANTHROPIC_BASE_URL
+load_dotenv_value ANTHROPIC_JUDGE_BASE_URL
+load_dotenv_value ANTHROPIC_MODEL
+# Embedding credentials only (backend generation is Anthropic).
+load_dotenv_value EMBEDDING_API_KEY
 load_dotenv_value OPENAI_API_KEY
-load_dotenv_value OPENAI_JUDGE_API_KEY
-load_dotenv_value OPENAI_API_BASE
-load_dotenv_value OPENAI_JUDGE_API_BASE
+load_dotenv_value QWEN_API_KEY
 load_dotenv_value REAL_MODEL_JUDGE_MODEL
+load_dotenv_value REAL_MODEL_JUDGE_EFFORT
 load_dotenv_value REAL_MODEL_JUDGE_THINKING_LEVEL
 load_dotenv_value REHAB_EVAL_SCHEMA_REVISION
 load_dotenv_value REHAB_EVAL_BACKEND_REVISION
@@ -127,20 +160,42 @@ load_dotenv_value REHAB_EVAL_CATALOG_DIR
 load_dotenv_value REHAB_EVAL_QDRANT_OWNER_IDENTITY
 load_dotenv_value REHAB_EVAL_QDRANT_ALLOWLIST
 load_dotenv_value REHAB_EVAL_BACKEND_GENERATION_PROVIDER
-backend_generation_provider="${REHAB_EVAL_BACKEND_GENERATION_PROVIDER:-openai}"
-if [[ "$backend_generation_provider" == "openai" ]] && [[ -z "${OPENAI_API_KEY:-}" ]]; then
-  echo OPENAI_API_KEY-is-required-for-backend-generation >&2
+backend_generation_provider="${REHAB_EVAL_BACKEND_GENERATION_PROVIDER:-anthropic}"
+if [[ "$backend_generation_provider" == "anthropic" ]] && [[ -z "${LLM_KEY:-}" ]]; then
+  echo LLM_KEY-is-required-for-backend-generation >&2
   exit 2
 fi
-if [[ -z "${OPENAI_JUDGE_API_KEY:-}" ]]; then
-  if [[ "$reuse_generation_key" -eq 1 && -n "${OPENAI_API_KEY:-}" ]]; then
-    OPENAI_JUDGE_API_KEY="$OPENAI_API_KEY"
-    export OPENAI_JUDGE_API_KEY
+if [[ -z "${LLM_JUDGE_KEY:-}" ]]; then
+  if [[ "$reuse_generation_key" -eq 1 && -n "${LLM_KEY:-}" ]]; then
+    LLM_JUDGE_KEY="$LLM_KEY"
+    export LLM_JUDGE_KEY
   else
-    echo OPENAI_JUDGE_API_KEY-is-required-for-judging >&2
+    echo LLM_JUDGE_KEY-is-required-for-judging >&2
     exit 2
   fi
 fi
+
+if [[ "$langfuse_enabled" -eq 1 ]]; then
+  if ! [[ "$langfuse_port" =~ ^[0-9]+$ ]] || (( langfuse_port < 1 || langfuse_port > 65535 )); then
+    echo "--langfuse-port must be a port number from 1 to 65535" >&2
+    exit 2
+  fi
+  LANGFUSE_BASE_URL="${LANGFUSE_BASE_URL:-http://127.0.0.1:${langfuse_port}}"
+  LANGFUSE_BASE_URL="${LANGFUSE_BASE_URL%/}"
+  # Development keys provisioned by docker-compose.langfuse.yml.
+  LANGFUSE_PUBLIC_KEY="${LANGFUSE_PUBLIC_KEY:-pk-lf-rehabflow-dev}"
+  LANGFUSE_SECRET_KEY="${LANGFUSE_SECRET_KEY:-sk-lf-rehabflow-dev}"
+  if curl -fsS --max-time 5 "$LANGFUSE_BASE_URL/api/public/health" >/dev/null 2>&1; then
+    LANGFUSE_ENABLED=true
+    echo "evaluator-langfuse-enabled base_url=$LANGFUSE_BASE_URL environment=evaluation" >&2
+  else
+    LANGFUSE_ENABLED=false
+    echo "evaluator-langfuse-unreachable base_url=$LANGFUSE_BASE_URL; continuing without Langfuse (start it with ./start-dev.sh, or pass --no-langfuse)" >&2
+  fi
+else
+  LANGFUSE_ENABLED=false
+fi
+export LANGFUSE_ENABLED LANGFUSE_BASE_URL LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY
 REHAB_EVAL_EMBEDDING_PROVIDER="${REHAB_EVAL_EMBEDDING_PROVIDER:-hash}"
 export REHAB_EVAL_EMBEDDING_PROVIDER
 evaluator_runtime_parent="${REHAB_EVAL_RUNTIME_DIR:-$repo_dir/backend/evals/artifacts/.runtime}"
@@ -298,7 +353,9 @@ if [[ -n "${REHAB_EVAL_QDRANT_PATH:-}" ]]; then
 fi
 export REHAB_REAL_MODEL_ENABLED="${REHAB_REAL_MODEL_ENABLED:-1}"
 export REHAB_EVAL_OPENAI_TIMEOUT_SECONDS="${REHAB_EVAL_OPENAI_TIMEOUT_SECONDS:-120}"
-export OPENAI_API_KEY OPENAI_JUDGE_API_KEY OPENAI_API_BASE OPENAI_JUDGE_API_BASE
+export LLM_KEY LLM_JUDGE_KEY
+[[ -n "${ANTHROPIC_BASE_URL:-}" ]] && export ANTHROPIC_BASE_URL
+[[ -n "${ANTHROPIC_JUDGE_BASE_URL:-}" ]] && export ANTHROPIC_JUDGE_BASE_URL
 cd "$backend_dir"
 max_restarts="${REHAB_EVAL_MAX_RESTARTS:-200}"
 if ! [[ "$max_restarts" =~ ^[0-9]+$ ]]; then

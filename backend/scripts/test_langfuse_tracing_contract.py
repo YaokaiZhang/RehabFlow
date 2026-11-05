@@ -26,6 +26,8 @@ class _Settings:
     langfuse_secret_key = "sk-lf-test"
     langfuse_base_url = "http://langfuse.invalid"
     langfuse_allow_production = False
+    langfuse_tracing_environment = None
+    langfuse_trace_tags = None
 
 
 def _with_settings(settings: Any):
@@ -265,6 +267,50 @@ def test_web_search_call_is_a_generation_in_the_turn_trace() -> None:
         _restore(original)
 
 
+def test_eval_tags_and_environment_reach_every_trace() -> None:
+    """LANGFUSE_TRACE_TAGS / LANGFUSE_TRACING_ENVIRONMENT, as the evaluator sets them."""
+    import langfuse as langfuse_package
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    exporter = InMemorySpanExporter()
+    settings = _Settings()
+    settings.langfuse_public_key = "pk-lf-test-eval-tags"
+    settings.langfuse_tracing_environment = "evaluation"
+    settings.langfuse_trace_tags = "eval, eval-run:r-1,eval-case:longitudinal:c-1,eval"
+    original = _with_settings(settings)
+    real_langfuse = langfuse_package.Langfuse
+    captured: dict[str, Any] = {}
+
+    def _langfuse_with_memory_exporter(**kwargs: Any):
+        captured.update(kwargs)
+        return real_langfuse(**kwargs, span_exporter=exporter)
+
+    langfuse_package.Langfuse = _langfuse_with_memory_exporter  # type: ignore[assignment]
+    try:
+        client = langfuse_tracing.get_langfuse_client()
+        assert client is not None
+        assert captured["environment"] == "evaluation"
+        with langfuse_tracing.langfuse_trace_attributes(
+            trace_name="rehab_turn", session_id="s-3", tags=["extra", "eval"]
+        ):
+            with client.start_as_current_observation(name="turn", as_type="span"):
+                pass
+        client.flush()
+        spans = exporter.get_finished_spans()
+        assert spans
+        tags = spans[0].attributes.get("langfuse.trace.tags")
+        assert list(tags) == ["eval", "eval-run:r-1", "eval-case:longitudinal:c-1", "extra"], tags
+        assert spans[0].attributes.get("session.id") == "s-3"
+    finally:
+        langfuse_package.Langfuse = real_langfuse  # type: ignore[assignment]
+        _restore(original)
+
+
+def test_parse_trace_tags() -> None:
+    assert langfuse_tracing.parse_trace_tags(None) == []
+    assert langfuse_tracing.parse_trace_tags(" a, ,b,a ") == ["a", "b"]
+
+
 def main() -> None:
     test_disabled_by_default_adds_nothing()
     test_refused_in_production_without_override()
@@ -272,6 +318,8 @@ def main() -> None:
     test_mask_redacts_secrets_recursively()
     test_graph_llm_calls_nest_under_one_session_trace()
     test_web_search_call_is_a_generation_in_the_turn_trace()
+    test_eval_tags_and_environment_reach_every_trace()
+    test_parse_trace_tags()
     print("langfuse tracing contract: ok")
 
 

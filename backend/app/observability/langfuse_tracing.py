@@ -27,6 +27,22 @@ _client: Any | None = None
 _public_key: str | None = None
 
 
+def parse_trace_tags(raw: str | None) -> list[str]:
+    """Split a comma-separated tag list, dropping blanks and duplicates."""
+    tags: list[str] = []
+    for part in str(raw or "").split(","):
+        tag = part.strip()[:200]
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags
+
+
+def _configured_tags() -> list[str]:
+    from app.core.config import get_settings
+
+    return parse_trace_tags(getattr(get_settings(), "langfuse_trace_tags", None))
+
+
 def _redact(data: Any) -> Any:
     """Recursively redact secret-looking substrings before export."""
     from app.services.ai_turn_persistence import redact_internal_text
@@ -73,7 +89,8 @@ def _init_client() -> Any | None:
         public_key=settings.langfuse_public_key,
         secret_key=settings.langfuse_secret_key,
         base_url=settings.langfuse_base_url,
-        environment=settings.environment,
+        environment=(getattr(settings, "langfuse_tracing_environment", None) or "").strip()
+        or settings.environment,
         release=settings.build_revision or None,
         mask=_mask,
     )
@@ -141,18 +158,21 @@ def langfuse_trace_attributes(
 
     The session id is the RehabFlow chat session UUID, so a Langfuse session
     lines up with the ``ai_internal_messages`` rows for that session. No user
-    or patient identifier is sent.
+    or patient identifier is sent. ``LANGFUSE_TRACE_TAGS`` is added to the
+    given tags.
     """
     if get_langfuse_client() is None:
         yield
         return
+    merged_tags = _configured_tags()
+    merged_tags += [tag for tag in tags or () if tag not in merged_tags]
     try:
         from langfuse import propagate_attributes
 
         manager = propagate_attributes(
             trace_name=trace_name,
             session_id=str(session_id) if session_id else None,
-            tags=tags,
+            tags=merged_tags or None,
         )
     except Exception:
         logger.debug("langfuse_propagate_attributes_unavailable", exc_info=True)
