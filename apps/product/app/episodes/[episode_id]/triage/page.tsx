@@ -5,7 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import {
-    createTriageSummaryDraft,
     deleteTriageSummaryDraft,
     getCareEpisode,
     listTriageSummaries,
@@ -50,7 +49,7 @@ function SummaryPanel({
                     <h2 className="ep-summary-title">{summary.concern || episodeIssueTitle}</h2>
                 </div>
                 <div className="ep-summary-actions">
-                    {!saved && onSave ? <AppButton onClick={onSave} disabled={busy}>{busy ? "Saving" : "Save to episode"}</AppButton> : null}
+                    {!saved && onSave ? <AppButton onClick={onSave} disabled={busy}>{busy ? "Saving" : "Save"}</AppButton> : null}
                     {!saved && onDelete ? <AppButton variant="ghost" className="text-danger" onClick={onDelete} disabled={busy}>{busy ? "Working" : "Discard"}</AppButton> : null}
                 </div>
             </div>
@@ -74,11 +73,8 @@ export default function EpisodeTriagePage() {
     const [episode, setEpisode] = useState<CareEpisode | null>(null);
     const [summaries, setSummaries] = useState<TriageSummaryArtifact[]>([]);
     const [drafts, setDrafts] = useState<TriageSummaryDraft[]>([]);
-    const [additionalContext, setAdditionalContext] = useState("");
     const [error, setError] = useState("");
-    const [statusMessage, setStatusMessage] = useState("");
     const [loading, setLoading] = useState(true);
-    const [generating, setGenerating] = useState(false);
     const [workingDraftId, setWorkingDraftId] = useState<string | null>(null);
 
     const loadEpisode = (nextAuth: AuthState) => {
@@ -113,34 +109,15 @@ export default function EpisodeTriagePage() {
         void loadEpisode(nextAuth);
     }, [episodeId, router]);
 
-    const generateSummary = async () => {
-        if (!auth || !episode || generating) return;
-        setError("");
-        setStatusMessage("");
-        setGenerating(true);
-        try {
-            const draft = await createTriageSummaryDraft(episode.care_episode_id, { additional_context: additionalContext }, auth.access_token);
-            setDrafts((prev) => [draft, ...prev]);
-            setAdditionalContext("");
-            setStatusMessage("Draft summary ready. Review it below, then save it to the episode.");
-        } catch (err) {
-            setError((err as Error).message);
-        } finally {
-            setGenerating(false);
-        }
-    };
-
     const saveDraft = async (draftId: string) => {
         if (!auth || !episode || workingDraftId) return;
         setError("");
-        setStatusMessage("");
         setWorkingDraftId(draftId);
         try {
             const summary = await selectTriageSummaryDraft(episode.care_episode_id, draftId, auth.access_token);
             setDrafts((prev) => prev.filter((draft) => draft.triage_summary_draft_id !== draftId));
             setSummaries((prev) => [summary, ...prev]);
             setEpisode({ ...episode, latest_triage_summary: summary, safety_gate_status: "triage_complete" });
-            setStatusMessage(`Triage Summary v${summary.version} saved.`);
         } catch (err) {
             setError((err as Error).message);
         } finally {
@@ -151,12 +128,10 @@ export default function EpisodeTriagePage() {
     const deleteDraft = async (draftId: string) => {
         if (!auth || !episode || workingDraftId) return;
         setError("");
-        setStatusMessage("");
         setWorkingDraftId(draftId);
         try {
             await deleteTriageSummaryDraft(episode.care_episode_id, draftId, auth.access_token);
             setDrafts((prev) => prev.filter((draft) => draft.triage_summary_draft_id !== draftId));
-            setStatusMessage("Draft discarded.");
         } catch (err) {
             setError((err as Error).message);
         } finally {
@@ -174,32 +149,18 @@ export default function EpisodeTriagePage() {
     return (
         <div className="page-column-narrow ep-page">
             <header className="page-header" data-tone="peach">
-                <p className="page-header-kicker">AI Triage Intake</p>
+                <p className="page-header-kicker">Triage summary</p>
                 <h1>{episode.issue_title}</h1>
-                {!latestSummary ? <p className="scribble ep-header-note">a saved summary unlocks AI Daily Rehab</p> : null}
                 <div className="ep-header-links">
-                    <Link className="btn-secondary" href={`/?episode_id=${episode.care_episode_id}`}>Continue AI Triage Chat</Link>
-                    <Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}`}>Episode overview</Link>
+                    {latestSummary && !hasDrafts ? (
+                        <Link className="btn-primary" href={latestSummary.clinician_review_needed ? `/episodes/${episode.care_episode_id}/professional-care` : `/episodes/${episode.care_episode_id}/rehab`}>
+                            {latestSummary.clinician_review_needed ? "Find a clinician" : "Start today's rehab"}
+                        </Link>
+                    ) : null}
+                    <Link className="btn-secondary" href={`/?episode_id=${episode.care_episode_id}`}>{latestSummary ? "Update in chat" : "Back to chat"}</Link>
                 </div>
-            </header>
-
-            <section className="card">
-                <h2 className="section-title">{latestSummary ? "Update the summary" : "Create a summary"}</h2>
-                <label className="block">
-                    <span className="field-label">Anything new since your last chat? (optional)</span>
-                    <textarea
-                        className="textarea mt-1.5 min-h-28"
-                        value={additionalContext}
-                        onChange={(event) => setAdditionalContext(event.target.value)}
-                        placeholder="For example: swelling went down, stairs still hurt, no numbness"
-                    />
-                </label>
                 {error ? <p className="notice notice-danger mt-3">{error}</p> : null}
-                {statusMessage ? <p className="notice mt-3" role="status">{statusMessage}</p> : null}
-                <AppButton variant={hasDrafts ? "secondary" : "primary"} className="mt-4" onClick={generateSummary} disabled={generating}>
-                    {generating ? "Writing summary" : latestSummary ? "Write a new draft" : "Write a draft summary"}
-                </AppButton>
-            </section>
+            </header>
 
             {hasDrafts ? (
                 <section className="space-y-4" aria-label="Draft summaries">
@@ -216,7 +177,7 @@ export default function EpisodeTriagePage() {
                 </section>
             ) : null}
 
-            {latestSummary ? <SummaryPanel summary={latestSummary} episodeIssueTitle={episode.issue_title} /> : !hasDrafts ? <p className="ep-empty">no summary saved yet</p> : null}
+            {latestSummary ? <SummaryPanel summary={latestSummary} episodeIssueTitle={episode.issue_title} /> : !hasDrafts ? <p className="ep-empty">no summary yet</p> : null}
 
             {summaries.length > 1 ? (
                 <section className="card">

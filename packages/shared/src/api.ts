@@ -136,8 +136,23 @@ export type AiChatTurnInput = {
 	idempotency_key: string;
 };
 
+// A catalog exercise the triage agent mentioned in its reply.
+export type AiChatExerciseCard = {
+	exercise_id: string;
+	title: string;
+	summary: string;
+	targets: string[];
+	video_url: string | null;
+	source_url: string;
+};
+
+// "ready": enough is known to summarise and plan. "urgent": get checked in person instead.
+export type AiChatNextStep = "ready" | "urgent" | null;
+
 export type AiChatTurnResponse = {
 	event: "response" | "error";
+	exercise_cards?: AiChatExerciseCard[];
+	next_step?: AiChatNextStep;
 	session_id?: string | null;
 	response?: string;
 	timestamp?: string;
@@ -162,6 +177,8 @@ export type AiChatMessage = {
 	sender_role: "user" | "assistant";
 	content: string;
 	created_at: string;
+	exercise_cards?: AiChatExerciseCard[];
+	next_step?: AiChatNextStep;
 	sources?: Array<{
 		label: string;
 		title: string;

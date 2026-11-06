@@ -2,16 +2,31 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { loadAuth } from "@rehab/shared/auth";
-import { createEpisodeFromTriageSummaryRequest, createTriageSummaryDraft, getAiChatSession, getCareEpisode, streamAiChatTurn, type AiChatProgress } from "@rehab/shared/api";
+
+import { ExerciseCards, WrapUpCard, type WrapUp } from "../components/TriageChatCards";
+import {
+	createEpisodeFromTriageSummaryRequest,
+	createTriageSummaryDraft,
+	deleteTriageSummaryDraft,
+	getAiChatSession,
+	getCareEpisode,
+	selectTriageSummaryDraft,
+	streamAiChatTurn,
+	type AiChatExerciseCard,
+	type AiChatNextStep,
+	type AiChatProgress,
+} from "@rehab/shared/api";
 
 type ChatMessage = {
 	id: string;
 	role: "assistant" | "user" | "system";
 	text: string;
 	sources?: Array<{ label: string; title: string; url: string }>;
+	exerciseCards?: AiChatExerciseCard[];
+	nextStep?: AiChatNextStep;
 };
 
 type AiEvent = {
@@ -32,15 +47,6 @@ type RouteState = {
 	safetyPassed: boolean | null;
 };
 
-type PendingTriageSummary = {
-	sessionId: string;
-	episodeId: string;
-	messages: ChatMessage[];
-	prompt: string;
-	routeState: RouteState;
-	request: { ai_session_id: string | null; additional_context: string; originating_event_id?: string | null };
-};
-
 type PendingAiChatSubmission = {
 	message: string;
 	careEpisodeId: string;
@@ -51,8 +57,6 @@ type AgentProgressStep = {
 	label: string;
 	detail: string;
 };
-
-const PENDING_TRIAGE_SUMMARY_KEY = "rehab_pending_triage_summary";
 
 const suggestedPrompts = [
 	"Six weeks after my rotator cuff repair, my shoulder is still really stiff in the mornings. Is it okay to push through it?",
@@ -88,6 +92,7 @@ const initialAgentProgress: AgentProgressStep = {
 };
 const summaryRequestFallback = "Patient requested a Triage Summary from the AI intake chat.";
 
+
 function makeId() {
 	return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -98,7 +103,7 @@ function prettyRoute(route: string) {
 	if (route.includes("urgent")) return "Seek care now";
 	if (route === "ask_clarification") return "Needs more detail";
 	if (route === "unsupported") return "Outside RehabFlow's scope";
-	return "Assessment in progress";
+	return "Listening";
 }
 
 function agentProgressForStage(progress: AiChatProgress): AgentProgressStep {
@@ -121,28 +126,6 @@ function routeTone(routeState: RouteState) {
 	if (routeState.needsMoreInfo) return "amber";
 	if (routeState.routingDecision) return "emerald";
 	return "slate";
-}
-
-function buildLoginReturnPath(episodeId: string) {
-	const params = new URLSearchParams({ resume_triage: "summary" });
-	if (episodeId) params.set("episode_id", episodeId);
-	return `/?${params.toString()}`;
-}
-
-function readPendingTriageSummary() {
-	try {
-		const raw = sessionStorage.getItem(PENDING_TRIAGE_SUMMARY_KEY);
-		if (!raw) return null;
-		const pending = JSON.parse(raw) as PendingTriageSummary;
-		if (!Array.isArray(pending.messages) || typeof pending.request?.additional_context !== "string") return null;
-		return pending;
-	} catch {
-		return null;
-	}
-}
-
-function clearPendingTriageSummary() {
-	sessionStorage.removeItem(PENDING_TRIAGE_SUMMARY_KEY);
 }
 
 function HomePageContent() {
@@ -174,8 +157,10 @@ function HomePageContent() {
 	const [prompt, setPrompt] = useState("");
 	const [isWaiting, setIsWaiting] = useState(false);
 	const [agentProgress, setAgentProgress] = useState(initialAgentProgress);
-	const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
-	const [summaryError, setSummaryError] = useState("");
+	const [wrapUp, setWrapUp] = useState<WrapUp>({ stage: "offer" });
+	const [wrapUpError, setWrapUpError] = useState("");
+	// Set when this page itself wrote session_id into the URL, so the history loader can skip it.
+	const ownUrlSessionRef = useRef<string | null>(null);
 	const [historyLoading, setHistoryLoading] = useState(false);
 	const [historyError, setHistoryError] = useState("");
 	const [messages, setMessages] = useState<ChatMessage[]>([
@@ -192,6 +177,9 @@ function HomePageContent() {
 	});
 
 	useEffect(() => {
+		// This page wrote the session into the URL itself; the chat on screen is already current.
+		if (urlSessionId && ownUrlSessionRef.current === urlSessionId) return;
+		ownUrlSessionRef.current = null;
 		setEpisodeId(urlEpisodeId);
 		setHistoryError("");
 		sessionIdRef.current = urlSessionId || "new";
@@ -199,28 +187,6 @@ function HomePageContent() {
 		const auth = loadAuth();
 		if (auth?.role === "patient") {
 			setPatientId(auth.user_id);
-			if (searchParams.get("resume_triage") === "summary") {
-				const pending = readPendingTriageSummary();
-				if (pending) {
-					const restoredEpisodeId = pending.episodeId || urlEpisodeId;
-					sessionIdRef.current = pending.sessionId || "new";
-					originatingEventIdRef.current = pending.request.originating_event_id || null;
-					setSessionId(sessionIdRef.current);
-					setEpisodeId(restoredEpisodeId);
-					setMessages(pending.messages);
-					setPrompt(pending.prompt || "");
-					setRouteState(pending.routeState);
-					setHistoryLoading(false);
-					setSummaryError("Signed in. Your triage history is ready for a summary.");
-
-					const cleanParams = new URLSearchParams(searchParams.toString());
-					cleanParams.delete("resume_triage");
-					const nextSearch = cleanParams.toString();
-					router.replace(`${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}`);
-					return () => clearAgentProgress();
-				}
-			}
-
 			if (urlSessionId) {
 				let active = true;
 				setHistoryLoading(true);
@@ -237,7 +203,10 @@ function HomePageContent() {
 							role: message.sender_role,
 							text: message.content,
 							sources: message.sources,
+							exerciseCards: message.exercise_cards,
+							nextStep: message.next_step ?? null,
 						})));
+						setWrapUp({ stage: "offer" });
 						setPrompt("");
 					})
 					.catch((error) => {
@@ -265,6 +234,8 @@ function HomePageContent() {
 			}]);
 			setPrompt("");
 			setRouteState({ routingDecision: "", needsMoreInfo: null, safetyPassed: null });
+			setWrapUp({ stage: "offer" });
+			setWrapUpError("");
 			setHistoryLoading(false);
 		}
 		return () => {
@@ -332,7 +303,6 @@ function HomePageContent() {
 		if (!auth || auth.role !== "patient") {
 			finishTurn(turnId);
 			setPrompt(submission.message);
-			setSummaryError("Please sign in as a patient before starting AI triage.");
 			router.push("/login?role=patient&next=" + encodeURIComponent("/"));
 			return;
 		}
@@ -352,9 +322,17 @@ function HomePageContent() {
 			);
 			if (activeTurnRef.current !== turnId) return;
 			if (data.session_id) {
+				const isNewSession = sessionIdRef.current !== data.session_id;
 				sessionIdRef.current = data.session_id;
 				setSessionId(data.session_id);
 				window.dispatchEvent(new Event("rehab-ai-chat-changed"));
+				// Keep the chat on refresh: put the session in the URL without reloading it.
+				if (isNewSession) {
+					ownUrlSessionRef.current = data.session_id;
+					const params = new URLSearchParams(window.location.search);
+					params.set("session_id", data.session_id);
+					window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+				}
 			}
 			if (data.originating_event_id) {
 				originatingEventIdRef.current = data.originating_event_id;
@@ -369,7 +347,14 @@ function HomePageContent() {
 				pendingSubmissionRef.current = null;
 				setMessages((prev) => [
 					...prev,
-					{ id: makeId(), role: "assistant", text: data.response || "I could not generate a response for that turn.", sources: data.sources },
+					{
+						id: makeId(),
+						role: "assistant",
+						text: data.response || "I could not generate a response for that turn.",
+						sources: data.sources,
+						exerciseCards: data.exercise_cards,
+						nextStep: data.next_step ?? null,
+					},
 				]);
 			}
 		} catch (error) {
@@ -399,40 +384,62 @@ function HomePageContent() {
 		};
 	};
 
-	const finishTriage = async () => {
-		if (isGeneratingSummary) return;
-		const request = buildTriageSummaryRequest();
+	const writeSummary = async () => {
+		if (wrapUp.stage !== "offer") return;
 		const auth = loadAuth();
 		if (!auth || auth.role !== "patient") {
-			sessionStorage.setItem(PENDING_TRIAGE_SUMMARY_KEY, JSON.stringify({
-				sessionId: sessionIdRef.current,
-				episodeId,
-				messages,
-				prompt,
-				routeState,
-				request,
-			}));
-			setSummaryError("Please sign in as the patient before generating a triage summary. Your triage history will stay here after login.");
-			router.push(`/login?next=${encodeURIComponent(buildLoginReturnPath(episodeId))}`);
+			router.push("/login?role=patient&next=" + encodeURIComponent(window.location.pathname + window.location.search));
 			return;
 		}
-		setSummaryError("");
-		setIsGeneratingSummary(true);
+		const request = buildTriageSummaryRequest();
+		setWrapUpError("");
+		setWrapUp({ stage: "writing" });
 		try {
-			let targetEpisodeId = episodeId;
-			if (!targetEpisodeId) {
-				const created = await createEpisodeFromTriageSummaryRequest(request, auth.access_token);
-				targetEpisodeId = created.episode.care_episode_id;
+			if (episodeId) {
+				const draft = await createTriageSummaryDraft(episodeId, request, auth.access_token);
+				setWrapUp({ stage: "draft", episodeId, draft });
 			} else {
-				await createTriageSummaryDraft(targetEpisodeId, request, auth.access_token);
+				const created = await createEpisodeFromTriageSummaryRequest(request, auth.access_token);
+				setEpisodeId(created.episode.care_episode_id);
+				setEpisodeTitle(created.episode.issue_title);
+				setWrapUp({ stage: "draft", episodeId: created.episode.care_episode_id, draft: created.draft });
 			}
-			clearPendingTriageSummary();
 			window.dispatchEvent(new Event("rehab-ai-chat-changed"));
-			router.push(`/episodes/${targetEpisodeId}/triage`);
 		} catch (error) {
-			setSummaryError(error instanceof Error ? error.message : "Could not generate the triage summary draft.");
-		} finally {
-			setIsGeneratingSummary(false);
+			setWrapUp({ stage: "offer" });
+			setWrapUpError(error instanceof Error ? error.message : "Could not write the summary.");
+		}
+	};
+
+	const saveSummary = async () => {
+		if (wrapUp.stage !== "draft") return;
+		const auth = loadAuth();
+		if (!auth || auth.role !== "patient") return;
+		const { episodeId: targetEpisodeId, draft } = wrapUp;
+		setWrapUpError("");
+		setWrapUp({ stage: "saving", episodeId: targetEpisodeId, draft });
+		try {
+			await selectTriageSummaryDraft(targetEpisodeId, draft.triage_summary_draft_id, auth.access_token);
+			window.dispatchEvent(new Event("rehab-ai-chat-changed"));
+			router.push(draft.clinician_review_needed
+				? `/episodes/${targetEpisodeId}/professional-care`
+				: `/episodes/${targetEpisodeId}/rehab`);
+		} catch (error) {
+			setWrapUp({ stage: "draft", episodeId: targetEpisodeId, draft });
+			setWrapUpError(error instanceof Error ? error.message : "Could not save the summary.");
+		}
+	};
+
+	// "Not quite": drop the draft and let the patient keep talking.
+	const dismissDraft = async () => {
+		if (wrapUp.stage !== "draft") return;
+		const auth = loadAuth();
+		const { episodeId: targetEpisodeId, draft } = wrapUp;
+		setWrapUp({ stage: "offer" });
+		setWrapUpError("");
+		document.getElementById("triage-message")?.focus();
+		if (auth?.role === "patient") {
+			void deleteTriageSummaryDraft(targetEpisodeId, draft.triage_summary_draft_id, auth.access_token).catch(() => undefined);
 		}
 	};
 
@@ -441,7 +448,6 @@ function HomePageContent() {
 		if (!text || isWaiting || historyLoading || historyError) return;
 		const auth = loadAuth();
 		if (!auth || auth.role !== "patient") {
-			setSummaryError("Please sign in as a patient before starting AI triage.");
 			router.push("/login?role=patient&next=" + encodeURIComponent("/"));
 			return;
 		}
@@ -462,7 +468,8 @@ function HomePageContent() {
 		setAgentProgress(initialAgentProgress);
 		activeTurnRef.current = turnId;
 
-		setSummaryError("");
+		setWrapUp({ stage: "offer" });
+		setWrapUpError("");
 		void sendChatTurn(turnId, submission);
 	};
 
@@ -470,17 +477,19 @@ function HomePageContent() {
 
 	const showHero = !conversationStarted && !historyLoading && !historyError;
 
-	// Only the safety-relevant routes get a line; otherwise the layout says enough.
-	const routeSummary = useMemo(() => {
-		if (!routeState.routingDecision) return "";
-		if (routeState.safetyPassed === false || routeState.routingDecision.includes("urgent")) {
-			return "Your answers suggest getting checked in person. If symptoms are severe, contact emergency services.";
-		}
-		if (routeState.needsMoreInfo || routeState.routingDecision === "ask_clarification") return "Answer the follow-up question first.";
-		if (routeState.routingDecision === "unsupported") return "This one is for a clinician.";
-		return "";
-	}, [routeState]);
-	const routeIsUrgent = routeState.safetyPassed === false || routeState.routingDecision.includes("urgent");
+	// What the latest reply allows: wrap up into a plan, get checked in person, or keep talking.
+	// Older turns without next_step fall back to the route the chat reported.
+	const lastAssistant = [...messages].reverse().find((message) => message.role !== "user");
+	const latestStep: AiChatNextStep = useMemo(() => {
+		if (!lastAssistant || lastAssistant.role !== "assistant" || lastAssistant.id === "intro") return null;
+		if (lastAssistant.nextStep !== undefined) return lastAssistant.nextStep;
+		const route = routeState.routingDecision;
+		if (!route) return null;
+		if (routeState.safetyPassed === false || route.includes("urgent")) return "urgent";
+		if (routeState.needsMoreInfo || route === "ask_clarification" || route === "unsupported") return null;
+		return "ready";
+	}, [lastAssistant, routeState]);
+	const showWrapUp = !isWaiting && !historyLoading && !historyError && (latestStep !== null || wrapUp.stage !== "offer");
 
 	// Keep the newest message in view, like any chat.
 	useEffect(() => {
@@ -532,8 +541,8 @@ function HomePageContent() {
 					{historyError ? <p className="chat-history-state chat-history-state-error">{historyError}</p> : null}
 					{!showHero && !historyLoading && !historyError && !messages.length ? <p className="chat-history-state chat-history-empty">nothing here yet</p> : null}
 					{!historyLoading && !historyError ? messages.map((message) => (
+						<Fragment key={message.id}>
 						<div
-							key={message.id}
 							className={`chat-card ${
 								message.role === "user" ? "chat-card-user" : message.role === "system" ? "chat-card-system" : "chat-card-assistant"
 							}`}
@@ -551,7 +560,20 @@ function HomePageContent() {
 								</div>
 							) : null}
 						</div>
+						{message.exerciseCards?.length ? <ExerciseCards cards={message.exerciseCards} /> : null}
+						</Fragment>
 					)) : null}
+					{showWrapUp ? (
+						<WrapUpCard
+							step={latestStep}
+							wrapUp={wrapUp}
+							error={wrapUpError}
+							onWrite={writeSummary}
+							onSave={saveSummary}
+							onDismiss={dismissDraft}
+							episodeId={episodeId}
+						/>
+					) : null}
 					{isWaiting ? (
 						<div className="chat-card chat-card-assistant agent-progress-card" role="status">
 							<div className="agent-progress-head">
@@ -634,20 +656,6 @@ function HomePageContent() {
 			</section>
 
 			<aside className="triage-side" aria-label="Triage progress and safety">
-				{!showHero || summaryError ? (
-					<div className="card triage-save">
-						<h2 className="section-title">Save this triage</h2>
-						{routeSummary ? <p className={routeIsUrgent ? "notice notice-danger mt-3 text-sm" : "mt-1.5 text-sm text-[var(--rf-ink-muted)]"}>{routeSummary}</p> : null}
-						<button className="btn-primary mt-4 w-full" onClick={finishTriage} disabled={isWaiting || isGeneratingSummary || !conversationStarted}>
-							{isGeneratingSummary ? "Requesting" : "Request Summary"}
-							<span className="btn-arrow" aria-hidden="true">
-								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
-							</span>
-						</button>
-						{summaryError ? <p className="notice notice-danger mt-3 text-sm">{summaryError}</p> : null}
-					</div>
-				) : null}
-
 				<div className="sticker tone-rose triage-safety">
 					<h2 className="triage-safety-title">Stop and get help if</h2>
 					<ul className="triage-safety-list">
