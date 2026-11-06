@@ -8,24 +8,43 @@ Langfuse as a *text* prompt with the same name, or upload them all:
     python scripts/export_langfuse_prompts.py --upload           # also create versions labelled "staging"
     python scripts/export_langfuse_prompts.py --upload --label production
 
-Uploading uses the backend's Langfuse settings (LANGFUSE_PUBLIC_KEY,
-LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL; LANGFUSE_ENABLED defaults to true). Each upload creates a new prompt version; unchanged text
-still makes a new version, so upload only when you mean to.
+The script is standalone: writing files needs only Python, and uploading needs
+only the ``langfuse`` package (``pip install langfuse``), not the backend's
+other dependencies. Uploading reads LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and
+LANGFUSE_BASE_URL (or LANGFUSE_HOST) from the environment. Each upload creates a
+new prompt version; unchanged text still makes a new version, so upload only
+when you mean to.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
+import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-os.environ.setdefault("DATABASE_URL", "postgresql+psycopg2://rehab:rehab@localhost:5432/rehab_agent")
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+EXPORT_DIR = BACKEND_DIR / "prompts" / "langfuse"
+_VARIABLE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
-from app.ai.prompt_defaults import DEFAULT_PROMPTS
-from app.ai.prompt_registry import template_variables
 
-EXPORT_DIR = Path(__file__).resolve().parents[1] / "prompts" / "langfuse"
+def _load_default_prompts():
+    # Load the module by path: importing ``app.ai`` would pull in the whole graph
+    # and every backend dependency.
+    path = BACKEND_DIR / "app" / "ai" / "prompt_defaults.py"
+    spec = importlib.util.spec_from_file_location("_rehab_prompt_defaults", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.DEFAULT_PROMPTS
+
+
+DEFAULT_PROMPTS = _load_default_prompts()
+
+
+def template_variables(text: str) -> set[str]:
+    return set(_VARIABLE.findall(text))
 
 
 def _readme() -> str:
@@ -66,14 +85,23 @@ def write_files(directory: Path = EXPORT_DIR) -> list[Path]:
 
 
 def upload(label: str) -> None:
-    from app.observability.langfuse_tracing import flush_langfuse, get_langfuse_client
+    public_key = os.getenv("LANGFUSE_PUBLIC_KEY", "").strip()
+    secret_key = os.getenv("LANGFUSE_SECRET_KEY", "").strip()
+    base_url = (os.getenv("LANGFUSE_BASE_URL") or os.getenv("LANGFUSE_HOST") or "http://localhost:3100").strip()
+    if not public_key or not secret_key:
+        raise SystemExit("Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY (and LANGFUSE_BASE_URL).")
+    try:
+        from langfuse import Langfuse
+    except ImportError:
+        raise SystemExit("Uploading needs the langfuse package: pip install langfuse")
 
-    client = get_langfuse_client()
-    if client is None:
-        raise SystemExit(
-            "Langfuse is not configured: set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and "
-            "LANGFUSE_BASE_URL (and do not set LANGFUSE_ENABLED=false)."
-        )
+    client = Langfuse(public_key=public_key, secret_key=secret_key, base_url=base_url)
+    try:
+        authorized = client.auth_check()
+    except Exception as exc:
+        raise SystemExit(f"Cannot reach Langfuse at {base_url}: {type(exc).__name__}: {exc}")
+    if not authorized:
+        raise SystemExit(f"Langfuse at {base_url} rejected the keys.")
     for name, default in DEFAULT_PROMPTS.items():
         created = client.create_prompt(
             name=name,
@@ -84,7 +112,7 @@ def upload(label: str) -> None:
             commit_message="Imported from app/ai/prompt_defaults.py",
         )
         print(f"uploaded {name} version {getattr(created, 'version', '?')} label {label}")
-    flush_langfuse()
+    client.flush()
 
 
 def main() -> None:
