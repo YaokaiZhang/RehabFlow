@@ -3694,6 +3694,9 @@ longitudinal_v2:
       expected_response_contains:
       - "unloaded"
       - "warning sign"
+      expected_compaction_contains:
+      - "unloaded"
+      - "warning"
       expected_route: consultant
       information_need: "use the critical fact in the oversized current session"
       target_boundary: "current-session-compaction"

@@ -49,6 +49,7 @@ class LongitudinalResult:
     raw_reviewer_outcomes: tuple[str, ...] = ()
     trace: dict[str, Any] | None = None
     runtime_events: tuple[dict[str, Any], ...] = ()
+    compaction_observations: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -95,4 +96,5 @@ class LongitudinalResult:
             "turn_observations": [dict(item) for item in self.turn_observations],
             "trace": self.trace,
             "runtime_events": [dict(item) for item in self.runtime_events],
+            "compaction_observations": [dict(item) for item in self.compaction_observations],
         }

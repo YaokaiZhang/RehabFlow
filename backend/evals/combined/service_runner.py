@@ -22,6 +22,7 @@ from evals.combined.tool_metrics import (
 from evals.longitudinal.result import LongitudinalResult
 from evals.longitudinal.contract import RUBRIC_DIMENSIONS, ScenarioV2
 from evals.longitudinal.report import build_case_report, observed_evidence_manifest
+from evals.longitudinal.metrics import response_contains_phrase
 from evals.longitudinal.judge import evaluate_with_repair
 from evals.real_model.run import _tokens
 
@@ -390,10 +391,64 @@ def _persisted_message_payload(identity: ServiceIdentity) -> tuple[dict[str, Any
         "ai_messages": list(payload.get("ai_messages", []) or []),
         "ai_internal_messages": list(payload.get("ai_internal_messages", []) or []),
     }
-    for key in ("message_capture_status", "message_capture", "compaction_evidence"):
+    for key in ("message_capture_status", "message_capture", "compaction_evidence", "compaction_blocks"):
         if key in payload:
             normalized[key] = payload[key]
     return normalized, None
+
+
+# A rolling block must be well under the raw text it replaced; 1/4 leaves
+# room for the prompt's ~32k-token advisory ceiling over ~1M folded chars.
+_MAX_COMPACTION_RATIO = 0.25
+
+
+def _compaction_observations(
+    persisted_messages: Mapping[str, Any],
+    expected_phrases: list[str],
+) -> tuple[tuple[dict[str, Any], ...], list[str]]:
+    """Fidelity checks on live session compaction, from the persisted state.
+
+    Returns one observation per compacted session (no block text) and the
+    failure codes for compaction that did not fold the critical fact, did
+    not shrink the folded history, or dropped an expected phrase.
+    """
+    evidence = persisted_messages.get("compaction_evidence", [])
+    blocks = persisted_messages.get("compaction_blocks", {})
+    blocks = blocks if isinstance(blocks, Mapping) else {}
+    observations: list[dict[str, Any]] = []
+    failures: list[str] = []
+    for item in evidence if isinstance(evidence, (list, tuple)) else ():
+        if not isinstance(item, Mapping) or item.get("compacted") is not True:
+            continue
+        session = str(item.get("session") or "session")
+        block = str(blocks.get(session) or "")
+        block_length = int(item.get("rolling_block_length") or len(block))
+        folded_chars = int(item.get("folded_message_chars") or 0)
+        ratio = round(block_length / folded_chars, 4) if folded_chars else None
+        phrases = {phrase: response_contains_phrase(block, phrase) for phrase in expected_phrases}
+        observation = {
+            "session": session,
+            "folded_message_count": int(item.get("folded_message_count") or 0),
+            "folded_message_chars": folded_chars,
+            "rolling_block_length": block_length,
+            "compression_ratio": ratio,
+            "reductive": ratio is not None and ratio <= _MAX_COMPACTION_RATIO,
+            "critical_fact_sequence": item.get("critical_fact_sequence"),
+            "critical_fact_folded": item.get("critical_fact_folded") is True,
+            "block_phrases": phrases,
+            "attempts": int(item.get("attempts") or 0),
+        }
+        observations.append(observation)
+        if item.get("critical_fact_sequence") is not None and not observation["critical_fact_folded"]:
+            failures.append(f"compaction_critical_fact_not_folded:{session}")
+        if not observation["reductive"]:
+            failures.append(f"compaction_not_reductive:{session}")
+        failures.extend(
+            f"compaction_dropped_phrase:{session}:{phrase}"
+            for phrase, present in phrases.items()
+            if not present
+        )
+    return tuple(observations), failures
 
 
 def _persisted_message_report_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -1668,6 +1723,11 @@ class ServiceCaseRunner:
             for item in evidence_items
         ):
             failures.append("session_compaction_not_observed")
+        compaction_observations, compaction_failures = _compaction_observations(
+            persisted_messages,
+            [str(item) for item in scenario.oracles.get("expected_compaction_contains", []) or []],
+        )
+        failures.extend(compaction_failures)
         runtime_events = _runtime_events_from_live_trace(scenario.scenario_id, persisted_messages, records, identity)
         persisted_response = _persisted_assistant_response(
             persisted_messages,
@@ -1760,6 +1820,7 @@ class ServiceCaseRunner:
             idempotency_outcome=idempotency_outcome,
             catalog_ids=catalog_ids,
             failures=tuple(failures),
+            compaction_observations=compaction_observations,
             checkpoint_durability="postgresql_service_checkpoint",
             persistence_mode="postgresql_product_api_and_evaluator_db_control",
             turn_observations=tuple(turn_observations),

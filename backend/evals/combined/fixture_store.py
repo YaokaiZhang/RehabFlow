@@ -61,6 +61,22 @@ _GENERATED_CONTEXT_TEMPLATES = (
 )
 
 
+_GENERATED_CRITICAL_FACT_MARKER = "Critical fact:"
+
+
+def _row_sequence(row: Any) -> int | None:
+    metadata = getattr(row, "message_metadata", None)
+    if not isinstance(metadata, Mapping):
+        return None
+    value = metadata.get("sequence")
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _generated_context_token_estimate(messages: list[Mapping[str, str]]) -> int:
     from app.ai.model_input_budget import model_messages_estimated_tokens
     from langchain_core.messages import HumanMessage, SystemMessage
@@ -112,7 +128,7 @@ def _generated_context_messages(
             detail += 1
         content = " ".join(parts)[:_GENERATED_CONTEXT_CHUNK_CHARS].rstrip()
         if index == 1:
-            suffix = f" Critical fact: {critical_fact}"
+            suffix = f" {_GENERATED_CRITICAL_FACT_MARKER} {critical_fact}"
             content = content[: max(0, _GENERATED_CONTEXT_CHUNK_CHARS - len(suffix))].rstrip() + suffix
         messages.append({"role": role, "content": content})
         estimated_tokens = _generated_context_token_estimate(messages)
@@ -615,6 +631,7 @@ class FixtureStore:
                 compaction_rows = db.execute(select(AISessionCompactionState).where(AISessionCompactionState.session_id.in_(session_ids))).scalars().all()
                 states = {str(row.session_id): row for row in compaction_rows}
                 compaction_evidence: list[dict[str, Any]] = []
+                compaction_blocks: dict[str, str] = {}
                 for physical_session_id in session_ids:
                     state = states.get(str(physical_session_id))
                     rolling_block = str(getattr(state, "rolling_block", "") or "") if state is not None else ""
@@ -629,6 +646,18 @@ class FixtureStore:
                         if str(key) in {"ai", "internal"} and isinstance(value, int) and not isinstance(value, bool)
                     } if isinstance(parsed_watermark, Mapping) else {}
                     session_rows = rows_by_session.get(str(physical_session_id), [])
+                    folded_through = watermark.get("ai", 0)
+                    critical_fact_sequence = next(
+                        (
+                            _row_sequence(row)
+                            for row in session_rows
+                            if _GENERATED_CRITICAL_FACT_MARKER in str(row.content or "")
+                        ),
+                        None,
+                    )
+                    session_alias = session_aliases.get(str(physical_session_id), "session")
+                    if rolling_block.strip():
+                        compaction_blocks[session_alias] = rolling_block
                     compaction_evidence.append({
                         "session": session_aliases.get(str(physical_session_id), "session"),
                         "state_present": state is not None,
@@ -638,6 +667,20 @@ class FixtureStore:
                         "rolling_block_length": len(rolling_block),
                         "rolling_block_sha256": hashlib.sha256(rolling_block.encode("utf-8")).hexdigest() if rolling_block else None,
                         "source_watermark": watermark,
+                        "folded_message_count": sum(
+                            1 for row in session_rows
+                            if (_row_sequence(row) or 0) and (_row_sequence(row) or 0) <= folded_through
+                        ),
+                        "folded_message_chars": sum(
+                            len(str(row.content or ""))
+                            for row in session_rows
+                            if (_row_sequence(row) or 0) and (_row_sequence(row) or 0) <= folded_through
+                        ),
+                        "critical_fact_sequence": critical_fact_sequence,
+                        "critical_fact_folded": (
+                            critical_fact_sequence is not None
+                            and folded_through >= critical_fact_sequence
+                        ),
                         "rolling_block_excerpt": rolling_block[:1600] if rolling_block else None,
                         "attempts": int(getattr(state, "attempts", 0) or 0) if state is not None else 0,
                         "last_error_present": bool(str(getattr(state, "last_error", "") or "").strip()) if state is not None else False,
@@ -656,6 +699,9 @@ class FixtureStore:
                         "captured_internal_message_count": 0,
                     },
                     "compaction_evidence": compaction_evidence,
+                    # Full rolling blocks for evaluator-side fidelity checks;
+                    # the service runner never copies these into reports.
+                    "compaction_blocks": compaction_blocks,
                 }
             messages = [
                 {

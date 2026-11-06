@@ -111,3 +111,11 @@ frozen information-boundary cases cover deliberate no-call, Patient Memory,
 selected-session retrieval, empty and failed retrieval recovery, current-session
 compaction, Exercise Catalog, authorized web, and selected-session compaction
 recall. All interactions are synthetic patient-style engineering fixtures.
+
+Current-session compaction is checked against the persisted compaction state,
+not only the answer: the message carrying the critical fact must sit at or below
+the rolling block's watermark (so the answer cannot come from raw history), the
+block must be at most a quarter of the folded message text, and every
+`expected_compaction_contains` phrase must appear in the block. Failures are
+reported as `compaction_critical_fact_not_folded`, `compaction_not_reductive`
+and `compaction_dropped_phrase`; the block text itself stays out of reports.

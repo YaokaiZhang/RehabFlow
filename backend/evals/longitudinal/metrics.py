@@ -330,11 +330,20 @@ def score_scenario(result: LongitudinalResult, scenario: ScenarioV2) -> Determin
         if expected_persistence
         else None
     )
-    max_context_source_ids = oracle.get("max_context_source_ids")
+    expected_compaction_phrases = [
+        str(item) for item in oracle.get("expected_compaction_contains", []) or []
+    ]
     context_compaction_compliant = (
-        len(result.context_candidate_source_ids) > int(max_context_source_ids)
-        and bool(result.omitted_source_ids)
-        if max_context_source_ids is not None
+        any(
+            observation.get("critical_fact_folded") is True
+            and observation.get("reductive") is True
+            and all(
+                (observation.get("block_phrases") or {}).get(phrase) is True
+                for phrase in expected_compaction_phrases
+            )
+            for observation in result.compaction_observations
+        )
+        if expected_compaction_phrases
         else None
     )
     expected_planner_failure = oracle.get("planner_failure")
