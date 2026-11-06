@@ -23,7 +23,7 @@ MATRIX_CASE_IDS = frozenset({
     "failed-retrieval-honest-fallback",
     "compaction-selected-session-recall",
 })
-CANONICAL_LONGITUDINAL_CASE_COUNT = 36
+CANONICAL_LONGITUDINAL_CASE_COUNT = 33
 _METADATA_KEYS = {
     "scenario_id",
     "title",
@@ -127,18 +127,6 @@ def load_case_entries(suite: str, source: str | Path | None = None) -> list[dict
                 raise ValueError(
                     f"{entry['scenario_id']}: canonical longitudinal_v2 cases cannot use scripted execution"
                 )
-            oracles = case.get("oracles", {})
-            if isinstance(oracles, Mapping):
-                forbidden = sorted(
-                    key
-                    for key in ("expected_catalog_ids", "forbidden_catalog_ids")
-                    if key in oracles
-                )
-                if forbidden:
-                    raise ValueError(
-                        f"{entry['scenario_id']}: canonical cases cannot declare tool-result oracle fields: "
-                        + ", ".join(forbidden)
-                    )
     for index, entry in enumerate(entries):
         try:
             validate_script_repeats(

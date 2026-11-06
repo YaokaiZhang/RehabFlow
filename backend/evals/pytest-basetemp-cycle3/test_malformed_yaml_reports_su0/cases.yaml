@@ -1,7 +1,0 @@
-offline_v1:
-  - scenario_id: broken-case
-    title: Broken case
-    category: contract
-    case:
-      schema_version: 1
-longitudinal_v2: []

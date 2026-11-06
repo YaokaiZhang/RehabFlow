@@ -1,10 +1,10 @@
 # Combined agent evaluation corpus
 
-This directory contains versioned synthetic cases for live, service-backed RehabFlow evaluation. The cases check workflow paths, policy outcomes, memory and context boundaries, checkpoints, reviewer decisions, repair limits, and budgets. The evaluator scores tool use from persisted runtime events, but tool use is not a hard gate.
+This directory contains versioned synthetic cases for live, service-backed RehabFlow evaluation. The cases check workflow paths, policy outcomes, memory and context boundaries, checkpoints, reviewer decisions, and budgets. The evaluator scores tool use from persisted runtime events, but tool use is not a hard gate.
 
 ## Evaluator corpus
 
-`cases.yaml` is the active grouped corpus. It contains 36 longitudinal
+`cases.yaml` is the active grouped corpus. It contains 33 longitudinal
 service-backed cases. It contains human-editable titles, categories, concrete
 prompts, information-boundary metadata, and response oracles. It does not
 contain active scripted tool or evidence outcomes. The loader checks each case
@@ -13,7 +13,7 @@ out of generation prompts.
 
 The combined evaluator also reads 8 real-model multi-turn cases from
 `real_model/cases/v2.json`. `combined/run.py` is the only entrypoint. A run
-executes all 8 + 36 cases through isolated live service
+executes all 8 + 33 cases through isolated live service
 processes with configured generation, memory, catalog, and web adapters. It
 writes a structured JSON artifact and a combined Markdown artifact for both
 suites. It also writes two Markdown sidecars:
@@ -61,9 +61,9 @@ sidecar for readable persisted AI and internal messages.
 For focused evaluator contract coverage:
 
     cd backend
-    PYTHONPATH=. .venv/bin/python -m pytest tests/agent_eval -q
+    PYTHONPATH=. .venv/bin/python -m pytest scripts/test_eval_langfuse_contract.py -q
 
-These tests do not replace the live 8+36 verification. A completed run requires
+These tests do not replace the live 8+33 verification. A completed run requires
 the configured provider and judge, isolated databases and Qdrant/catalog
 resources, successful service startup, and successful cleanup.
 
@@ -106,7 +106,7 @@ behind the grade.
 The cases cover Care Episode ownership; Patient Memory and Episode Memory scope
 and lifecycle; triage summaries; long-context pruning and compaction; temporal
 corrections; grounding and catalog boundaries; checkpoints; clarification and
-resume; idempotency; urgent routing; reviewer repair; and uncertainty. Ten
+resume; idempotency; urgent routing; reviewer release; and uncertainty. Ten
 frozen information-boundary cases cover deliberate no-call, Patient Memory,
 selected-session retrieval, empty and failed retrieval recovery, current-session
 compaction, Exercise Catalog, authorized web, and selected-session compaction

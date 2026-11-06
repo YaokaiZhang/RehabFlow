@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
+from evals.corpus import CANONICAL_LONGITUDINAL_CASE_COUNT
 from evals.longitudinal.contract import RUBRIC_DIMENSIONS
 
 REPORT_VERSION = "combined-v2"
@@ -15,7 +16,7 @@ REPORT_DISCLAIMER = (
     "Engineering diagnostic only; not clinical validation and not a clinical outcome."
 )
 REAL_MODEL_CASE_COUNT = 8
-LONGITUDINAL_SCENARIO_COUNT = 36
+LONGITUDINAL_SCENARIO_COUNT = CANONICAL_LONGITUDINAL_CASE_COUNT
 _JUDGE_STATUS_COLUMNS = (
     "passed",
     "failed",

@@ -498,6 +498,9 @@ class AIChatTurnService:
                 _privacy_safe_source_id(item) for item in output.get("evidence_source_ids", ()) or ()
             ],
             "reviewer_outcomes": reviewer_outcomes,
+            "catalog_ids": [
+                str(item) for item in output.get("allowed_catalog_ids", ()) or () if str(item).strip()
+            ],
             "execution_failures": ["runtime_error"] if output.get("status") == "failed" else [],
         }
 

@@ -97,6 +97,10 @@ def _safe_evaluation_telemetry(value: object) -> dict[str, object]:
                 for item in raw_ids
                 if isinstance(item, (str, int))
             ] if isinstance(raw_ids, (list, tuple, set, frozenset)) else []
+    raw_catalog_ids = value.get("catalog_ids")
+    if isinstance(raw_catalog_ids, (list, tuple)):
+        # Public exercise-catalog ids, not patient data.
+        safe["catalog_ids"] = [str(item) for item in raw_catalog_ids if isinstance(item, (str, int))]
     raw_calls = value.get("tool_calls", value.get("tool_events", []))
     if isinstance(raw_calls, (list, tuple)):
         safe["tool_calls"] = [

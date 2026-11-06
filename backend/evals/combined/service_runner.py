@@ -433,6 +433,8 @@ def _safe_trace(payload: Mapping[str, Any]) -> dict[str, Any]:
             for key, value in policy.items()
             if isinstance(value, (str, int, float, bool)) or value is None
         }
+    if isinstance(telemetry.get("catalog_ids"), (list, tuple)):
+        allowed["catalog_ids"] = list(_unique_values(telemetry.get("catalog_ids", [])))
     for key in ("selected_source_ids", "evidence_source_ids", "reviewer_outcomes"):
         if key in telemetry:
             values = telemetry.get(key)
@@ -1240,9 +1242,7 @@ class ServiceCaseRunner:
                 scenario = type(
                     "RealModelScenario",
                     (),
-                    {"scenario_id": case_id, "rubric_applicability": dict(REAL_MODEL_APPLICABILITY), "oracles": {
-                        "user_goal": str(case.get("prompt") or ""),
-                    }},
+                    {"scenario_id": case_id, "rubric_applicability": dict(REAL_MODEL_APPLICABILITY), "oracles": _real_model_judge_oracles(case)},
                 )()
                 evaluation = evaluate_with_repair(
                     scenario=scenario,
@@ -1277,9 +1277,13 @@ class ServiceCaseRunner:
                 judge_error = evaluation.error
             except Exception as exc:
                 judge_error = f"{type(exc).__name__}: {exc}"
+        route_failure = _real_model_route_failure(case, {"turn_observations": turn_observations})
+        if route_failure:
+            failures.append(route_failure)
         status = (
             "completed_unjudged" if judge_status == "not_configured"
             else "completed_with_judge_error" if judge_status == "error"
+            else "failed" if route_failure
             else "passed" if judge_status == "passed" else "failed"
         )
         return {
@@ -1435,6 +1439,9 @@ class ServiceCaseRunner:
         route: str | None = None
         logical_memory_ids: dict[str, str] = dict(identity.memory_ids)
         idempotency_outcome = "unique_keys"
+        restarted = False
+        resumed_after_restart = False
+        last_turn_status: str | None = None
         seen_idempotency_keys: set[str] = set()
         for ordinal, step in enumerate(scenario.timeline, start=1):
             operation = str(step.get("op") or "")
@@ -1511,6 +1518,13 @@ class ServiceCaseRunner:
                 ])
                 route_value = payload.get("routing_decision")
                 route = str(route_value) if route_value else route
+                last_turn_status = str(payload.get("status") or "") or None
+                if (
+                    operation == "resume"
+                    and restarted
+                    and int(payload.get("http_status", 200)) < 400
+                ):
+                    resumed_after_restart = True
                 telemetry = payload.get("evaluation_telemetry")
                 telemetry = telemetry if isinstance(telemetry, Mapping) else {}
                 traces.append(_safe_trace(payload))
@@ -1532,6 +1546,7 @@ class ServiceCaseRunner:
                     "selected_source_ids": list(_logical_source_ids(telemetry.get("selected_source_ids", []), identity)),
                     "evidence_source_ids": list(_logical_source_ids(telemetry.get("evidence_source_ids", []), identity)),
                     "reviewer_outcomes": list(_unique_values(telemetry.get("reviewer_outcomes", []))),
+                    "catalog_ids": list(_unique_values(telemetry.get("catalog_ids", []))),
                     "tool_metrics": aggregate_tool_metrics(turn_records),
                     "budget_policy": _safe_trace(payload)["evaluation_telemetry"].get("budget"),
                     "budget_usage": turn_usage,
@@ -1548,6 +1563,7 @@ class ServiceCaseRunner:
             elif operation == "restart":
                 try:
                     self.harness.restart()
+                    restarted = True
                     persistence_observations.append({"operation": "restart", "transport": "process_restart"})
                 except Exception as exc:
                     failures.append(f"restart_{type(exc).__name__}")
@@ -1698,6 +1714,11 @@ class ServiceCaseRunner:
             for item in turn_observations
             for outcome in item.get("reviewer_outcomes", [])
         )
+        catalog_ids = _unique_values(
+            catalog_id
+            for item in turn_observations
+            for catalog_id in item.get("catalog_ids", [])
+        )
         packet_tokens: dict[str, int] = {}
         for trace in traces:
             telemetry_trace = trace.get("evaluation_telemetry")
@@ -1727,12 +1748,17 @@ class ServiceCaseRunner:
             evidence_source_ids=evidence_source_ids,
             reviewer_outcomes=reviewer_outcomes,
             repair_count=telemetry_usage["repair_attempts"],
-            checkpoint_outcome="restarted" if any(step.get("op") == "restart" for step in scenario.timeline) else None,
+            checkpoint_outcome=(
+                "restart_resumed" if resumed_after_restart
+                else "restarted" if restarted
+                else "interrupted" if last_turn_status == "clarification_required"
+                else None
+            ),
             persistence_observations=tuple(persistence_observations),
             persistence_outcomes=tuple(persistence_outcomes),
             memory_writes=tuple(memory_writes),
             idempotency_outcome=idempotency_outcome,
-            catalog_ids=(),
+            catalog_ids=catalog_ids,
             failures=tuple(failures),
             checkpoint_durability="postgresql_service_checkpoint",
             persistence_mode="postgresql_product_api_and_evaluator_db_control",
@@ -1824,6 +1850,36 @@ class ServiceCaseRunner:
         return payload
 
 
+def _real_model_judge_oracles(case: Mapping[str, Any]) -> dict[str, Any]:
+    """Judge oracles for a real-model case: the final user ask and expected route."""
+    user_turns = [
+        str(item.get("content") or "").strip()
+        for item in case.get("messages", [])
+        if isinstance(item, Mapping) and item.get("role") == "user"
+    ]
+    oracles: dict[str, Any] = {}
+    goal = next((turn for turn in reversed(user_turns) if turn), "") or str(case.get("prompt") or "").strip()
+    if goal:
+        oracles["user_goal"] = goal
+    route = str(case.get("route") or "").strip()
+    if route:
+        oracles["expected_route"] = route
+    return oracles
+
+
+def _real_model_route_failure(case: Mapping[str, Any], payload: Mapping[str, Any]) -> str | None:
+    """Return a failure code when the final turn's route differs from the case's route."""
+    expected = str(case.get("route") or "").strip()
+    observations = payload.get("turn_observations")
+    if not expected or not isinstance(observations, (list, tuple)) or not observations:
+        return None
+    last = observations[-1]
+    observed = str(last.get("route") or "").strip() if isinstance(last, Mapping) else ""
+    if observed == expected:
+        return None
+    return f"route_mismatch:expected_{expected}_observed_{observed or 'none'}"
+
+
 def _judge_real_model_service_result(
     service_result: Mapping[str, Any],
     *,
@@ -1860,9 +1916,7 @@ def _judge_real_model_service_result(
                     "rubric_applicability": {
                         dimension: "primary" for dimension in RUBRIC_DIMENSIONS
                     },
-                    "oracles": {
-                        "user_goal": str(case.get("prompt") or ""),
-                    },
+                    "oracles": _real_model_judge_oracles(case),
                 },
             )()
             evaluation = evaluate_with_repair(
@@ -1922,9 +1976,17 @@ def _judge_real_model_service_result(
     payload.update(judge_payload)
     payload["judge_status"] = judge_status
     payload["judge_error"] = judge_error
+    route_failure = _real_model_route_failure(case, payload)
+    if route_failure:
+        failures = list(payload.get("failures") or [])
+        if route_failure not in failures:
+            failures.append(route_failure)
+        payload["failures"] = failures
     payload["status"] = (
         "completed_with_judge_error"
         if judge_status == "error"
+        else "failed"
+        if route_failure
         else "passed"
         if judge_status == "passed"
         else "failed"
