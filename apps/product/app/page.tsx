@@ -17,7 +17,6 @@ import {
 	streamAiChatTurn,
 	type AiChatExerciseCard,
 	type AiChatNextStep,
-	type AiChatProgress,
 } from "@rehab/shared/api";
 
 type ChatMessage = {
@@ -53,11 +52,6 @@ type PendingAiChatSubmission = {
 	idempotencyKey: string;
 };
 
-type AgentProgressStep = {
-	label: string;
-	detail: string;
-};
-
 const suggestedPrompts = [
 	"Six weeks after my rotator cuff repair, my shoulder is still really stiff in the mornings. Is it okay to push through it?",
 	"I spent Saturday gardening and my lower back has been tight since. Getting out of bed is the worst part. Rest or keep moving?",
@@ -65,49 +59,21 @@ const suggestedPrompts = [
 	"I had my knee replaced a month ago. Stairs hurt more this week than last, and the knee feels warm. Is that normal?",
 ];
 
-// How each suggestion sticker looks: its pastel, a short body-area tag and its resting angle.
+// How each suggestion sticker looks: its pastel and its resting angle.
 const promptStickers = [
-	{ tag: "Shoulder", tone: "sky", tilt: -3, depth: 18 },
-	{ tag: "Lower back", tone: "peach", tilt: 2.5, depth: 30 },
-	{ tag: "Ankle", tone: "mint", tilt: 3, depth: 24 },
-	{ tag: "After surgery", tone: "lilac", tilt: -2, depth: 36 },
+	{ tone: "sky", tilt: -3, depth: 18 },
+	{ tone: "peach", tilt: 2.5, depth: 30 },
+	{ tone: "mint", tilt: 3, depth: 24 },
+	{ tone: "lilac", tilt: -2, depth: 36 },
 ] as const;
 
-const introText = "Hi, I'll ask a few questions, then suggest a safe next step.";
-
-// Stages reported live by the backend while a turn runs; the label comes from the server.
-const agentProgressDetails: Record<string, string> = {
-	reading: "Reviewing your message and screening for red flags.",
-	planning: "Deciding which guidance and exercises to look up.",
-	searching_catalog: "Finding exercises that match your situation.",
-	searching_web: "Looking up current clinical guidance for your question.",
-	searching_history: "Checking what you discussed in earlier sessions.",
-	drafting: "Putting together a reply for you.",
-	reviewing: "Running the safety and accuracy review before showing it.",
-	revising: "Adjusting the reply after the review.",
-};
-const initialAgentProgress: AgentProgressStep = {
-	label: "Reading your message",
-	detail: agentProgressDetails.reading,
-};
+// Stage label reported live by the backend while a turn runs.
+const initialAgentProgress = "Reading your message";
 const summaryRequestFallback = "Patient requested a Triage Summary from the AI intake chat.";
 
 
 function makeId() {
 	return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-// routing_decision values from backend/app/ai/router.py, in patient language.
-function prettyRoute(route: string) {
-	if (!route) return "Not assessed yet";
-	if (route.includes("urgent")) return "Seek care now";
-	if (route === "ask_clarification") return "Needs more detail";
-	if (route === "unsupported") return "Outside RehabFlow's scope";
-	return "Listening";
-}
-
-function agentProgressForStage(progress: AiChatProgress): AgentProgressStep {
-	return { label: progress.label, detail: agentProgressDetails[progress.stage] || "" };
 }
 
 function friendlyError(detail?: string) {
@@ -119,13 +85,6 @@ function friendlyError(detail?: string) {
 		return "The triage service hit an internal issue. Please try again or start a new session.";
 	}
 	return detail;
-}
-
-function routeTone(routeState: RouteState) {
-	if (routeState.safetyPassed === false || routeState.routingDecision.includes("urgent")) return "rose";
-	if (routeState.needsMoreInfo) return "amber";
-	if (routeState.routingDecision) return "emerald";
-	return "slate";
 }
 
 function HomePageContent() {
@@ -163,13 +122,7 @@ function HomePageContent() {
 	const ownUrlSessionRef = useRef<string | null>(null);
 	const [historyLoading, setHistoryLoading] = useState(false);
 	const [historyError, setHistoryError] = useState("");
-	const [messages, setMessages] = useState<ChatMessage[]>([
-		{
-			id: "intro",
-			role: "assistant",
-			text: introText,
-		},
-	]);
+	const [messages, setMessages] = useState<ChatMessage[]>([]);
 	const [routeState, setRouteState] = useState<RouteState>({
 		routingDecision: "",
 		needsMoreInfo: null,
@@ -227,11 +180,7 @@ function HomePageContent() {
 		if (!urlSessionId) {
 			originatingEventIdRef.current = null;
 			pendingSubmissionRef.current = null;
-			setMessages([{
-				id: "intro",
-				role: "assistant",
-				text: introText,
-			}]);
+			setMessages([]);
 			setPrompt("");
 			setRouteState({ routingDecision: "", needsMoreInfo: null, safetyPassed: null });
 			setWrapUp({ stage: "offer" });
@@ -317,7 +266,7 @@ function HomePageContent() {
 				},
 				auth.access_token,
 				(progress) => {
-					if (activeTurnRef.current === turnId) setAgentProgress(agentProgressForStage(progress));
+					if (activeTurnRef.current === turnId) setAgentProgress(progress.label);
 				},
 			);
 			if (activeTurnRef.current !== turnId) return;
@@ -369,7 +318,7 @@ function HomePageContent() {
 
 	const buildTriageTranscript = () => {
 		const transcript = messages
-			.filter((message) => message.role !== "system" && message.id !== "intro")
+			.filter((message) => message.role !== "system")
 			.map((message) => `${message.role === "user" ? "Patient" : "RehabFlow"}: ${message.text}`)
 			.join("\n\n");
 		return transcript.length > 3500 ? `${transcript.slice(0, 3500).trim()}...` : transcript;
@@ -481,7 +430,7 @@ function HomePageContent() {
 	// Older turns without next_step fall back to the route the chat reported.
 	const lastAssistant = [...messages].reverse().find((message) => message.role !== "user");
 	const latestStep: AiChatNextStep = useMemo(() => {
-		if (!lastAssistant || lastAssistant.role !== "assistant" || lastAssistant.id === "intro") return null;
+		if (!lastAssistant || lastAssistant.role !== "assistant") return null;
 		if (lastAssistant.nextStep !== undefined) return lastAssistant.nextStep;
 		const route = routeState.routingDecision;
 		if (!route) return null;
@@ -525,7 +474,6 @@ function HomePageContent() {
 		};
 	}, [showHero]);
 
-	const tone = routeTone(routeState);
 	const composerDisabled = historyLoading || Boolean(historyError);
 	const sendDisabled = isWaiting || historyLoading || Boolean(historyError) || !prompt.trim();
 	return (
@@ -533,10 +481,8 @@ function HomePageContent() {
 			<section className="triage-chat" aria-labelledby="triage-chat-title" ref={heroRef}>
 				<header className="triage-chat-header">
 					<div className="min-w-0">
-						<p className="page-header-kicker triage-kicker" data-tone="peach">AI Triage Intake</p>
 						<h1 id="triage-chat-title" className="triage-title">{episodeTitleLoading ? "opening your episode..." : episodeTitle || "what's bothering you today?"}</h1>
 					</div>
-					{routeState.routingDecision ? <span className={`route-badge route-${tone}`}>{prettyRoute(routeState.routingDecision)}</span> : null}
 				</header>
 
 				<div className="triage-chat-log" aria-live="polite" ref={chatLogRef}>
@@ -550,7 +496,6 @@ function HomePageContent() {
 								message.role === "user" ? "chat-card-user" : message.role === "system" ? "chat-card-system" : "chat-card-assistant"
 							}`}
 						>
-							{message.role === "user" ? null : <p className="chat-card-author">{message.role === "system" ? "Something went wrong" : "RehabFlow"}</p>}
 							<p className="whitespace-pre-wrap text-[0.9875rem] leading-relaxed">{message.text}</p>
 							{message.sources?.length ? (
 								<div className="chat-card-sources">
@@ -581,9 +526,8 @@ function HomePageContent() {
 						<div className="chat-card chat-card-assistant agent-progress-card" role="status">
 							<div className="agent-progress-head">
 								<span className="agent-progress-dots" aria-hidden="true"><span /><span /><span /></span>
-								<p className="agent-progress-label">{agentProgress.label}</p>
+								<p className="agent-progress-label">{agentProgress}</p>
 							</div>
-							{agentProgress.detail ? <p className="agent-progress-detail">{agentProgress.detail}</p> : null}
 						</div>
 					) : null}
 				</div>
@@ -619,42 +563,26 @@ function HomePageContent() {
 						</button>
 					</div>
 					<p id="triage-message-hint" className="sr-only">Enter to send, Shift + Enter for a new line.</p>
-					{showHero ? (
-						<p className="scribble triage-note triage-note-composer" aria-hidden="true">
-							<svg viewBox="0 0 44 30" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M40 26C30 26 14 22 6 6" /><path d="M4 14 6 5l8 4" /></svg>
-							say it in your own words
-						</p>
-					) : null}
 				</form>
 
 				{showHero ? (
-					<>
-						<div className="triage-prompts" role="group" aria-label="Example messages">
-							{suggestedPrompts.map((item, index) => {
-								const look = promptStickers[index % promptStickers.length];
-								return (
-									<button
-										key={item}
-										type="button"
-										className={`sticker tone-${look.tone} triage-prompt triage-prompt-${index + 1}`}
-										style={{ "--tilt": `${look.tilt}deg`, "--depth": look.depth } as CSSProperties}
-										onClick={() => setPrompt(item)}
-										disabled={isWaiting}
-									>
-										<span className="tag">{look.tag}</span>
-										<span className="triage-prompt-text">{item}</span>
-									</button>
-								);
-							})}
-						</div>
-						<p className="scribble triage-note triage-note-prompts" aria-hidden="true">
-							<svg viewBox="0 0 44 30" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M40 24C26 26 14 20 10 4" /><path d="M4 10 10 3l6 7" /></svg>
-							tap one to start
-						</p>
-						<span className="triage-dot triage-dot-1" aria-hidden="true" />
-						<span className="triage-dot triage-dot-2" aria-hidden="true" />
-						<span className="triage-dot triage-dot-3" aria-hidden="true" />
-					</>
+					<div className="triage-prompts" role="group" aria-label="Example messages">
+						{suggestedPrompts.map((item, index) => {
+							const look = promptStickers[index % promptStickers.length];
+							return (
+								<button
+									key={item}
+									type="button"
+									className={`sticker tone-${look.tone} triage-prompt triage-prompt-${index + 1}`}
+									style={{ "--tilt": `${look.tilt}deg`, "--depth": look.depth } as CSSProperties}
+									onClick={() => setPrompt(item)}
+									disabled={isWaiting}
+								>
+									<span className="triage-prompt-text">{item}</span>
+								</button>
+							);
+						})}
+					</div>
 				) : null}
 			</section>
 
@@ -670,7 +598,7 @@ function HomePageContent() {
 
 				{viewerRole === null ? (
 					<p className="triage-guest">
-						Just looking? <Link href="/rehab/session">Try a demo exercise session</Link>
+						<Link href="/rehab/session">Try a demo session</Link>
 					</p>
 				) : null}
 			</aside>
@@ -680,7 +608,7 @@ function HomePageContent() {
 
 export default function HomePage() {
 	return (
-		<Suspense fallback={<p className="text-sm text-slate-500">Loading AI triage...</p>}>
+		<Suspense fallback={<p className="text-sm text-slate-500">Loading...</p>}>
 			<HomePageContent />
 		</Suspense>
 	);

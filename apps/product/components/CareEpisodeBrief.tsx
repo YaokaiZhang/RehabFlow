@@ -56,9 +56,12 @@ export function CareEpisodeBrief({ workspace, role, compact = false, showTitle =
 	const triageContext = triageContextSummary(triage);
 
 	return (
-		<section className="ep-brief" aria-labelledby={`ep-brief-${episode.care_episode_id}`}>
-			<h2 id={`ep-brief-${episode.care_episode_id}`} className="ep-brief-kicker">Care Episode Brief</h2>
-			{showTitle ? <p className="ep-brief-title">{episode.issue_title}</p> : null}
+		<section
+			className="ep-brief"
+			aria-labelledby={showTitle ? `ep-brief-${episode.care_episode_id}` : undefined}
+			aria-label={showTitle ? undefined : episode.issue_title}
+		>
+			{showTitle ? <h2 id={`ep-brief-${episode.care_episode_id}`} className="ep-brief-title">{episode.issue_title}</h2> : null}
 			<ul className="ep-chips" aria-label="Episode details">
 				<li className="ep-chip"><span className="ep-chip-label">Body area</span>{episode.body_area}</li>
 				<li className="ep-chip"><span className="ep-chip-label">Goal</span>{episode.goal}</li>

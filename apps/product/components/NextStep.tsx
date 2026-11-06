@@ -124,7 +124,6 @@ export function NextStep({ step }: { step: NextStepInfo }) {
 	return (
 		<section className={`ep-next sticker tone-${step.tone}`} aria-live="polite" aria-labelledby="ep-next-title" data-kind={step.kind}>
 			<div className="ep-next-copy">
-				<span className="tag">Next step</span>
 				<h2 id="ep-next-title" className="ep-next-title">{step.title}</h2>
 				{step.chips?.length ? (
 					<ul className="ep-next-chips" aria-label="Safety signals">

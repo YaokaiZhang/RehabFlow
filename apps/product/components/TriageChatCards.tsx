@@ -72,7 +72,6 @@ export function WrapUpCard({
 		const toClinician = draft.clinician_review_needed;
 		return (
 			<section className="sticker tone-peach wrapup-summary" aria-label="Your summary">
-				<span className="tag">Summary</span>
 				<h2 className="wrapup-title">{draft.concern}</h2>
 				{draft.safety_signals.length ? (
 					<div className="wrapup-signals">

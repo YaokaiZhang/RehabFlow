@@ -44,7 +44,7 @@ function SummaryPanel({
             <div className="ep-summary-head">
                 <div className="min-w-0">
                     <StatusBadge tone={saved ? "success" : "attention"}>
-                        {saved ? `Saved summary, version ${summary.version}` : "Draft: review before saving"}
+                        {saved ? `Version ${summary.version}` : "Draft"}
                     </StatusBadge>
                     <h2 className="ep-summary-title">{summary.concern || episodeIssueTitle}</h2>
                 </div>
@@ -139,7 +139,7 @@ export default function EpisodeTriagePage() {
         }
     };
 
-    if (loading) return <p className="ep-loading">Loading episode triage...</p>;
+    if (loading) return <p className="ep-loading">Loading...</p>;
     if (error && !episode) return <section className="page-column-narrow"><p className="notice notice-danger">{error}</p></section>;
     if (!episode) return null;
 
@@ -149,7 +149,6 @@ export default function EpisodeTriagePage() {
     return (
         <div className="page-column-narrow ep-page">
             <header className="page-header" data-tone="peach">
-                <p className="page-header-kicker">Triage summary</p>
                 <h1>{episode.issue_title}</h1>
                 <div className="ep-header-links">
                     {latestSummary && !hasDrafts ? (
@@ -181,10 +180,7 @@ export default function EpisodeTriagePage() {
 
             {summaries.length > 1 ? (
                 <section className="card">
-                    <div className="ep-section-head">
-                        <h2 className="section-title">Earlier summaries</h2>
-                        <span className="ep-count">{summaries.length - 1}</span>
-                    </div>
+                    <h2 className="section-title">Earlier summaries</h2>
                     <div className="ep-earlier">
                         {summaries.slice(1).map((summary) => (
                             <div key={summary.triage_summary_id} className="ep-earlier-item">

@@ -86,7 +86,7 @@ export default function CareEpisodeOverviewPage() {
 			.finally(() => setLoading(false));
 	}, [episodeId]);
 
-	if (loading) return <p className="ep-loading">Loading Care Episode...</p>;
+	if (loading) return <p className="ep-loading">Loading...</p>;
 	if (error) return <section className="page-column-narrow"><p className="notice notice-danger">{error}</p></section>;
 	if (!workspace) return null;
 
@@ -131,11 +131,10 @@ export default function CareEpisodeOverviewPage() {
 							<span className="tag"><span className="session-dot" />AI Triage Intake</span>
 							<span className="ep-session-status">{triage ? "Summary saved" : "Not started"}</span>
 						</span>
-						{triage ? <span className="ep-session-quote">{triage.recommendation}</span> : <span className="ep-session-empty">nothing saved yet</span>}
-						<span className="ep-session-foot">
-							{unsavedTriageSummaries.length ? `${unsavedTriageSummaries.length} unsaved draft${unsavedTriageSummaries.length === 1 ? "" : "s"}` : triage ? `Version ${triage.version}` : ""}
-							<span className="ep-session-go">Open triage</span>
-						</span>
+						{triage ? <span className="ep-session-quote">{triage.recommendation}</span> : null}
+						{unsavedTriageSummaries.length ? (
+							<span className="ep-session-foot">{`${unsavedTriageSummaries.length} unsaved draft${unsavedTriageSummaries.length === 1 ? "" : "s"}`}</span>
+						) : null}
 					</Link>
 				)}
 
@@ -153,10 +152,7 @@ export default function CareEpisodeOverviewPage() {
 					) : (
 						<span className="ep-session-empty">no sessions yet</span>
 					)}
-					<span className="ep-session-foot">
-						{rehab ? `Last session ${shortDate(rehab.created_at)}` : ""}
-						<span className="ep-session-go">Open rehab</span>
-					</span>
+					{rehab ? <span className="ep-session-foot">{`Last session ${shortDate(rehab.created_at)}`}</span> : null}
 				</Link>
 
 				<Link className="sticker tone-sky tilt-r ep-session" href={`${base}/professional-care`}>
@@ -167,29 +163,18 @@ export default function CareEpisodeOverviewPage() {
 					<span className="ep-session-datum"><strong>{doctorLabel}</strong></span>
 					{requests ? <span className="ep-session-meta">{requests}</span> : null}
 					{careSummary ? <span className="ep-session-quote ep-session-quote-sm">{careSummary.plan_digest || careSummary.conversation_digest}</span> : null}
-					<span className="ep-session-foot">
-						<span />
-						<span className="ep-session-go">Open Professional Care</span>
-					</span>
 				</Link>
 
 				<Link className="sticker tone-lilac tilt-l ep-session" href={`${base}/history`}>
 					<span className="ep-session-top">
 						<span className="tag"><span className="session-dot" />History</span>
-						<span className="ep-session-status">Timeline and memory</span>
 					</span>
-					<span className="ep-session-datum"><strong>{updatedOn ? `Updated ${updatedOn}` : "Everything saved"}</strong></span>
-					{triage || rehab || careSummary ? <span className="ep-session-meta">{[triage ? "Triage" : null, rehab ? "Rehab" : null, careSummary ? "Care summary" : null].filter(Boolean).join(" · ")}</span> : null}
-					<span className="ep-session-foot">
-						{shortDate(episode.created_at) && shortDate(episode.created_at) !== updatedOn ? `Opened ${shortDate(episode.created_at)}` : ""}
-						<span className="ep-session-go">Open history</span>
-					</span>
+					{updatedOn ? <span className="ep-session-datum"><strong>{`Updated ${updatedOn}`}</strong></span> : null}
 				</Link>
 			</section>
 
 			{latestFullHistory ? (
-				<section className="ep-papers" aria-labelledby="ep-papers-title">
-					<h2 id="ep-papers-title" className="ep-papers-title"><span className="session-dot" data-tone="peach" />Triage notes</h2>
+				<section className="ep-papers" aria-label="Triage history">
 					<FullAiTriageHistory text={latestFullHistory} />
 				</section>
 			) : null}
