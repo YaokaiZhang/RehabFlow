@@ -756,3 +756,8 @@
 		transform: none;
 	}
 }
+
+/* Keep the newest card clear of the sticky composer when the page scrolls. */
+.triage-chat-log > * {
+	scroll-margin-bottom: 120px;
+}

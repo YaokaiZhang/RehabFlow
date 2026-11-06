@@ -494,8 +494,11 @@ function HomePageContent() {
 	// Keep the newest message in view, like any chat.
 	useEffect(() => {
 		const log = chatLogRef.current;
-		if (log) log.scrollTop = log.scrollHeight;
-	}, [messages, isWaiting, historyLoading]);
+		if (!log || showHero) return;
+		if (log.scrollHeight > log.clientHeight) log.scrollTop = log.scrollHeight;
+		// On phones the page scrolls, not the log.
+		else (log.lastElementChild as HTMLElement | null)?.scrollIntoView({ block: "end" });
+	}, [messages, isWaiting, historyLoading, wrapUp.stage, wrapUpError, showHero]);
 
 	// The suggestion stickers drift a little with the pointer (CSS reads --px/--py).
 	const heroRef = useRef<HTMLElement | null>(null);
