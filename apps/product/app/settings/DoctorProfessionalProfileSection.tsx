@@ -27,7 +27,7 @@ export default function DoctorProfessionalProfileSection() {
 	if (!auth || auth.role !== "doctor") {
 		return (
 			<div className="card settings-card">
-				<p className="settings-empty">Sign in as a doctor to manage your professional profile.</p>
+				<p className="settings-empty">Sign in as a doctor.</p>
 			</div>
 		);
 	}
@@ -48,11 +48,11 @@ export default function DoctorProfessionalProfileSection() {
 
 	return (
 		<section className="card settings-card" id="professional-profile" aria-labelledby="professional-profile-title" data-tone="sky">
-			<h2 className="settings-card-title" id="professional-profile-title"><span className="session-dot" aria-hidden="true" />Professional profile</h2>
+			<h2 className="settings-card-title" id="professional-profile-title">Professional profile</h2>
 
 			{error ? <p className="notice notice-danger mt-4">{error}</p> : null}
 			{statusMessage ? <p className="notice mt-4" role="status">{statusMessage}</p> : null}
-			{loading ? <p className="dashboard-loading mt-4">Loading professional profile...</p> : null}
+			{loading ? <p className="dashboard-loading mt-4">Loading…</p> : null}
 
 			{!loading && profile ? (
 				<form className="settings-form" onSubmit={submit}>
@@ -79,7 +79,6 @@ export default function DoctorProfessionalProfileSection() {
 							value={pendingTag}
 							onChange={(event) => setPendingTag(event.target.value)}
 							onKeyDown={handleTagKeyDown}
-							placeholder="Add an expertise tag"
 							maxLength={80}
 							aria-describedby="professional-profile-tag-hint"
 							disabled={draft.expertise_tags.length >= maxExpertiseTags}
@@ -95,7 +94,7 @@ export default function DoctorProfessionalProfileSection() {
 									<span aria-hidden="true">&times;</span>
 								</button>
 							</span>
-						)) : <p className="settings-empty mt-0">No expertise tags added yet.</p>}
+						)) : <p className="settings-empty mt-0">No tags yet</p>}
 					</div>
 
 					<div className="settings-form-actions">

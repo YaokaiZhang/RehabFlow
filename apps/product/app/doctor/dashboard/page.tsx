@@ -123,7 +123,6 @@ export default function DoctorDashboardPage() {
 	if (auth === undefined) {
 		return (
 			<section className="page-column-narrow page-header" data-tone="sky">
-				<p className="page-header-kicker">Professional Care</p>
 				<h1>Doctor Dashboard</h1>
 				<p className="scribble mt-4" role="status">checking your session…</p>
 			</section>
@@ -133,7 +132,6 @@ export default function DoctorDashboardPage() {
 	if (!auth || auth.role !== "doctor") {
 		return (
 			<section className="page-column-narrow page-header" data-tone="sky">
-				<p className="page-header-kicker">Professional Care</p>
 				<h1>Sign in to open Doctor Dashboard</h1>
 				<div className="page-header-actions">
 					<Link className="btn-primary" href="/login?role=doctor">Log in</Link>
@@ -150,7 +148,6 @@ export default function DoctorDashboardPage() {
 		<div className="page-column">
 			<section className="page-header doctor-page-header doctor-dashboard-header" data-tone="sky">
 				<div>
-					<p className="page-header-kicker">Professional Care</p>
 					<h1>Doctor Dashboard</h1>
 				</div>
 				<div className="doctor-header-actions">
@@ -195,7 +192,7 @@ export default function DoctorDashboardPage() {
 					<BriefingSections sections={briefingSections} />
 					{dashboard?.patient_panel_briefing.content ? (
 						<details className="doctor-briefing-full">
-							<summary>Read the full briefing</summary>
+							<summary>Full briefing</summary>
 							<div className="doctor-briefing-text">{dashboard.patient_panel_briefing.content}</div>
 						</details>
 					) : null}
@@ -204,7 +201,6 @@ export default function DoctorDashboardPage() {
 				<div className="doctor-dashboard-columns">
 					<section aria-labelledby="doctor-patients-title" data-tone="sky">
 						<h2 id="doctor-patients-title" className="doctor-queue-heading">
-							<span className="session-dot" aria-hidden="true" />
 							<span>Your patients</span>
 							<span className="doctor-queue-count">{relationships.length}</span>
 						</h2>
@@ -217,7 +213,6 @@ export default function DoctorDashboardPage() {
 
 					<section aria-labelledby="doctor-appointments-title" data-tone="sky">
 						<h2 id="doctor-appointments-title" className="doctor-queue-heading">
-							<span className="session-dot" aria-hidden="true" />
 							<span>Upcoming appointments</span>
 							<span className="doctor-queue-count">{appointments.length}</span>
 						</h2>
@@ -241,11 +236,11 @@ export default function DoctorDashboardPage() {
 					<form className="doctor-prep-form" onSubmit={submitArtifact}>
 						<label className="doctor-field">
 							<span>Title</span>
-							<input className="input" value={artifactDraft.title} onChange={(event) => setArtifactDraft((prev) => ({ ...prev, title: event.target.value }))} placeholder="Prep note title" />
+							<input className="input" value={artifactDraft.title} onChange={(event) => setArtifactDraft((prev) => ({ ...prev, title: event.target.value }))} />
 						</label>
 						<label className="doctor-field">
 							<span>Note</span>
-							<textarea className="textarea min-h-32" value={artifactDraft.content} onChange={(event) => setArtifactDraft((prev) => ({ ...prev, content: event.target.value }))} placeholder="What you want to remember before your next sessions" />
+							<textarea className="textarea min-h-32" value={artifactDraft.content} onChange={(event) => setArtifactDraft((prev) => ({ ...prev, content: event.target.value }))} />
 						</label>
 						<div>
 							<AppButton type="submit" disabled={busyAction !== null || !artifactDraft.title.trim() || !artifactDraft.content.trim()}>{busyAction === "save" ? "Saving…" : "Save prep note"}</AppButton>

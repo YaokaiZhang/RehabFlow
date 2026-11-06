@@ -65,7 +65,7 @@ export default function PatientMemorySettingsSection() {
 	if (!auth || auth.role !== "patient") {
 		return (
 			<div className="card settings-card">
-				<p className="settings-empty">Sign in as a patient to manage Patient Memory.</p>
+				<p className="settings-empty">Sign in as a patient.</p>
 			</div>
 		);
 	}
@@ -74,7 +74,7 @@ export default function PatientMemorySettingsSection() {
 		<section className="settings-content" id="patient-memory" aria-labelledby="patient-memory-title">
 			{error ? <p className="notice notice-danger">{error}</p> : null}
 			{statusMessage ? <p className="notice" role="status">{statusMessage}</p> : null}
-			{loading ? <p className="dashboard-loading">Loading Patient Memory...</p> : null}
+			{loading ? <p className="dashboard-loading">Loading…</p> : null}
 
 			<div className="sticker tone-lilac settings-memory-summary">
 				<div className="settings-card-title-row">
@@ -84,13 +84,12 @@ export default function PatientMemorySettingsSection() {
 				{memoryDocument?.compiled_text ? (
 					<p className="settings-memory-text">{memoryDocument.compiled_text}</p>
 				) : (
-					<p className="settings-empty">Nothing remembered yet. Add a fact below, or keep chatting and RehabFlow will add what matters.</p>
+					<p className="settings-empty">Nothing remembered yet</p>
 				)}
 			</div>
 
 			<section aria-labelledby="patient-memory-items-title">
 				<h3 className="settings-section-label" id="patient-memory-items-title">What RehabFlow remembers</h3>
-				{!loading && activeItems.length === 0 ? <p className="settings-empty">Nothing here yet.</p> : null}
 				{activeItems.length ? (
 					<ul className="settings-memory-list">
 						{activeItems.map((item) => (
@@ -108,7 +107,7 @@ export default function PatientMemorySettingsSection() {
 									</form>
 								) : (
 									<>
-										<h4><span className="session-dot" aria-hidden="true" />{item.field_name}</h4>
+										<h4>{item.field_name}</h4>
 										<p>{item.value}</p>
 										<div className="settings-item-actions">
 											<button type="button" className="settings-text-button" onClick={() => startEditing(item)} disabled={busy}>Edit<span className="sr-only"> {item.field_name}</span></button>
@@ -126,9 +125,9 @@ export default function PatientMemorySettingsSection() {
 				<h3 className="settings-card-title" id="patient-memory-add-title">Add something to remember</h3>
 				<form className="settings-form" onSubmit={submitNewItem}>
 					<label className="field-label" htmlFor="memory-new-topic">Topic</label>
-					<input id="memory-new-topic" className="input" value={newItem.field_name} onChange={(event) => setNewItem((prev) => ({ ...prev, field_name: event.target.value }))} placeholder="For example: Favourite activity" />
+					<input id="memory-new-topic" className="input" value={newItem.field_name} onChange={(event) => setNewItem((prev) => ({ ...prev, field_name: event.target.value }))} placeholder="Favourite activity" />
 					<label className="field-label" htmlFor="memory-new-value">Value</label>
-					<textarea id="memory-new-value" className="textarea mt-1.5 min-h-28" value={newItem.value} onChange={(event) => setNewItem((prev) => ({ ...prev, value: event.target.value }))} placeholder="For example: I play padel twice a week and want to keep doing it." />
+					<textarea id="memory-new-value" className="textarea mt-1.5 min-h-28" value={newItem.value} onChange={(event) => setNewItem((prev) => ({ ...prev, value: event.target.value }))} />
 					<div className="settings-form-actions">
 						<AppButton type="submit" variant={editingItemId ? "secondary" : "primary"} disabled={busy || !newItem.field_name.trim() || !newItem.value.trim()}>{busy ? "Saving" : "Add"}</AppButton>
 					</div>

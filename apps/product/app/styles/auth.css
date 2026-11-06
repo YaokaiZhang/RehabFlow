@@ -19,15 +19,6 @@
 	padding: 40px 36px 30px;
 }
 
-.auth-note {
-	position: absolute;
-	top: -30px;
-	right: 18px;
-	margin: 0;
-	transform: rotate(-4deg);
-	white-space: nowrap;
-}
-
 .auth-card h1 {
 	margin: 0;
 	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
@@ -121,54 +112,6 @@
 }
 
 /* Floating stickers around the card; decoration only. */
-.auth-deco {
-	position: absolute;
-	inset: 0;
-	pointer-events: none;
-}
-
-.auth-deco-sticker {
-	position: absolute;
-	padding: 14px 22px;
-	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
-	font-size: 1.5rem;
-	font-weight: 700;
-	line-height: 1;
-	color: var(--tone-deep);
-	white-space: nowrap;
-}
-
-.auth-deco-a {
-	top: 90px;
-	left: 0;
-	transform: rotate(-7deg);
-}
-
-.auth-deco-b {
-	top: 300px;
-	right: -6px;
-	transform: rotate(6deg);
-}
-
-.auth-deco-c {
-	bottom: 70px;
-	left: 24px;
-	transform: rotate(4deg);
-}
-
-.auth-deco-scribble {
-	position: absolute;
-	top: 40px;
-	right: 40px;
-	width: 110px;
-	color: var(--rf-ink-soft);
-}
-
-@media (max-width: 900px) {
-	.auth-deco {
-		display: none;
-	}
-}
 
 @media (max-width: 520px) {
 	.auth-page {
@@ -177,9 +120,5 @@
 
 	.auth-card {
 		padding: 34px 22px 24px;
-	}
-
-	.auth-note {
-		right: 12px;
 	}
 }

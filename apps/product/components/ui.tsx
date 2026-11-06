@@ -56,13 +56,11 @@ export function DashboardCard({ className, children, ...props }: HTMLAttributes<
   );
 }
 
-export function SectionHeader({ eyebrow, title, description, action, className }: { eyebrow?: string; title: string; description?: string; action?: ReactNode; className?: string }) {
+// `eyebrow` is accepted for compatibility but not rendered.
+export function SectionHeader({ title, description, action, className }: { eyebrow?: string; title: string; description?: string; action?: ReactNode; className?: string }) {
   return (
     <div className={cx("flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between", className)}>
       <div className="min-w-0">
-        {eyebrow && eyebrow.trim().toLowerCase() !== title.trim().toLowerCase() ? (
-          <p className="mb-2 inline-flex rounded-full bg-fill px-3 py-0.5 text-xs font-semibold text-[var(--rf-ink-muted)]">{eyebrow}</p>
-        ) : null}
         <h2 className="text-xl font-bold leading-tight text-ink">{title}</h2>
         {description ? <p className="mt-1.5 max-w-[62ch] text-[0.9375rem] leading-relaxed text-[var(--rf-ink-muted)]">{description}</p> : null}
       </div>

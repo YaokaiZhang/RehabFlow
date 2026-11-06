@@ -47,7 +47,6 @@ export default function PatientDashboardPage() {
 	const [loading, setLoading] = useState(true);
 	const [episodesLoaded, setEpisodesLoaded] = useState(false);
 	const [error, setError] = useState("");
-	const [statusMessage, setStatusMessage] = useState("");
 	const [deletingEpisodeId, setDeletingEpisodeId] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -71,22 +70,17 @@ export default function PatientDashboardPage() {
 		const confirmed = window.confirm(`Delete ${episode.issue_title}? This removes the episode workspace and saved context for this concern.`);
 		if (!confirmed) return;
 		setError("");
-		setStatusMessage("");
 		setDeletingEpisodeId(episode.care_episode_id);
 		try {
 			await deleteCareEpisode(episode.care_episode_id, auth.access_token);
 			setEpisodes((current) => current.filter((item) => item.care_episode_id !== episode.care_episode_id));
 			window.dispatchEvent(new Event("rehab-ai-chat-changed"));
-			setStatusMessage("Care Episode deleted.");
 		} catch (err) {
 			setError((err as Error).message);
 		} finally {
 			setDeletingEpisodeId(null);
 		}
 	};
-
-	const needsTriageCount = episodes.filter((episode) => episode.safety_gate_status === "needs_triage").length;
-	const withDoctorCount = episodes.filter((episode) => episode.selected_doctor_id).length;
 
 	if (!auth || auth.role !== "patient") {
 		return (
@@ -103,39 +97,23 @@ export default function PatientDashboardPage() {
 		<div className="dashboard-page">
 			<header className="page-header dashboard-header">
 				<h1>My episodes</h1>
-				{episodesLoaded && episodes.length > 0 ? (
-					<ul className="dashboard-counts" aria-label="Episode counts">
-						<li className="tag">{episodes.length} {episodes.length === 1 ? "episode" : "episodes"}</li>
-						{needsTriageCount ? <li className="tag" data-tone="peach"><span className="session-dot" aria-hidden="true" />{needsTriageCount} need triage</li> : null}
-						{withDoctorCount ? <li className="tag" data-tone="sky"><span className="session-dot" aria-hidden="true" />{withDoctorCount} with a doctor</li> : null}
-					</ul>
-				) : null}
 			</header>
 
 			{error ? <p className="notice notice-danger">{error}</p> : null}
-			{statusMessage ? <p className="notice" role="status">{statusMessage}</p> : null}
-			{loading ? <p className="dashboard-loading">Loading Care Episodes...</p> : null}
+			{loading ? <p className="dashboard-loading">Loading…</p> : null}
 
 			<section className="dashboard-episode-section" aria-label="Care Episode List">
 				<ul className="dashboard-episode-grid">
 					{!loading ? (
 						<li className={`sticker tone-plain dashboard-new-card tilt-l`}>
-							<span className="dashboard-new-plus" aria-hidden="true">+</span>
-							<h2 className="font-hand dashboard-new-title">{episodesLoaded && episodes.length === 0 ? "No Care Episodes yet" : "New episode"}</h2>
+							<h2 className="font-hand dashboard-new-title">{episodesLoaded && episodes.length === 0 ? "No episodes yet" : "New episode"}</h2>
 							<Link className="btn-primary" href="/">Start with AI triage<span className="btn-arrow"><ArrowIcon /></span></Link>
-							<Link className="dashboard-new-manual" href="/episodes/new">or add one by hand</Link>
+							<Link className="dashboard-new-manual" href="/episodes/new">Add manually</Link>
 						</li>
 					) : null}
 					{episodes.map((episode, index) => {
 						const listStep = listStepFor(episode);
 						const stage = listStep ? { tone: listStep.tone === "rose" ? ("rose" as const) : ("peach" as const), label: "" } : episodeStage(episode);
-						const triageDone = episode.safety_gate_status !== "needs_triage";
-						const steps = [
-							{ tone: "peach", label: "AI Triage Intake", done: triageDone },
-							{ tone: "mint", label: "AI Daily Rehab", done: triageDone },
-							{ tone: "sky", label: "Professional Care", done: Boolean(episode.selected_doctor_id) },
-						];
-						const doneCount = steps.filter((step) => step.done).length;
 						const deleting = deletingEpisodeId === episode.care_episode_id;
 						return (
 							<li key={episode.care_episode_id} className={`sticker tone-${stage.tone} ${tilts[(index + 1) % tilts.length]} dashboard-episode-card`}>
@@ -167,14 +145,8 @@ export default function PatientDashboardPage() {
 								</h2>
 								{episode.goal ? <p className="dashboard-episode-goal">{episode.goal}</p> : null}
 								{listStep ? <p className="dashboard-episode-next"><span aria-hidden="true">→</span> {listStep.title}</p> : null}
-								<div className="dashboard-episode-progress" role="img" aria-label={`${doneCount} of 3 steps: ${steps.map((step) => `${step.label} ${step.done ? "done" : "not yet"}`).join(", ")}`}>
-									{steps.map((step) => (
-										<span key={step.label} data-tone={step.tone} className={step.done ? "dashboard-step dashboard-step-done" : "dashboard-step"} />
-									))}
-								</div>
 								<div className="dashboard-episode-foot">
 									<span>Updated {formatDate(episode.updated_at)}</span>
-									<span className="dashboard-episode-go" aria-hidden="true"><ArrowIcon /></span>
 								</div>
 							</li>
 						);

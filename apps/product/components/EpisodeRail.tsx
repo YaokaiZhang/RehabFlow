@@ -248,7 +248,7 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 				onClick={() => setRailOpen((open) => !open)}
 			>
 				<span className="episode-rail-toggle-label">
-					{activeEpisode ? <>{episodeLabel(activeEpisode)} <span>· switch episode</span></> : "Your episodes and chats"}
+					{activeEpisode ? episodeLabel(activeEpisode) : "Episodes"}
 				</span>
 				<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
 			</button>
@@ -269,9 +269,9 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 						<button type="button" className="episode-rail-retry" onClick={retry}>Try again</button>
 					</div>
 				) : null}
-				{loading ? <p className="episode-rail-loading">Loading your episodes...</p> : null}
+				{loading ? <p className="episode-rail-loading">Loading…</p> : null}
 				{!loading && !error && episodes.length === 0 ? (
-					<p className="episode-rail-empty">nothing here yet</p>
+					<p className="episode-rail-empty">No episodes yet</p>
 				) : null}
 				{episodes.map((episode) => {
 					const isActive = episode.care_episode_id === activeEpisodeId;
@@ -283,7 +283,6 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 								className={`episode-folder ${isActive ? "episode-folder-active" : ""}`}
 								aria-current={isActive ? "page" : undefined}
 							>
-								<span className="episode-folder-marker" aria-hidden="true" />
 								<span>
 									<span className="episode-folder-title">{episodeLabel(episode)}</span>
 									{episode.body_area ? <span className="episode-folder-meta">{episode.body_area}</span> : null}
@@ -296,7 +295,7 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 											href={`/episodes/${episode.care_episode_id}`}
 											className={`episode-session-link ${sessionIsActive(pathname, episode.care_episode_id, "overview") ? "episode-session-link-active" : ""}`}
 										>
-											Episode overview
+											Overview
 										</Link>
 										{workflowSessions.map((session) => (
 											<Link
@@ -324,7 +323,6 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 											</Link>
 										</div>
 										{chatLoading ? <p className="episode-chat-feedback">Loading chats...</p> : null}
-										{chatError ? <p className="episode-chat-feedback">Chat history unavailable.</p> : null}
 										{!chatLoading && !chatError && episodeChatsForEpisode.length ? episodeChatsForEpisode.map((session) => (
 											<ChatSessionRow
 												key={session.session_id}
@@ -339,7 +337,6 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 												onConfirmDelete={confirmDelete}
 											/>
 										)) : null}
-										
 									</section>
 								</>
 							) : null}
@@ -352,7 +349,6 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 			<section className="episode-chat-directory" aria-labelledby="episode-chat-directory-title">
 				<div className="episode-chat-directory-heading">
 					<h2 id="episode-chat-directory-title">Loose chats</h2>
-					{unassignedChats.length ? <span>{unassignedChats.length}</span> : null}
 				</div>
 				{chatError ? (
 					<div className="episode-rail-feedback" role="alert">
@@ -360,7 +356,6 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 						<button type="button" className="episode-rail-retry" onClick={retry}>Try again</button>
 					</div>
 				) : null}
-			{chatLoading ? <p className="episode-chat-feedback">Loading chats...</p> : null}
 			{!chatLoading && !chatError ? (
 					unassignedChats.length ? (
 						<div className="episode-chat-group">
@@ -391,7 +386,7 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 function EpisodeRailFallback() {
 	return (
 		<aside className="episode-rail" aria-label="Care episodes and AI triage chats">
-			<p className="episode-rail-loading">Loading your episodes...</p>
+			<p className="episode-rail-loading">Loading…</p>
 		</aside>
 	);
 }

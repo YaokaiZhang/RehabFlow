@@ -106,21 +106,6 @@
 	font-weight: 650;
 }
 
-.product-account-avatar {
-	display: inline-flex;
-	height: 28px;
-	width: 28px;
-	align-items: center;
-	justify-content: center;
-	border-radius: 999px;
-	background: var(--rf-mint);
-	color: var(--rf-mint-deep);
-	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
-	font-size: 1.125rem;
-	font-weight: 700;
-	line-height: 1;
-}
-
 .product-account-link,
 .product-signout-button {
 	display: inline-flex;
@@ -270,14 +255,6 @@
 	background: var(--rf-fill);
 }
 
-.episode-folder-marker {
-	height: 12px;
-	width: 12px;
-	flex-shrink: 0;
-	border: 2px solid var(--rf-ink-soft);
-	border-radius: 999px;
-}
-
 .episode-folder-title {
 	display: block;
 	overflow: hidden;
@@ -299,11 +276,6 @@
 	background: var(--rf-fill);
 	border-bottom-left-radius: 0;
 	border-bottom-right-radius: 0;
-}
-
-.episode-folder-active .episode-folder-marker {
-	border-color: var(--rf-ink);
-	background: var(--rf-ink);
 }
 
 /* The open folder: its sessions, each marked with its session colour. */
@@ -558,10 +530,6 @@
 }
 
 .chat-history-state-error {
-	color: var(--rf-rose-deep);
-}
-
-.chat-card-system .chat-card-author {
 	color: var(--rf-rose-deep);
 }
 

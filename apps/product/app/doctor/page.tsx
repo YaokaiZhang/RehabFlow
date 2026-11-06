@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 
 import { AccordionSection } from "../../components/AccordionSection";
 import { CareEpisodeBrief } from "../../components/CareEpisodeBrief";
-import { AppButton, ProgressPill } from "../../components/ui";
+import { AppButton } from "../../components/ui";
 import { useDoctorCareWorklist } from "./useDoctorCareWorklist";
 
 function listText(items: string[] | undefined, fallback: string) {
@@ -20,7 +20,6 @@ function QueueGroup({ title, tone, count, children }: { title: string; tone: "pe
 	return (
 		<section className="doctor-queue-group" data-tone={tone}>
 			<h2 className="doctor-queue-heading">
-				<span className="session-dot" aria-hidden="true" />
 				<span>{title}</span>
 				<span className="doctor-queue-count">{count}</span>
 			</h2>
@@ -64,7 +63,6 @@ export default function DoctorPage() {
 	if (!auth || auth.role !== "doctor") {
 		return (
 			<section className="page-column-narrow page-header" data-tone="sky">
-				<p className="page-header-kicker">Professional Care</p>
 				<h1>Sign in as a doctor</h1>
 				<div className="page-header-actions">
 					<Link className="btn-primary" href="/login?role=doctor&next=/doctor">Log in</Link>
@@ -79,7 +77,6 @@ export default function DoctorPage() {
 	return (
 		<div className="page-column">
 			<section className="page-header doctor-page-header" data-tone="sky">
-				<p className="page-header-kicker"><Link href="/doctor">Professional Care</Link></p>
 				<h1>Care Worklist</h1>
 			</section>
 
@@ -99,10 +96,9 @@ export default function DoctorPage() {
 										<p className="doctor-row-title">{request.issue_title || "Care Episode"}</p>
 										<p className="doctor-row-meta">{displayPatientName(request.patient_name)}</p>
 										<p className="doctor-request-reason">{request.latest_triage_summary ? request.latest_triage_summary.recommendation : request.request_reason}</p>
-										{request.latest_triage_summary ? (
+										{request.latest_triage_summary?.clinician_review_needed ? (
 											<p className="doctor-request-source">
-												<span className="tag" data-tone="peach">From Triage Summary</span>
-												{request.latest_triage_summary.clinician_review_needed ? <span className="tag" data-tone="rose">Clinician review</span> : null}
+												<span className="tag" data-tone="rose">Clinician review</span>
 											</p>
 										) : null}
 										<div className="doctor-request-actions">
@@ -124,7 +120,6 @@ export default function DoctorPage() {
 											<p className="doctor-row-title">{request.issue_title || "Care Episode"}</p>
 											<p className="doctor-row-meta">{displayPatientName(request.patient_name)}</p>
 										</div>
-										<span className="tag">Accepted</span>
 									</li>
 								))}
 							</ul>
@@ -195,13 +190,10 @@ export default function DoctorPage() {
 
 									<AccordionSection title="Rehab History" summary={selectedRehab ? `${completedChecklistCount} of ${selectedChecklist.length} checklist items done` : undefined}>
 										{selectedRehab ? (
-											<div className="space-y-3">
-												<ProgressPill value={completedChecklistCount} max={selectedChecklist.length} label={`${completedChecklistCount}/${selectedChecklist.length} complete`} />
-												<dl className="doctor-facts">
-													<div><dt>Patient notes</dt><dd>{selectedRehab.patient_notes || "None captured."}</dd></div>
-													<div><dt>Session summary</dt><dd>{selectedRehab.session_summary || "None captured."}</dd></div>
-												</dl>
-											</div>
+											<dl className="doctor-facts">
+												<div><dt>Patient notes</dt><dd>{selectedRehab.patient_notes || "None captured."}</dd></div>
+												<div><dt>Session summary</dt><dd>{selectedRehab.session_summary || "None captured."}</dd></div>
+											</dl>
 										) : <p className="doctor-empty-note">no rehab session yet</p>}
 									</AccordionSection>
 
@@ -223,7 +215,7 @@ export default function DoctorPage() {
 										</div>
 									</AccordionSection>
 
-									<AccordionSection title="AI Care Summary" summary={selectedSummary ? "Ready" : undefined}>
+									<AccordionSection title="AI Care Summary">
 										{selectedSummary ? (
 											<dl className="doctor-facts">
 												<div><dt>Conversation</dt><dd>{selectedSummary.conversation_digest}</dd></div>
@@ -233,9 +225,8 @@ export default function DoctorPage() {
 										<AppButton variant="secondary" className="mt-4" onClick={() => summarize(selectedRelationship.care_episode_id)} disabled={selectedBusy}>{selectedSummary ? "Regenerate summary" : "Generate summary"}</AppButton>
 									</AccordionSection>
 
-									<AccordionSection title="Optional Live Movement Monitoring">
+									<AccordionSection title="Live Movement Monitoring">
 										<div className="doctor-monitor">
-											<p>The patient starts the session from AI Daily Rehab.</p>
 											<Link className="btn-secondary" href={`/episodes/${selectedRelationship.care_episode_id}/professional-care/live-monitor`}>Open live monitor</Link>
 										</div>
 									</AccordionSection>

@@ -85,14 +85,7 @@ export default function RegisterPage() {
 
 	return (
 		<section className="auth-page">
-			<div className="auth-deco" aria-hidden="true">
-				<span className="sticker tone-peach auth-deco-sticker auth-deco-a">triage</span>
-				<span className="sticker tone-mint auth-deco-sticker auth-deco-b">daily rehab</span>
-				<span className="sticker tone-sky auth-deco-sticker auth-deco-c">your doctor</span>
-				<svg className="auth-deco-scribble" viewBox="0 0 120 60" fill="none"><path d="M6 40c18-26 34-30 40-14s-10 22-6 8 24-24 44-10 22 10 30 2" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
-			</div>
 			<div className="auth-card">
-				<p className="scribble auth-note" aria-hidden="true">takes about a minute</p>
 				<h1>Let&apos;s get you set up</h1>
 				<form onSubmit={onSubmit} className="auth-form">
 					<fieldset className="auth-role">

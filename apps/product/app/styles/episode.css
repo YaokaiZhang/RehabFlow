@@ -339,31 +339,6 @@
 	font-size: 0.8125rem;
 }
 
-.ep-session-go {
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
-	margin-left: auto;
-	color: var(--rf-ink);
-	font-size: 0.875rem;
-	font-weight: 650;
-}
-
-.ep-session-go::after {
-	display: inline-block;
-	height: 7px;
-	width: 7px;
-	border-top: 2px solid currentColor;
-	border-right: 2px solid currentColor;
-	content: "";
-	transform: rotate(45deg);
-	transition: transform 300ms var(--rf-ease);
-}
-
-.ep-session:hover .ep-session-go::after {
-	transform: translateX(3px) rotate(45deg);
-}
-
 @container (min-width: 940px) {
 	.ep-sessions {
 		grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -382,15 +357,6 @@
 	display: grid;
 	gap: 12px;
 	max-width: 760px;
-}
-
-.ep-papers-title {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	margin: 0;
-	font-size: 1rem;
-	font-weight: 700;
 }
 
 .ep-papers > .ep-disclosure {
@@ -415,18 +381,6 @@
 	background: transparent;
 	box-shadow: none;
 	padding: 0;
-}
-
-.ep-brief-kicker {
-	width: fit-content;
-	margin: 0;
-	border-radius: 999px;
-	background: var(--rf-fill);
-	padding: 4px 12px;
-	color: var(--rf-ink-muted);
-	font-size: 0.8125rem;
-	font-weight: 650;
-	line-height: 1.4;
 }
 
 .ep-brief-title {
@@ -922,15 +876,6 @@
 	font-weight: 650;
 }
 
-.ep-care-doctor {
-	margin: 0;
-	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
-	font-size: 1.875rem;
-	font-weight: 700;
-	line-height: 1;
-	overflow-wrap: anywhere;
-}
-
 .ep-care-row {
 	display: flex;
 	flex-wrap: wrap;
@@ -1112,18 +1057,6 @@
 	color: var(--rf-ink-muted);
 	font-size: 0.8125rem;
 	font-weight: 650;
-}
-
-.ep-stat-value {
-	margin: 0;
-	font-size: 1.125rem;
-	font-weight: 700;
-	line-height: 1.3;
-	overflow-wrap: anywhere;
-}
-
-.ep-stat-value-sm {
-	font-size: 0.9375rem;
 }
 
 .ep-events {
@@ -1336,13 +1269,6 @@
 	line-height: 0.95;
 }
 
-.ep-new-note {
-	display: block;
-	margin: 0 0 28px;
-	transform: rotate(-1.5deg);
-	transform-origin: left;
-}
-
 .ep-new-form {
 	display: grid;
 	gap: 4px;
@@ -1478,12 +1404,6 @@
 
 .ep-sessions .sticker:hover {
 	transform: rotate(0deg) translateY(-4px);
-}
-
-.ep-header-note {
-	margin: 12px 0 0;
-	transform: rotate(-1.2deg);
-	transform-origin: left;
 }
 
 .ep-legend {

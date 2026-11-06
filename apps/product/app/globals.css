@@ -348,46 +348,6 @@ summary {
 		line-height: 1.6;
 	}
 
-	.route-badge {
-		display: inline-flex;
-		min-height: 30px;
-		width: fit-content;
-		align-items: center;
-		gap: 8px;
-		border-radius: 999px;
-		padding: 4px 14px;
-		font-size: 0.8125rem;
-		font-weight: 650;
-	}
-
-	.route-badge::before {
-		height: 8px;
-		width: 8px;
-		border-radius: 999px;
-		background: currentColor;
-		content: "";
-	}
-
-	.route-slate {
-		background: var(--rf-fill);
-		color: var(--rf-ink-muted);
-	}
-
-	.route-emerald {
-		background: var(--rf-mint);
-		color: var(--rf-mint-deep);
-	}
-
-	.route-amber {
-		background: var(--rf-peach);
-		color: var(--rf-peach-deep);
-	}
-
-	.route-rose {
-		background: var(--rf-rose);
-		color: var(--rf-rose-deep);
-	}
-
 	/* Chat: the assistant speaks on soft grey, the patient's words sit in ink. */
 	.chat-card {
 		max-width: min(100%, 44rem);

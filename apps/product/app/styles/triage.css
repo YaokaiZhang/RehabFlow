@@ -27,10 +27,6 @@
 	padding-bottom: 18px;
 }
 
-.triage-kicker {
-	margin-bottom: 10px;
-}
-
 .triage-title {
 	margin: 0;
 	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
@@ -51,13 +47,6 @@
 	overflow-y: auto;
 	padding: 8px 2px 24px;
 	scrollbar-width: thin;
-}
-
-.chat-card-author {
-	margin: 0 0 4px;
-	color: var(--rf-ink-muted);
-	font-size: 0.8125rem;
-	font-weight: 700;
 }
 
 .chat-card-sources {
@@ -119,13 +108,6 @@
 	margin: 0;
 	font-size: 0.9375rem;
 	font-weight: 650;
-}
-
-.agent-progress-detail {
-	margin: 4px 0 0;
-	color: var(--rf-ink-muted);
-	font-size: 0.875rem;
-	line-height: 1.45;
 }
 
 .agent-progress-dots {
@@ -292,9 +274,7 @@
 }
 
 /* ---------- Hero: before the first message ---------- */
-.triage-prompts,
-.triage-note,
-.triage-dot {
+.triage-prompts {
 	display: none;
 }
 
@@ -308,10 +288,6 @@
 	flex-direction: column;
 	align-items: center;
 	padding-bottom: 14px;
-}
-
-[data-mode="hero"] .triage-kicker {
-	margin: 0 auto 18px;
 }
 
 [data-mode="hero"] .triage-title {
@@ -335,10 +311,6 @@
 	background: none;
 	padding: 0;
 	color: var(--rf-ink-muted);
-}
-
-[data-mode="hero"] .chat-card-author {
-	display: none;
 }
 
 [data-mode="hero"] .triage-composer {
@@ -419,17 +391,6 @@
 	opacity: 0.5;
 }
 
-[data-mode="hero"] .triage-note-prompts {
-	display: block;
-	order: 3;
-	margin: 22px 0 -16px;
-	font-size: 1.3rem;
-}
-
-[data-mode="hero"] .triage-note-prompts svg {
-	display: none;
-}
-
 [data-mode="hero"] .triage-prompts {
 	order: 4;
 }
@@ -488,51 +449,6 @@
 		width: min(100%, 540px);
 	}
 	.triage-prompt-4 { bottom: 1%; right: 0; }
-
-	[data-mode="hero"] .triage-note {
-		position: absolute;
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		margin: 0;
-		font-size: 1.35rem;
-		pointer-events: none;
-		white-space: nowrap;
-	}
-
-	[data-mode="hero"] .triage-note svg {
-		display: block;
-		height: 30px;
-		width: 44px;
-	}
-
-	.triage-note-prompts {
-		top: calc(2% + 196px);
-		left: calc(1% + 36px);
-		transform: rotate(-4deg);
-	}
-
-	.triage-note-composer {
-		top: calc(100% + 10px);
-		right: 8px;
-		transform: rotate(4deg);
-	}
-
-	[data-mode="hero"] .triage-dot {
-		position: absolute;
-		z-index: 0;
-		display: block;
-		height: 8px;
-		width: 8px;
-		border-radius: 999px;
-		background: var(--rf-fill-strong);
-		transform: translate(calc(var(--px, 0) * var(--depth, 40) * 1px), calc(var(--py, 0) * var(--depth, 40) * 1px));
-		transition: transform 700ms var(--rf-ease);
-	}
-
-	.triage-dot-1 { top: 8%; left: 42%; --depth: 40; }
-	.triage-dot-2 { bottom: 9%; left: 46%; --depth: 60; }
-	.triage-dot-3 { top: 48%; right: 4%; --depth: 80; }
 }
 
 /* ---------- Chat mode ---------- */
@@ -583,8 +499,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.triage-prompt,
-	.triage-dot {
+	.triage-prompt {
 		transition: none;
 	}
 }

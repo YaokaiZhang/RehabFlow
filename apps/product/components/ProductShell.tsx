@@ -118,7 +118,6 @@ export default function ProductShell({ children }: { children: ReactNode }) {
             {auth ? (
               <>
                 <span className="product-account-name">
-                  <span className="product-account-avatar" aria-hidden="true">{auth.username.slice(0, 1).toUpperCase()}</span>
                   <span className="product-account-name-text">{auth.username}</span>
                 </span>
                 <button onClick={signOut} className="product-signout-button">Sign out</button>

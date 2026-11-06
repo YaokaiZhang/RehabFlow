@@ -17,16 +17,6 @@
 	row-gap: 12px;
 }
 
-.dashboard-counts {
-	display: flex;
-	flex-basis: 100%;
-	flex-wrap: wrap;
-	gap: 8px;
-	margin: 6px 0 0;
-	padding: 0;
-	list-style: none;
-}
-
 .dashboard-loading {
 	color: var(--rf-ink-soft);
 	font-size: 0.9375rem;
@@ -182,24 +172,6 @@
 	-webkit-line-clamp: 2;
 }
 
-.dashboard-episode-progress {
-	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: 6px;
-	margin-top: auto;
-	padding-top: 22px;
-}
-
-.dashboard-step {
-	height: 8px;
-	border-radius: 999px;
-	background: rgba(255, 255, 255, 0.75);
-}
-
-.dashboard-step-done {
-	background: var(--tone-stroke);
-}
-
 .dashboard-episode-foot {
 	display: flex;
 	align-items: center;
@@ -209,22 +181,6 @@
 	color: var(--rf-ink-muted);
 	font-size: 0.8125rem;
 	font-weight: 600;
-}
-
-.dashboard-episode-go {
-	display: inline-flex;
-	height: 34px;
-	width: 34px;
-	align-items: center;
-	justify-content: center;
-	border-radius: 999px;
-	background: var(--rf-ink);
-	color: #ffffff;
-	transition: transform 300ms var(--rf-ease);
-}
-
-.dashboard-episode-card:hover .dashboard-episode-go {
-	transform: translateX(3px);
 }
 
 /* The "new episode" tile: a blank sticker with a big plus. */
@@ -244,20 +200,6 @@
 .dashboard-new-card:focus-within {
 	transform: rotate(0deg);
 	border-color: var(--rf-ink-soft);
-}
-
-.dashboard-new-plus {
-	display: inline-flex;
-	height: 64px;
-	width: 64px;
-	align-items: center;
-	justify-content: center;
-	border-radius: 999px;
-	background: var(--rf-fill);
-	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
-	font-size: 3rem;
-	font-weight: 700;
-	line-height: 1;
 }
 
 .dashboard-new-title {
@@ -391,23 +333,6 @@
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 20px;
-}
-
-.settings-avatar {
-	display: inline-flex;
-	height: 72px;
-	width: 72px;
-	flex-shrink: 0;
-	align-items: center;
-	justify-content: center;
-	border-radius: 999px;
-	background: var(--tone-label, var(--rf-fill));
-	color: var(--tone-deep, var(--rf-ink));
-	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
-	font-size: 2.5rem;
-	font-weight: 700;
-	line-height: 1;
-	transform: rotate(-4deg);
 }
 
 .settings-account-details {
