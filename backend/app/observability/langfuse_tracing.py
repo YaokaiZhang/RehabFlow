@@ -3,7 +3,8 @@
 This is a developer debugging aid, separate from the privacy-safe operational
 trace in ``agent_trace``. Langfuse receives full prompts and model outputs, so:
 
-* it is off unless ``LANGFUSE_ENABLED`` is true and both keys are configured;
+* it runs only when ``LANGFUSE_ENABLED`` is true (the default) and both keys
+  are configured;
 * it is refused when ``ENVIRONMENT=production`` unless
   ``LANGFUSE_ALLOW_PRODUCTION`` is also true;
 * every exported string passes through the same secret redaction used for

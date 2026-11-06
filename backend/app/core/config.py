@@ -327,10 +327,11 @@ class Settings(BaseSettings):
 		),
 	)
 	# Developer-only LLM tracing to a self-hosted Langfuse instance. Langfuse
-	# receives full prompts and model outputs, so it stays off unless enabled
-	# and is refused in production without an explicit override.
+	# receives full prompts and model outputs. It is on by default but only
+	# starts when both keys are set, and is refused in production without an
+	# explicit override. Set LANGFUSE_ENABLED=false to turn it off.
 	langfuse_enabled: bool = Field(
-		default=False,
+		default=True,
 		validation_alias=AliasChoices("LANGFUSE_ENABLED", "langfuse_enabled"),
 	)
 	langfuse_public_key: str | None = Field(

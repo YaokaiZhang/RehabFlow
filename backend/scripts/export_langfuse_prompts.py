@@ -8,8 +8,8 @@ Langfuse as a *text* prompt with the same name, or upload them all:
     python scripts/export_langfuse_prompts.py --upload           # also create versions labelled "staging"
     python scripts/export_langfuse_prompts.py --upload --label production
 
-Uploading uses the backend's Langfuse settings (LANGFUSE_ENABLED, keys and
-LANGFUSE_BASE_URL). Each upload creates a new prompt version; unchanged text
+Uploading uses the backend's Langfuse settings (LANGFUSE_PUBLIC_KEY,
+LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL; LANGFUSE_ENABLED defaults to true). Each upload creates a new prompt version; unchanged text
 still makes a new version, so upload only when you mean to.
 """
 from __future__ import annotations
@@ -71,8 +71,8 @@ def upload(label: str) -> None:
     client = get_langfuse_client()
     if client is None:
         raise SystemExit(
-            "Langfuse is not configured: set LANGFUSE_ENABLED=true, LANGFUSE_PUBLIC_KEY, "
-            "LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL."
+            "Langfuse is not configured: set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and "
+            "LANGFUSE_BASE_URL (and do not set LANGFUSE_ENABLED=false)."
         )
     for name, default in DEFAULT_PROMPTS.items():
         created = client.create_prompt(

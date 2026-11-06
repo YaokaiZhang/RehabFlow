@@ -277,10 +277,12 @@ API keys are created automatically, and the Compose backend is pointed at it.
 `./start-dev.sh shutdown` stops Langfuse too; its data stays in the
 `langfuse_*` volumes.
 
-To trace a backend running outside Compose, start Langfuse as above and set
-`LANGFUSE_ENABLED=true`, `LANGFUSE_BASE_URL=http://localhost:3100`,
+`LANGFUSE_ENABLED` defaults to `true`, so a backend running outside Compose
+traces as soon as it has keys: start Langfuse as above and set
+`LANGFUSE_BASE_URL=http://localhost:3100`,
 `LANGFUSE_PUBLIC_KEY=pk-lf-rehabflow-dev` and
-`LANGFUSE_SECRET_KEY=sk-lf-rehabflow-dev` in `.env`.
+`LANGFUSE_SECRET_KEY=sk-lf-rehabflow-dev` in `.env`. Set
+`LANGFUSE_ENABLED=false` to turn tracing off.
 
 Privacy rules:
 
@@ -289,7 +291,7 @@ Privacy rules:
 - The credentials in `docker-compose.langfuse.yml` are development defaults.
   Override the `LANGFUSE_*` variables listed there before using it anywhere
   shared.
-- Tracing is off unless enabled, and the backend refuses it when
+- Tracing is on by default but needs both keys, and the backend refuses it when
   `ENVIRONMENT=production` unless `LANGFUSE_ALLOW_PRODUCTION=true`.
 - Exported text goes through the same secret redaction as internal graph logs.
   No patient or user ID is sent.
