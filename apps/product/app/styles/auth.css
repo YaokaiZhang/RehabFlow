@@ -112,6 +112,54 @@
 }
 
 /* Floating stickers around the card; decoration only. */
+.auth-deco {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.auth-deco-sticker {
+	position: absolute;
+	padding: 14px 22px;
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 1.5rem;
+	font-weight: 700;
+	line-height: 1;
+	color: var(--tone-deep);
+	white-space: nowrap;
+}
+
+.auth-deco-a {
+	top: 90px;
+	left: 0;
+	transform: rotate(-7deg);
+}
+
+.auth-deco-b {
+	top: 300px;
+	right: -6px;
+	transform: rotate(6deg);
+}
+
+.auth-deco-c {
+	bottom: 70px;
+	left: 24px;
+	transform: rotate(4deg);
+}
+
+.auth-deco-scribble {
+	position: absolute;
+	top: 40px;
+	right: 40px;
+	width: 110px;
+	color: var(--rf-ink-soft);
+}
+
+@media (max-width: 900px) {
+	.auth-deco {
+		display: none;
+	}
+}
 
 @media (max-width: 520px) {
 	.auth-page {

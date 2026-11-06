@@ -107,7 +107,7 @@ export default function PatientMemorySettingsSection() {
 									</form>
 								) : (
 									<>
-										<h4>{item.field_name}</h4>
+										<h4><span className="session-dot" aria-hidden="true" />{item.field_name}</h4>
 										<p>{item.value}</p>
 										<div className="settings-item-actions">
 											<button type="button" className="settings-text-button" onClick={() => startEditing(item)} disabled={busy}>Edit<span className="sr-only"> {item.field_name}</span></button>

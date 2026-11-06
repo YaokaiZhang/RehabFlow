@@ -274,7 +274,8 @@
 }
 
 /* ---------- Hero: before the first message ---------- */
-.triage-prompts {
+.triage-prompts,
+.triage-dot {
 	display: none;
 }
 
@@ -449,6 +450,22 @@
 		width: min(100%, 540px);
 	}
 	.triage-prompt-4 { bottom: 1%; right: 0; }
+
+	[data-mode="hero"] .triage-dot {
+		position: absolute;
+		z-index: 0;
+		display: block;
+		height: 8px;
+		width: 8px;
+		border-radius: 999px;
+		background: var(--rf-fill-strong);
+		transform: translate(calc(var(--px, 0) * var(--depth, 40) * 1px), calc(var(--py, 0) * var(--depth, 40) * 1px));
+		transition: transform 700ms var(--rf-ease);
+	}
+
+	.triage-dot-1 { top: 8%; left: 42%; --depth: 40; }
+	.triage-dot-2 { bottom: 9%; left: 46%; --depth: 60; }
+	.triage-dot-3 { top: 48%; right: 4%; --depth: 80; }
 }
 
 /* ---------- Chat mode ---------- */
@@ -499,7 +516,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.triage-prompt {
+	.triage-prompt,
+	.triage-dot {
 		transition: none;
 	}
 }

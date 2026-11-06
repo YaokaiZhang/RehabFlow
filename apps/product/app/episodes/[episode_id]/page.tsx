@@ -174,7 +174,8 @@ export default function CareEpisodeOverviewPage() {
 			</section>
 
 			{latestFullHistory ? (
-				<section className="ep-papers" aria-label="Triage history">
+				<section className="ep-papers" aria-labelledby="ep-papers-title">
+					<h2 id="ep-papers-title" className="ep-papers-title"><span className="session-dot" data-tone="peach" />Triage notes</h2>
 					<FullAiTriageHistory text={latestFullHistory} />
 				</section>
 			) : null}

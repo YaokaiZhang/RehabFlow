@@ -201,6 +201,7 @@ export default function DoctorDashboardPage() {
 				<div className="doctor-dashboard-columns">
 					<section aria-labelledby="doctor-patients-title" data-tone="sky">
 						<h2 id="doctor-patients-title" className="doctor-queue-heading">
+							<span className="session-dot" aria-hidden="true" />
 							<span>Your patients</span>
 							<span className="doctor-queue-count">{relationships.length}</span>
 						</h2>
@@ -213,6 +214,7 @@ export default function DoctorDashboardPage() {
 
 					<section aria-labelledby="doctor-appointments-title" data-tone="sky">
 						<h2 id="doctor-appointments-title" className="doctor-queue-heading">
+							<span className="session-dot" aria-hidden="true" />
 							<span>Upcoming appointments</span>
 							<span className="doctor-queue-count">{appointments.length}</span>
 						</h2>

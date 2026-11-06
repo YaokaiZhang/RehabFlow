@@ -180,7 +180,10 @@ export default function EpisodeTriagePage() {
 
             {summaries.length > 1 ? (
                 <section className="card">
-                    <h2 className="section-title">Earlier summaries</h2>
+                    <div className="ep-section-head">
+                        <h2 className="section-title">Earlier summaries</h2>
+                        <span className="ep-count">{summaries.length - 1}</span>
+                    </div>
                     <div className="ep-earlier">
                         {summaries.slice(1).map((summary) => (
                             <div key={summary.triage_summary_id} className="ep-earlier-item">

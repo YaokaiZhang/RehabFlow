@@ -59,12 +59,12 @@ const suggestedPrompts = [
 	"I had my knee replaced a month ago. Stairs hurt more this week than last, and the knee feels warm. Is that normal?",
 ];
 
-// How each suggestion sticker looks: its pastel and its resting angle.
+// How each suggestion sticker looks: its pastel, a short body-area tag and its resting angle.
 const promptStickers = [
-	{ tone: "sky", tilt: -3, depth: 18 },
-	{ tone: "peach", tilt: 2.5, depth: 30 },
-	{ tone: "mint", tilt: 3, depth: 24 },
-	{ tone: "lilac", tilt: -2, depth: 36 },
+	{ tag: "Shoulder", tone: "sky", tilt: -3, depth: 18 },
+	{ tag: "Lower back", tone: "peach", tilt: 2.5, depth: 30 },
+	{ tag: "Ankle", tone: "mint", tilt: 3, depth: 24 },
+	{ tag: "After surgery", tone: "lilac", tilt: -2, depth: 36 },
 ] as const;
 
 // Stage label reported live by the backend while a turn runs.
@@ -566,6 +566,7 @@ function HomePageContent() {
 				</form>
 
 				{showHero ? (
+					<>
 					<div className="triage-prompts" role="group" aria-label="Example messages">
 						{suggestedPrompts.map((item, index) => {
 							const look = promptStickers[index % promptStickers.length];
@@ -578,11 +579,16 @@ function HomePageContent() {
 									onClick={() => setPrompt(item)}
 									disabled={isWaiting}
 								>
+									<span className="tag">{look.tag}</span>
 									<span className="triage-prompt-text">{item}</span>
 								</button>
 							);
 						})}
 					</div>
+					<span className="triage-dot triage-dot-1" aria-hidden="true" />
+					<span className="triage-dot triage-dot-2" aria-hidden="true" />
+					<span className="triage-dot triage-dot-3" aria-hidden="true" />
+					</>
 				) : null}
 			</section>
 

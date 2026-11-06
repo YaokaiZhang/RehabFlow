@@ -359,6 +359,15 @@
 	max-width: 760px;
 }
 
+.ep-papers-title {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 0;
+	font-size: 1rem;
+	font-weight: 700;
+}
+
 .ep-papers > .ep-disclosure {
 	background: var(--rf-fill);
 }
@@ -874,6 +883,15 @@
 	color: var(--tone-deep, var(--rf-ink-muted));
 	font-size: 0.8125rem;
 	font-weight: 650;
+}
+
+.ep-care-doctor {
+	margin: 0;
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 1.875rem;
+	font-weight: 700;
+	line-height: 1;
+	overflow-wrap: anywhere;
 }
 
 .ep-care-row {

@@ -237,7 +237,7 @@ export default function CareEpisodeHistoryPage() {
 
 			<section aria-labelledby="ep-timeline-title" className="grid gap-5">
 				<div className="ep-section-head">
-					<h2 id="ep-timeline-title" className="sr-only">Timeline</h2>
+					<h2 id="ep-timeline-title" className="section-title flex items-center gap-2"><span className="session-dot" data-tone="lilac" />Timeline</h2>
 					{timeline.length ? <ul className="ep-legend" aria-label="Legend">
 						<li data-tone="peach"><span className="session-dot" />Triage</li>
 						<li data-tone="mint"><span className="session-dot" />Rehab</li>

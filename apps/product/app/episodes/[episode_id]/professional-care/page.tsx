@@ -79,6 +79,10 @@ export default function EpisodeProfessionalCarePage() {
             <section aria-labelledby="ep-queue-title" className="grid gap-4">
                 <h2 id="ep-queue-title" className="section-title">Your doctors</h2>
                 <div className="ep-care-grid">
+                    <div className="sticker tone-sky tilt-l ep-care-tile">
+                        <span className="tag"><span className="session-dot" />Selected doctor</span>
+                        <p className="ep-care-doctor">{selectedDoctorLabel}</p>
+                    </div>
                     <div className="card ep-care-tile" data-tone="sky">
                         <span className="ep-care-tile-label">Accepted</span>
                         {acceptedRequests.length === 0 ? <p className="ep-care-muted">None yet</p> : null}

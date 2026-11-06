@@ -48,7 +48,7 @@ export default function DoctorProfessionalProfileSection() {
 
 	return (
 		<section className="card settings-card" id="professional-profile" aria-labelledby="professional-profile-title" data-tone="sky">
-			<h2 className="settings-card-title" id="professional-profile-title">Professional profile</h2>
+			<h2 className="settings-card-title" id="professional-profile-title"><span className="session-dot" aria-hidden="true" />Professional profile</h2>
 
 			{error ? <p className="notice notice-danger mt-4">{error}</p> : null}
 			{statusMessage ? <p className="notice mt-4" role="status">{statusMessage}</p> : null}

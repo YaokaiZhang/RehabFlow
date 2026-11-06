@@ -59,9 +59,9 @@ export default function SettingsPageClient() {
 
 			<div className="settings-layout">
 				<nav className="settings-nav" aria-label="Settings sections">
-					<a className={navClass(showAccount)} href="/settings" aria-current={showAccount ? "page" : undefined}>Account</a>
-					{role === "patient" ? <a className={navClass(showPatientMemory)} data-tone="lilac" href="/settings?section=patient-memory" aria-current={showPatientMemory ? "page" : undefined}>Patient memory</a> : null}
-					{role === "doctor" ? <a className={navClass(showProfessionalProfile)} data-tone="sky" href="/settings?section=professional-profile" aria-current={showProfessionalProfile ? "page" : undefined}>Professional profile</a> : null}
+					<a className={navClass(showAccount)} href="/settings" aria-current={showAccount ? "page" : undefined}><span className="session-dot" aria-hidden="true" />Account</a>
+					{role === "patient" ? <a className={navClass(showPatientMemory)} data-tone="lilac" href="/settings?section=patient-memory" aria-current={showPatientMemory ? "page" : undefined}><span className="session-dot" aria-hidden="true" />Patient memory</a> : null}
+					{role === "doctor" ? <a className={navClass(showProfessionalProfile)} data-tone="sky" href="/settings?section=professional-profile" aria-current={showProfessionalProfile ? "page" : undefined}><span className="session-dot" aria-hidden="true" />Professional profile</a> : null}
 				</nav>
 
 				<div className="settings-content">
@@ -69,6 +69,7 @@ export default function SettingsPageClient() {
 						<section className="card settings-card" aria-labelledby="settings-account-title">
 							<h2 className="sr-only" id="settings-account-title">Account</h2>
 							<div className="settings-account" data-tone={role === "patient" ? "mint" : "sky"}>
+								<span className="settings-avatar" aria-hidden="true">{auth.username.slice(0, 1).toUpperCase()}</span>
 								<dl className="settings-account-details">
 									<dt>Username</dt>
 									<dd className="settings-account-name">{auth.username}</dd>

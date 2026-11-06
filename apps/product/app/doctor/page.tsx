@@ -21,6 +21,7 @@ function QueueGroup({ title, tone, count, children }: { title: string; tone: "pe
 	return (
 		<section className="doctor-queue-group" data-tone={tone}>
 			<h2 className="doctor-queue-heading">
+				<span className="session-dot" aria-hidden="true" />
 				<span>{title}</span>
 				<span className="doctor-queue-count">{count}</span>
 			</h2>

@@ -106,6 +106,21 @@
 	font-weight: 650;
 }
 
+.product-account-avatar {
+	display: inline-flex;
+	height: 28px;
+	width: 28px;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	background: var(--rf-mint);
+	color: var(--rf-mint-deep);
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 1.125rem;
+	font-weight: 700;
+	line-height: 1;
+}
+
 .product-account-link,
 .product-signout-button {
 	display: inline-flex;
