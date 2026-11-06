@@ -17,11 +17,6 @@
 	row-gap: 12px;
 }
 
-.dashboard-header-note {
-	margin: 0 0 4px;
-	transform: rotate(-2deg);
-}
-
 .dashboard-counts {
 	display: flex;
 	flex-basis: 100%;
@@ -167,6 +162,13 @@
 .dashboard-episode-card:has(.dashboard-episode-link:focus-visible) {
 	outline: 3px solid var(--rf-ink);
 	outline-offset: 4px;
+}
+
+.dashboard-episode-next {
+	margin: 12px 0 0;
+	color: var(--tone-deep, var(--rf-ink));
+	font-size: 0.9375rem;
+	font-weight: 700;
 }
 
 .dashboard-episode-goal {

@@ -6,9 +6,11 @@ import { useEffect, useState } from "react";
 import { deleteCareEpisode, listCareEpisodes, type CareEpisode } from "@rehab/shared/api";
 import { loadAuth, type AuthState } from "@rehab/shared/auth";
 
+import { listStepFor } from "../../components/NextStep";
 
 
-type EpisodeTone = "peach" | "mint" | "sky";
+
+type EpisodeTone = "peach" | "mint" | "sky" | "rose";
 
 // The sticker colour follows the session the episode is in right now.
 function episodeStage(episode: CareEpisode): { tone: EpisodeTone; label: string } {
@@ -100,7 +102,6 @@ export default function PatientDashboardPage() {
 		<div className="dashboard-page">
 			<header className="page-header dashboard-header">
 				<h1>My episodes</h1>
-				<p className="scribble dashboard-header-note">one concern each, so nothing gets mixed up</p>
 				{episodesLoaded && episodes.length > 0 ? (
 					<ul className="dashboard-counts" aria-label="Episode counts">
 						<li className="tag">{episodes.length} {episodes.length === 1 ? "episode" : "episodes"}</li>
@@ -125,7 +126,8 @@ export default function PatientDashboardPage() {
 						</li>
 					) : null}
 					{episodes.map((episode, index) => {
-						const stage = episodeStage(episode);
+						const listStep = listStepFor(episode);
+						const stage = listStep ? { tone: listStep.tone === "rose" ? ("rose" as const) : ("peach" as const), label: "" } : episodeStage(episode);
 						const triageDone = episode.safety_gate_status !== "needs_triage";
 						const steps = [
 							{ tone: "peach", label: "AI Triage Intake", done: triageDone },
@@ -138,7 +140,7 @@ export default function PatientDashboardPage() {
 							<li key={episode.care_episode_id} className={`sticker tone-${stage.tone} ${tilts[(index + 1) % tilts.length]} dashboard-episode-card`}>
 								<div className="dashboard-episode-top">
 									<div className="dashboard-episode-tags">
-										<span className="tag">{stage.label}</span>
+										{stage.label ? <span className="tag">{stage.label}</span> : null}
 										{episode.status && episode.status !== "active" ? <span className="tag dashboard-tag-plain">{statusCopy(episode.status)}</span> : null}
 									</div>
 									<button
@@ -163,6 +165,7 @@ export default function PatientDashboardPage() {
 									<Link className="dashboard-episode-link" href={`/episodes/${episode.care_episode_id}`}>{episode.issue_title}</Link>
 								</h2>
 								{episode.goal ? <p className="dashboard-episode-goal">{episode.goal}</p> : null}
+								{listStep ? <p className="dashboard-episode-next"><span aria-hidden="true">→</span> {listStep.title}</p> : null}
 								<div className="dashboard-episode-progress" role="img" aria-label={`${doneCount} of 3 steps: ${steps.map((step) => `${step.label} ${step.done ? "done" : "not yet"}`).join(", ")}`}>
 									{steps.map((step) => (
 										<span key={step.label} data-tone={step.tone} className={step.done ? "dashboard-step dashboard-step-done" : "dashboard-step"} />

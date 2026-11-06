@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -8,7 +7,6 @@ import {
 	getCareEpisodeHistory,
 	type AICareSummary,
 	type CareEpisodeHistory,
-	type CareEpisode,
 	type EpisodeRehabSession,
 	type MemoryDocument,
 	type TriageSummaryArtifact,
@@ -17,20 +15,10 @@ import {
 import { loadAuth } from "@rehab/shared/auth";
 
 import { StatusBadge } from "../../../../components/ui";
+import { safetyStatus } from "../../../../components/safetyStatus";
 
 type Params = { episode_id?: string };
 type SummaryWithContext = TriageSummaryArtifact | TriageSummaryDraft;
-
-function safetyCopy(status: CareEpisode["safety_gate_status"]) {
-	if (status === "needs_triage") return "Needs AI Triage Intake before AI Daily Rehab";
-	if (status === "clinician_reviewed") return "Clinician-reviewed context available";
-	return "AI triage context available";
-}
-
-function safetyTone(status: CareEpisode["safety_gate_status"]): "attention" | "success" {
-	if (status === "needs_triage") return "attention";
-	return "success";
-}
 
 function formatDateTime(value?: string | null) {
 	if (!value) return "Time unavailable";
@@ -42,16 +30,43 @@ function formatDateTime(value?: string | null) {
 function checklistProgress(session: EpisodeRehabSession) {
 	const total = Array.isArray(session.checklist) ? session.checklist.length : 0;
 	const completed = Array.isArray(session.checklist) ? session.checklist.filter((item) => item.completed).length : 0;
-	return total ? `${completed}/${total} complete` : "No checklist items saved";
+	return total ? `${completed} of ${total} done` : "Session";
 }
 
-function formatMemoryValue(value: unknown) {
-	if (typeof value === "string") return value;
-	try {
-		return JSON.stringify(value, null, 2) || String(value);
-	} catch {
-		return String(value);
+function isEmptyMemoryValue(value: unknown): boolean {
+	if (value === null || value === undefined || value === "") return true;
+	if (Array.isArray(value)) return value.every(isEmptyMemoryValue);
+	if (typeof value === "object") return Object.values(value as Record<string, unknown>).every(isEmptyMemoryValue);
+	return false;
+}
+
+/** Readable rendering of a memory field: no raw JSON, no snake_case keys. */
+function MemoryValue({ value }: { value: unknown }): ReactNode {
+	if (typeof value === "boolean") return <p className="ep-memory-text">{value ? "Yes" : "No"}</p>;
+	if (typeof value === "string" || typeof value === "number") return <p className="ep-memory-text">{String(value)}</p>;
+	if (Array.isArray(value)) {
+		const items = value.filter((item) => !isEmptyMemoryValue(item));
+		if (items.every((item) => typeof item !== "object")) return <p className="ep-memory-text">{items.map(String).join(", ")}</p>;
+		return (
+			<ul className="ep-memory-list">
+				{items.map((item, index) => <li key={index}><MemoryValue value={item} /></li>)}
+			</ul>
+		);
 	}
+	if (value && typeof value === "object") {
+		const entries = Object.entries(value as Record<string, unknown>).filter(([, item]) => !isEmptyMemoryValue(item));
+		return (
+			<>
+				{entries.map(([key, item]) => (
+					<div key={key} className="ep-memory-field">
+						<span className="ep-memory-field-name">{fieldLabel(key)}</span>
+						<MemoryValue value={item} />
+					</div>
+				))}
+			</>
+		);
+	}
+	return null;
 }
 
 function fieldLabel(fieldName: string) {
@@ -66,27 +81,18 @@ function timeValue(value?: string | null) {
 }
 
 function MemorySection({ title, document, emptyCopy }: { title: string; document?: MemoryDocument | null; emptyCopy: string }) {
-	const fields = document ? Object.entries(document.editable_fields || {}) : [];
+	const fields = document ? Object.entries(document.editable_fields || {}).filter(([, value]) => !isEmptyMemoryValue(value)) : [];
 	return (
 		<section className="sticker tone-lilac ep-memory">
 			<h2>{title}</h2>
-			{document ? (
-				<>
-					<p className="ep-memory-text">{document.compiled_text || emptyCopy}</p>
-					{fields.length ? (
-						fields.map(([fieldName, value]) => (
-							<div key={fieldName} className="ep-memory-field">
-								<span className="ep-memory-field-name">{fieldLabel(fieldName)}</span>
-								<p className="ep-memory-text">{formatMemoryValue(value)}</p>
-							</div>
-						))
-					) : (
-						<p className="ep-care-muted">{emptyCopy}</p>
-					)}
-				</>
-			) : (
-				<p className="ep-care-muted">{emptyCopy}</p>
-			)}
+			{document?.compiled_text ? <p className="ep-memory-text">{document.compiled_text}</p> : null}
+			{fields.map(([fieldName, value]) => (
+				<div key={fieldName} className="ep-memory-field">
+					<span className="ep-memory-field-name">{fieldLabel(fieldName)}</span>
+					<MemoryValue value={value} />
+				</div>
+			))}
+			{!document?.compiled_text && !fields.length ? <p className="ep-care-muted">{emptyCopy}</p> : null}
 		</section>
 	);
 }
@@ -121,10 +127,12 @@ function TriageSummaryCard({ title, summary, badge }: { title: string; summary: 
 					<p className="whitespace-pre-line">{summary.relevant_context}</p>
 				</details>
 			) : null}
-			<details className="ep-disclosure">
-				<summary>Source transcript snapshot</summary>
-				<p className="whitespace-pre-line">{transcript || "No source transcript snapshot saved for this older summary."}</p>
-			</details>
+			{transcript ? (
+				<details className="ep-disclosure">
+					<summary>Source transcript</summary>
+					<p className="whitespace-pre-line">{transcript}</p>
+				</details>
+			) : null}
 		</article>
 	);
 }
@@ -139,8 +147,8 @@ function RehabSessionCard({ session }: { session: EpisodeRehabSession }) {
 				</div>
 				<span className="ep-tl-time">{formatDateTime(session.created_at)}</span>
 			</div>
-			<p><span className="ep-tl-label">Notes:</span> {session.patient_notes || "No patient notes captured."}</p>
-			<p className="whitespace-pre-line">{session.session_summary || "No generated session summary yet."}</p>
+			{session.patient_notes ? <p><span className="ep-tl-label">Notes:</span> {session.patient_notes}</p> : null}
+			{session.session_summary ? <p className="whitespace-pre-line">{session.session_summary}</p> : null}
 		</article>
 	);
 }
@@ -220,43 +228,21 @@ export default function CareEpisodeHistoryPage() {
 		})),
 	].sort((a, b) => timeValue(b.at) - timeValue(a.at));
 
+	const safety = safetyStatus(episode.safety_gate_status);
+
 	return (
 		<div className="page-column ep-page">
 			<header className="page-header" data-tone="lilac">
 				<p className="page-header-kicker">History</p>
 				<h1>{episode.issue_title}</h1>
-				<div className="ep-header-links">
-					<Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}`}>Episode overview</Link>
-				</div>
 			</header>
-
-			<section className="ep-history-top">
-				<section className="card" aria-labelledby="ep-history-episode">
-					<h2 id="ep-history-episode" className="section-title">Care Episode</h2>
-					<dl className="ep-facts">
-						<div><dt>Body area</dt><dd>{episode.body_area}</dd></div>
-						<div><dt>Goal</dt><dd>{episode.goal}</dd></div>
-						<div><dt>Safety gate</dt><dd><StatusBadge tone={safetyTone(episode.safety_gate_status)}>{safetyCopy(episode.safety_gate_status)}</StatusBadge></dd></div>
-						<div><dt>Description</dt><dd>{episode.short_description}</dd></div>
-					</dl>
-				</section>
-				<MemorySection title="Patient memory" document={patientMemory} emptyCopy="Nothing saved about you yet. RehabFlow adds facts here as you chat." />
-				<section className="sticker tone-lilac ep-memory" aria-labelledby="ep-history-memory">
-					<h2 id="ep-history-memory">Episode memory</h2>
-					{compiledMemoryContext ? <p className="ep-memory-text">{compiledMemoryContext}</p> : null}
-					{episodeMemoryDetails.map((detail) => (
-						<p key={detail} className="ep-memory-text">{detail}</p>
-					))}
-					{!compiledMemoryContext && !episodeMemoryDetails.length ? <p className="ep-care-muted">Nothing remembered for this episode yet.</p> : null}
-				</section>
-			</section>
 
 			<section aria-labelledby="ep-timeline-title" className="grid gap-5">
 				<div className="ep-section-head">
 					<h2 id="ep-timeline-title" className="section-title flex items-center gap-2"><span className="session-dot" data-tone="lilac" />Timeline</h2>
 					{timeline.length ? <ul className="ep-legend" aria-label="Legend">
-						<li data-tone="peach"><span className="session-dot" />AI Triage Intake</li>
-						<li data-tone="mint"><span className="session-dot" />AI Daily Rehab</li>
+						<li data-tone="peach"><span className="session-dot" />Triage</li>
+						<li data-tone="mint"><span className="session-dot" />Rehab</li>
 						<li data-tone="sky"><span className="session-dot" />Professional Care</li>
 					</ul> : null}
 				</div>
@@ -267,10 +253,35 @@ export default function CareEpisodeHistoryPage() {
 				) : (
 					<div className="card">
 						<p className="ep-empty">nothing saved yet</p>
-						<p className="mt-2 text-sm text-[var(--rf-ink-muted)]">Triage summaries, rehab sessions and doctor summaries appear here as you save them.</p>
 					</div>
 				)}
 			</section>
+
+			<details className="ep-disclosure ep-history-more">
+				<summary>Episode details and memory</summary>
+				<div>
+					<section className="ep-history-top">
+						<section className="card" aria-labelledby="ep-history-episode">
+							<h2 id="ep-history-episode" className="section-title">Care Episode</h2>
+							<dl className="ep-facts">
+								<div><dt>Body area</dt><dd>{episode.body_area}</dd></div>
+								<div><dt>Goal</dt><dd>{episode.goal}</dd></div>
+								<div><dt>Safety</dt><dd><StatusBadge tone={safety.tone}>{safety.label}</StatusBadge></dd></div>
+								<div><dt>Description</dt><dd>{episode.short_description}</dd></div>
+							</dl>
+						</section>
+						<MemorySection title="Patient memory" document={patientMemory} emptyCopy="Nothing saved yet" />
+						<section className="sticker tone-lilac ep-memory" aria-labelledby="ep-history-memory">
+							<h2 id="ep-history-memory">Episode memory</h2>
+							{compiledMemoryContext ? <p className="ep-memory-text">{compiledMemoryContext}</p> : null}
+							{episodeMemoryDetails.map((detail) => (
+								<p key={detail} className="ep-memory-text">{detail}</p>
+							))}
+							{!compiledMemoryContext && !episodeMemoryDetails.length ? <p className="ep-care-muted">Nothing saved yet</p> : null}
+						</section>
+					</section>
+				</div>
+			</details>
 		</div>
 	);
 }

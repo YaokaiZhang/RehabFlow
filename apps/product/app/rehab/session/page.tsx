@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -227,6 +228,7 @@ export default function RehabSessionPage() {
     const [sessionStatus, setSessionStatus] = useState<string>("");
     // Safety gate: an episode that still needs triage must not open guided exercise.
     const [gateBlocked, setGateBlocked] = useState<boolean>(false);
+    const [episodeTitle, setEpisodeTitle] = useState<string>("");
     const hasRealSessionContext = Boolean(episodeId && sessionId);
 
     const updatePatientNotes = (notes: string) => {
@@ -243,7 +245,10 @@ export default function RehabSessionPage() {
         setRequestedExerciseIds(parsed.exerciseIds);
         if (parsed.episodeId && auth?.role === "patient" && auth.access_token) {
             getCareEpisode(parsed.episodeId, auth.access_token)
-                .then((episode) => setGateBlocked(episode.safety_gate_status === "needs_triage"))
+                .then((episode) => {
+                    setGateBlocked(episode.safety_gate_status === "needs_triage");
+                    setEpisodeTitle(episode.issue_title);
+                })
                 .catch(() => undefined);
         }
     }, []);
@@ -352,12 +357,17 @@ export default function RehabSessionPage() {
             if (patientNotesRef.current === submittedPatientNotes) {
                 updatePatientNotes(updated.patient_notes);
             }
-            setSessionStatus("Progress saved.");
+            setSessionStatus("Saved");
         } catch (err) {
             setSessionError((err as Error).message);
         } finally {
             setSessionBusy(false);
         }
+    };
+
+    const saveNotesIfChanged = () => {
+        if (!rehabSession || patientNotesRef.current === rehabSession.patient_notes) return;
+        void persistSession(completedIdentifiers);
     };
 
     const toggleChecklistItem = (identifier: string) => {
@@ -392,7 +402,7 @@ export default function RehabSessionPage() {
             if (patientNotesRef.current === submittedPatientNotes) {
                 updatePatientNotes(updated.patient_notes);
             }
-            setSessionStatus("Summary saved to History.");
+            setSessionStatus("");
         } catch (err) {
             setSessionError((err as Error).message);
         } finally {
@@ -648,11 +658,23 @@ export default function RehabSessionPage() {
     const checklistTotal = rehabSession?.checklist.length ?? 0;
     const isDemo = !patientId || !episodeId;
     const sessionRunning = status === "Live" || status === "Starting";
+    const sessionDone = rehabSession?.completion_status === "summarized";
+    // One primary at a time: Start (or Stop while live) until something is ticked, then Finish.
+    const finishIsPrimary = Boolean(rehabSession) && checklistDone > 0 && !sessionRunning && !sessionDone;
+    const episodeHref = episodeId ? `/episodes/${encodeURIComponent(episodeId)}` : "";
 
     return (
         <div className="space-y-8">
             <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4" data-tone="mint">
                 <div>
+                    {episodeHref ? (
+                        <Link href={episodeHref} className="mb-3 flex w-fit max-w-full items-center gap-2 rounded-full text-sm font-semibold text-[var(--rf-ink-muted)] hover:text-ink">
+                            <span aria-hidden="true" className="inline-flex rotate-180">
+                                <ArrowIcon />
+                            </span>
+                            <span className="truncate">{episodeTitle || "Episode"}</span>
+                        </Link>
+                    ) : null}
                     <p className="page-header-kicker">AI Daily Rehab</p>
                     <h1 className="font-hand text-[clamp(2.25rem,5vw,3.5rem)] leading-[0.95] tracking-[-0.02em]">Today&apos;s session</h1>
                 </div>
@@ -690,7 +712,6 @@ export default function RehabSessionPage() {
                                     </svg>
                                 </span>
                                 <p className="font-hand text-3xl text-white sm:text-4xl">{gateBlocked ? "Safety check first" : "Ready when you are"}</p>
-                                <p className="text-sm text-white/60">Video stays on this device.</p>
                             </div>
                         ) : null}
                         <div className="absolute inset-x-3 top-3 flex flex-wrap items-start justify-between gap-2 sm:inset-x-5 sm:top-5">
@@ -718,20 +739,17 @@ export default function RehabSessionPage() {
 
                     {gateBlocked ? (
                         <div className="sticker tone-peach flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                                <p className="font-hand text-3xl leading-none text-ink">Triage comes first</p>
-                                <p className="mt-2 text-sm text-peach-deep">This episode needs AI Triage Intake before guided exercise.</p>
-                            </div>
-                            <a className="btn-primary shrink-0" href={`/episodes/${episodeId}/triage`}>
-                                Open AI Triage Intake
+                            <p className="font-hand text-3xl leading-none text-ink">Triage comes first</p>
+                            <Link className="btn-primary shrink-0" href={`/?episode_id=${encodeURIComponent(episodeId)}`}>
+                                Start triage
                                 <span aria-hidden="true" className="btn-arrow">
                                     <ArrowIcon />
                                 </span>
-                            </a>
+                            </Link>
                         </div>
                     ) : (
                         <div className="flex flex-wrap items-center gap-3">
-                            <button className={`${sessionRunning ? "btn-secondary" : "btn-primary"} min-w-[9rem] pl-6 pr-3`} onClick={startSession} disabled={status === "Starting" || status === "Live"}>
+                            <button className={`${sessionRunning || finishIsPrimary || sessionDone ? "btn-secondary" : "btn-primary"} min-w-[9rem] pl-6 pr-3`} onClick={startSession} disabled={status === "Starting" || status === "Live"}>
                                 Start
                                 <span aria-hidden="true" className="btn-arrow">
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
@@ -816,7 +834,7 @@ export default function RehabSessionPage() {
                                     key={item.exercise_id || item.label + "-" + index}
                                     className={`flex min-h-[64px] cursor-pointer items-center gap-4 rounded-[22px] px-4 py-3 transition-colors ${item.completed ? "bg-mint" : "bg-fill hover:bg-[var(--rf-fill-strong)]"} ${sessionBusy ? "cursor-wait opacity-70" : ""}`}
                                 >
-                                    <input className="peer sr-only" type="checkbox" checked={item.completed} onChange={() => toggleChecklistItem(identifier)} disabled={sessionBusy} />
+                                    <input className="peer sr-only" type="checkbox" checked={item.completed} onChange={() => toggleChecklistItem(identifier)} disabled={sessionBusy || sessionDone} />
                                     <span
                                         aria-hidden="true"
                                         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-colors peer-focus-visible:outline peer-focus-visible:outline-[3px] peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink ${item.completed ? "border-mint-stroke bg-mint-stroke text-white" : "border-[var(--rf-line-strong)] bg-white text-transparent"}`}
@@ -830,30 +848,43 @@ export default function RehabSessionPage() {
                             );
                         })}
                     </div>
+                    {sessionDone && !patientNotes ? null : (
                     <label className="mt-6 block">
                         <span className="field-label mt-0">Your notes</span>
-                        <textarea className="textarea mt-2 min-h-24" value={patientNotes} onChange={(event) => updatePatientNotes(event.target.value)} placeholder="Symptoms before or after today's session" />
+                        <textarea className="textarea mt-2 min-h-24" value={patientNotes} onChange={(event) => updatePatientNotes(event.target.value)} onBlur={saveNotesIfChanged} readOnly={sessionDone} />
                     </label>
+                    )}
                     {rehabSession.session_summary ? (
                         <div className="mt-5 rounded-[22px] bg-mint px-5 py-4">
                             <p className="text-sm font-semibold text-mint-deep">Summary</p>
                             <p className="mt-1 text-ink">{rehabSession.session_summary}</p>
                         </div>
                     ) : null}
-                    <div className="mt-5 flex flex-wrap items-center gap-3">
-                        <button className="btn bg-mint-label text-mint-deep hover:bg-mint" onClick={summarizeSession} disabled={sessionBusy}>
-                            Finish and summarise
-                        </button>
-                        <button className="btn-secondary" onClick={() => void persistSession(completedIdentifiers)} disabled={sessionBusy}>
-                            {sessionBusy ? "Saving" : "Save progress"}
-                        </button>
-                        {sessionStatus ? (
-                            <p className="inline-flex items-center gap-2 text-sm font-semibold text-mint-deep">
-                                <span aria-hidden="true" className="h-2 w-2 rounded-full bg-mint-stroke" />
-                                {sessionStatus}
-                            </p>
-                        ) : null}
-                    </div>
+                    {sessionDone ? (
+                        <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
+                            <Link className="btn-primary" href={episodeHref}>
+                                Back to episode
+                                <span aria-hidden="true" className="btn-arrow">
+                                    <ArrowIcon />
+                                </span>
+                            </Link>
+                            <Link className="text-sm font-semibold text-[var(--rf-ink-muted)] underline decoration-[var(--rf-line-strong)] underline-offset-4 hover:text-ink hover:decoration-ink" href={`${episodeHref}/history`}>
+                                See history
+                            </Link>
+                        </div>
+                    ) : (
+                        <div className="mt-5 flex flex-wrap items-center gap-3">
+                            <button className={finishIsPrimary ? "btn-primary" : "btn-secondary"} onClick={summarizeSession} disabled={sessionBusy}>
+                                {sessionBusy ? "Saving" : "Finish and summarise"}
+                            </button>
+                            {sessionStatus ? (
+                                <p className="inline-flex items-center gap-2 text-sm font-semibold text-mint-deep" role="status">
+                                    <span aria-hidden="true" className="h-2 w-2 rounded-full bg-mint-stroke" />
+                                    {sessionStatus}
+                                </p>
+                            ) : null}
+                        </div>
+                    )}
                     {sessionError ? <p className="notice notice-danger mt-4">{sessionError}</p> : null}
                 </section>
             ) : hasRealSessionContext ? (

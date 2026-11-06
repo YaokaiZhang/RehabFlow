@@ -190,25 +190,51 @@
 	line-height: 0.95;
 }
 
-.ep-next-line {
-	margin: 0;
-	color: var(--tone-deep, var(--rf-ink-muted));
-	font-size: 1rem;
-	font-weight: 600;
+.ep-next-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 4px 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.ep-next-chips li {
+	max-width: 100%;
+	overflow: hidden;
+	border-radius: 999px;
+	background: var(--tone-label, var(--rf-fill));
+	padding: 4px 12px;
+	color: var(--tone-deep, var(--rf-ink));
+	font-size: 0.8125rem;
+	font-weight: 650;
+	line-height: 1.4;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .ep-next-action {
-	display: grid;
+	display: flex;
 	flex-shrink: 0;
-	justify-items: end;
-	gap: 6px;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 10px 14px;
 }
 
-.ep-next-note {
-	padding-right: 18px;
-	color: var(--tone-deep, var(--rf-ink-soft));
-	opacity: 0.75;
-	transform: rotate(-4deg);
+.ep-next-secondary {
+	min-height: 52px;
+	background: rgba(255, 255, 255, 0.75);
+}
+
+.ep-next-quiet {
+	color: var(--tone-deep, var(--rf-ink-muted));
+	font-size: 0.9375rem;
+	font-weight: 650;
+	text-decoration: underline;
+	text-decoration-color: currentColor;
+	text-decoration-thickness: 1.5px;
+	text-underline-offset: 4px;
 }
 
 .ep-next-cta {
@@ -343,6 +369,9 @@
 		grid-template-columns: repeat(4, minmax(0, 1fr));
 		gap: 20px;
 	}
+	.ep-sessions:has(> :nth-child(3):last-child) {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
 	.ep-session {
 		padding: 22px 20px;
 	}
@@ -364,44 +393,10 @@
 	font-weight: 700;
 }
 
-.ep-papers > .ep-disclosure,
-.ep-draft .ep-disclosure {
+.ep-papers > .ep-disclosure {
 	background: var(--rf-fill);
 }
 
-.ep-drafts {
-	display: grid;
-	gap: 10px;
-}
-
-.ep-drafts-label {
-	margin: 4px 0 0;
-	color: var(--rf-ink-muted);
-	font-size: 0.875rem;
-	font-weight: 650;
-}
-
-.ep-draft {
-	display: grid;
-	gap: 12px;
-	border-radius: var(--rf-radius-card);
-	background: var(--rf-paper);
-	box-shadow: var(--rf-shadow), inset 0 0 0 2px var(--rf-peach-label);
-	padding: 20px 22px;
-}
-
-.ep-draft > p {
-	margin: 0;
-	color: var(--rf-ink);
-	font-size: 0.9375rem;
-}
-
-.ep-draft-delete {
-	justify-self: start;
-	min-height: 40px;
-	padding: 8px 18px;
-	font-size: 0.875rem;
-}
 
 /* ---------- Care Episode Brief (patient and doctor) ---------- */
 
@@ -634,8 +629,56 @@
 
 .ep-rehab-main {
 	display: grid;
+	grid-column: 1;
+	grid-row: 1;
 	min-width: 0;
 	gap: 24px;
+}
+
+/* Today's list sits first in the DOM (phones see Start before the catalog);
+   on wide screens it moves to the right-hand column. */
+.ep-rehab-grid > .ep-today {
+	grid-column: 2;
+	grid-row: 1;
+}
+
+.ep-today-empty {
+	margin: 0;
+	color: var(--rf-mint-deep);
+	font-size: 0.9375rem;
+	font-weight: 600;
+}
+
+.ep-catalog > summary {
+	display: flex;
+	cursor: pointer;
+	align-items: center;
+	gap: 10px;
+	list-style: none;
+}
+
+.ep-catalog > summary::-webkit-details-marker {
+	display: none;
+}
+
+.ep-catalog > summary::before {
+	display: inline-block;
+	height: 9px;
+	width: 9px;
+	flex-shrink: 0;
+	border-right: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
+	content: "";
+	transform: rotate(-45deg);
+	transition: transform 200ms var(--rf-ease);
+}
+
+.ep-catalog[open] > summary::before {
+	transform: rotate(45deg);
+}
+
+.ep-catalog[open] > summary {
+	margin-bottom: 16px;
 }
 
 .ep-today {
@@ -1347,6 +1390,11 @@
 	.ep-today {
 		position: static;
 	}
+	.ep-rehab-grid > .ep-today,
+	.ep-rehab-main {
+		grid-column: auto;
+		grid-row: auto;
+	}
 	.ep-history-top {
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 	}
@@ -1376,11 +1424,7 @@
 		padding: 26px 22px 24px;
 	}
 	.ep-next-action {
-		justify-items: start;
-	}
-	.ep-next-note {
-		order: 2;
-		padding: 0 0 0 10px;
+		justify-content: flex-start;
 	}
 	.ep-sessions,
 	.ep-exercise-grid,
@@ -1463,4 +1507,37 @@
 .ep-legend .session-dot {
 	height: 8px;
 	width: 8px;
+}
+
+/* Professional Care: doctor search tucked away once a doctor is active. */
+.ep-care-more {
+	background: var(--rf-fill);
+}
+
+.ep-care-more > summary {
+	padding: 14px 18px;
+	font-size: 1rem;
+}
+
+.ep-care-more > div {
+	padding: 4px 18px 20px;
+}
+
+/* History: memory panels folded under the timeline. */
+.ep-history-more {
+	background: var(--rf-fill);
+}
+
+.ep-history-more > summary {
+	padding: 14px 18px;
+	font-size: 1rem;
+}
+
+.ep-history-more > div {
+	padding: 4px 18px 20px;
+}
+
+.ep-memory-list {
+	margin: 0;
+	padding-left: 1.1em;
 }
