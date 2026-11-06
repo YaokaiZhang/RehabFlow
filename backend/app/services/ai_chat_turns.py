@@ -906,6 +906,15 @@ class AIChatTurnService:
                 }
             )
             pending = self._pending_clarification(snapshot, workflow_version=workflow_version)
+            # Built from the persisted session messages on every turn. A resumed
+            # clarification must not keep the history checkpointed before the
+            # exchange: that would hide the request that triggered the question
+            # and the question itself, leaving downstream nodes a bare answer.
+            conversation_history: list[dict[str, object]] = []
+            for card in session_cards:
+                entry = _conversation_history_entry(card)
+                if entry is not None:
+                    conversation_history.append(entry)
             if pending:
                 snapshot_values = getattr(snapshot, "values", {}) or {}
                 if not isinstance(snapshot_values, Mapping):
@@ -918,15 +927,10 @@ class AIChatTurnService:
                     snapshot_state.update(fresh_context)
                     fresh_context["repair_context_snapshot"] = context_version_snapshot(snapshot_state)
                 graph_input = Command(
-                    update=fresh_context,
+                    update={**fresh_context, "conversation_history": conversation_history},
                     resume={"message": user_input},
                 )
             else:
-                conversation_history: list[dict[str, object]] = []
-                for card in session_cards:
-                    entry = _conversation_history_entry(card)
-                    if entry is not None:
-                        conversation_history.append(entry)
                 graph_input = {
                     "user_input": user_input,
                     **fresh_context,
