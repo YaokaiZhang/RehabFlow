@@ -25,7 +25,7 @@ type StatusPayload = { event?: string; detail?: string; channel?: string };
 type ConnectionStatus = "idle" | "connecting" | "connected" | "error" | "disconnected";
 
 function formatReceivedTime(timestamp?: string) {
-	if (!timestamp) return "No movement received yet";
+	if (!timestamp) return "—";
 	return new Date(timestamp).toLocaleString();
 }
 
@@ -70,7 +70,6 @@ export default function ProfessionalCareLiveMonitorPage() {
 		};
 	}, []);
 
-	const latestEvent = recentEvents[0] || null;
 	const orderedEvents = useMemo(() => recentEvents.slice(0, 12), [recentEvents]);
 
 	const handleMonitorMessage = (ws: WebSocket, event: MessageEvent<string>) => {
@@ -160,9 +159,7 @@ export default function ProfessionalCareLiveMonitorPage() {
 	return (
 		<div className="page-column ep-page">
 			<header className="page-header" data-tone="sky">
-				<p className="page-header-kicker">Professional Care</p>
 				<h1>Optional Live Movement Monitoring</h1>
-				<p className="scribble ep-header-note">connect, then ask the patient to press Start in AI Daily Rehab</p>
 				<div className="ep-header-links">
 					<Link className="btn-secondary" href="/doctor">Back to Care Worklist</Link>
 				</div>
@@ -177,27 +174,15 @@ export default function ProfessionalCareLiveMonitorPage() {
 					<span className="ep-stat-label">Connection</span>
 					<StatusBadge tone={connectionTone}>{statusMessage}</StatusBadge>
 				</div>
-				<div className="ep-stat">
-					<span className="ep-stat-label">Latest signal</span>
-					<p className="ep-stat-value">{latestEvent ? `Score ${latestEvent.current_score}` : "Patient not streaming"}</p>
-				</div>
-				<div className="ep-stat">
-					<span className="ep-stat-label">Pose points seen</span>
-					<p className="ep-stat-value">{latestEvent?.coordinates?.length ?? 0}</p>
-				</div>
-				<div className="ep-stat">
-					<span className="ep-stat-label">Last received</span>
-					<p className="ep-stat-value ep-stat-value-sm">{formatReceivedTime(latestEvent?.timestamp)}</p>
-				</div>
 			</section>
 
 			<section className="card" aria-labelledby="ep-events-title">
 				<div className="ep-section-head">
 					<div className="min-w-0">
 						<h2 id="ep-events-title" className="section-title">Recent movement events</h2>
-						<p className="mt-1 max-w-[62ch] text-sm text-[var(--rf-ink-muted)]">Newest first. Scores support your judgement; they don&apos;t replace watching the movement.</p>
+						<p className="mt-1 max-w-[62ch] text-sm text-[var(--rf-ink-muted)]">Scores support your judgement; they don&apos;t replace watching the movement.</p>
 					</div>
-					<AppButton onClick={() => void connect()} disabled={!workspace}>Connect to Optional Live Movement Monitoring</AppButton>
+					<AppButton onClick={() => void connect()} disabled={!workspace}>Connect</AppButton>
 				</div>
 
 				{orderedEvents.length === 0 ? <p className="ep-empty mt-4">the patient isn&apos;t streaming yet</p> : null}

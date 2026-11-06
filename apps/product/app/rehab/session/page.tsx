@@ -596,12 +596,12 @@ export default function RehabSessionPage() {
 
             const auth = loadAuth();
             if (!auth || auth.role !== "patient" || !auth.access_token) {
-                setScoringNotice("Log in for live scoring. Tracking still works on this device.");
+                setScoringNotice("Log in for live scoring.");
                 return;
             }
 
             if (!referenceHasPoseOverlay) {
-                setScoringNotice("Scoring isn't ready for this exercise yet. Tracking still works on this device.");
+                setScoringNotice("Scoring isn't available for this exercise.");
                 return;
             }
 
@@ -610,7 +610,7 @@ export default function RehabSessionPage() {
                 ticket = await issuePatientStreamTicket(auth.access_token);
             } catch {
                 if (attempt !== sessionAttemptRef.current) return;
-                setScoringNotice("Scoring is paused for now. Tracking still works on this device.");
+                setScoringNotice("Scoring paused.");
                 return;
             }
             if (attempt !== sessionAttemptRef.current) return;
@@ -634,15 +634,15 @@ export default function RehabSessionPage() {
                 };
                 ws.onerror = () => {
                     if (wsRef.current !== ws) return;
-                    setScoringNotice("Scoring is paused for now. Tracking still works on this device.");
+                    setScoringNotice("Scoring paused.");
                 };
                 ws.onclose = () => {
                     if (wsRef.current !== ws || !detectionActiveRef.current) return;
-                    setScoringNotice("Scoring is paused for now. Tracking still works on this device.");
+                    setScoringNotice("Scoring paused.");
                 };
             } catch {
                 if (attempt !== sessionAttemptRef.current) return;
-                setScoringNotice("Scoring is paused for now. Tracking still works on this device.");
+                setScoringNotice("Scoring paused.");
                 return;
             }
         } catch (err) {
@@ -675,7 +675,6 @@ export default function RehabSessionPage() {
                             <span className="truncate">{episodeTitle || "Episode"}</span>
                         </Link>
                     ) : null}
-                    <p className="page-header-kicker">AI Daily Rehab</p>
                     <h1 className="font-hand text-[clamp(2.25rem,5vw,3.5rem)] leading-[0.95] tracking-[-0.02em]">Today&apos;s session</h1>
                 </div>
                 {isDemo ? (
@@ -690,12 +689,7 @@ export default function RehabSessionPage() {
                             </a>
                         )}
                     </div>
-                ) : (
-                    <span className="inline-flex items-center gap-2 rounded-full bg-mint px-4 py-2 text-sm font-semibold text-mint-deep">
-                        <span aria-hidden="true" className="h-2 w-2 rounded-full bg-mint-stroke" />
-                        Saving to this Care Episode
-                    </span>
-                )}
+                ) : null}
             </header>
 
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
@@ -703,27 +697,11 @@ export default function RehabSessionPage() {
                     <section aria-label="Live camera feed" className="relative overflow-hidden rounded-[32px] bg-[#111111] shadow-lift">
                         <video ref={videoRef} className="aspect-[4/5] w-full scale-x-[-1] object-cover sm:aspect-video" playsInline muted />
                         <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full scale-x-[-1]" />
-                        {status === "Ready" ? (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-                                <span aria-hidden="true" className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10 text-white">
-                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M15 10.5 20 7v10l-5-3.5" />
-                                        <rect x="3" y="6" width="12" height="12" rx="3" />
-                                    </svg>
-                                </span>
-                                <p className="font-hand text-3xl text-white sm:text-4xl">{gateBlocked ? "Safety check first" : "Ready when you are"}</p>
-                            </div>
-                        ) : null}
                         <div className="absolute inset-x-3 top-3 flex flex-wrap items-start justify-between gap-2 sm:inset-x-5 sm:top-5">
                             <span className="inline-flex items-center gap-2 rounded-full bg-white/95 px-3.5 py-1.5 text-sm font-semibold text-ink">
                                 <span aria-hidden="true" className={`session-dot ${tracking.dot}`} />
                                 {tracking.label}
                             </span>
-                            {selectedVideo ? (
-                                <span className="tag max-w-full truncate bg-mint-label py-1.5 text-mint-deep sm:max-w-[60%]" data-tone="mint">
-                                    <span className="truncate">{selectedVideo.title}</span>
-                                </span>
-                            ) : null}
                         </div>
                         {status === "Live" ? (
                             <div className="sticker tone-mint tilt-l absolute bottom-4 left-4 flex items-end gap-3 px-5 py-3 sm:bottom-6 sm:left-6">
@@ -774,8 +752,7 @@ export default function RehabSessionPage() {
 
                 <aside className="min-w-0 space-y-4">
                     <section aria-label="Reference movement video" className="card p-5">
-                        <h2 className="font-hand text-3xl leading-none">How it&apos;s done</h2>
-                        <div className="mt-4">
+                        <div>
                             {localReferenceUrl ? (
                                 <div className="relative overflow-hidden rounded-[22px] bg-[#111111]">
                                     <video key={selectedVideo?.exercise_id} ref={sourceVideoRef} className="aspect-video w-full object-contain" src={localReferenceUrl} controls playsInline />
@@ -902,11 +879,6 @@ export default function RehabSessionPage() {
                     <h2 id="session-exercises-title" className="font-hand text-4xl leading-none">
                         Exercises
                     </h2>
-                    {videos.length ? (
-                        <span className="tag" data-tone="mint">
-                            {videos.length}
-                        </span>
-                    ) : null}
                 </div>
                 {videos.length ? (
                     <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -925,12 +897,6 @@ export default function RehabSessionPage() {
                                     <span className="min-w-0">
                                         <span className="block font-semibold leading-snug text-ink">{video.title}</span>
                                         {video.relevance_notes ? <span className="mt-1.5 line-clamp-2 block text-sm text-[var(--rf-ink-muted)]">{video.relevance_notes}</span> : null}
-                                        {isSelected ? (
-                                            <span className="tag mt-3 bg-white text-mint-deep">
-                                                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-mint-stroke" />
-                                                On screen
-                                            </span>
-                                        ) : null}
                                     </span>
                                 </button>
                             );

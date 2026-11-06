@@ -42,7 +42,7 @@ type RecommendationCardItem = {
 };
 
 function ExerciseInfoDetails({ details, loading = false }: { details?: ExerciseDetails; loading?: boolean }) {
-    if (loading) return <p>Loading full description...</p>;
+    if (loading) return <p>Loading...</p>;
     if (!details) return <p>Full exercise details unavailable.</p>;
 
     return (
@@ -198,7 +198,6 @@ export default function EpisodeRehabPage() {
                     <section className="sticker tone-mint ep-today" aria-labelledby="ep-today-title">
                         <div className="ep-section-head">
                             <h2 id="ep-today-title">today&apos;s list</h2>
-                            {savedListItems.length ? <span className="tag">{savedListItems.length} ready</span> : null}
                         </div>
                         {savedListItems.length ? (
                             <ul className="ep-today-list">

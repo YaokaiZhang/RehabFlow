@@ -108,13 +108,12 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
 	);
 }
 
-function TriageSummaryCard({ title, summary, badge }: { title: string; summary: SummaryWithContext; badge: string }) {
+function TriageSummaryCard({ title, summary }: { title: string; summary: SummaryWithContext }) {
 	const transcript = summary.source_conversation_transcript?.trim();
 	return (
 		<article className="ep-tl-card">
 			<div className="ep-tl-head">
 				<div className="ep-tl-head-left">
-					<span className="tag">AI Triage Intake · {badge}</span>
 					<h3 className="ep-tl-title">{title}</h3>
 				</div>
 				<span className="ep-tl-time">{formatDateTime(summary.created_at)}</span>
@@ -158,7 +157,6 @@ function CareSummaryCard({ summary }: { summary: AICareSummary }) {
 		<article className="ep-tl-card">
 			<div className="ep-tl-head">
 				<div className="ep-tl-head-left">
-					<span className="tag">Professional Care</span>
 					<h3 className="ep-tl-title">AI Care Summary</h3>
 				</div>
 				<span className="ep-tl-time">{formatDateTime(summary.created_at)}</span>
@@ -206,13 +204,13 @@ export default function CareEpisodeHistoryPage() {
 			key: `summary-${summary.triage_summary_id}`,
 			at: summary.created_at,
 			tone: "peach" as const,
-			node: <TriageSummaryCard title={`Triage Summary, version ${summary.version || index + 1}`} summary={summary} badge="Saved" />,
+			node: <TriageSummaryCard title={`Triage Summary, version ${summary.version || index + 1}`} summary={summary} />,
 		})),
 		...drafts.map((draft, index) => ({
 			key: `draft-${draft.triage_summary_draft_id}`,
 			at: draft.created_at,
 			tone: "peach" as const,
-			node: <TriageSummaryCard title={`Draft summary ${index + 1}`} summary={draft} badge="Draft" />,
+			node: <TriageSummaryCard title={`Draft summary ${index + 1}`} summary={draft} />,
 		})),
 		...rehabSessions.map((session) => ({
 			key: `rehab-${session.session_id}`,
@@ -239,7 +237,7 @@ export default function CareEpisodeHistoryPage() {
 
 			<section aria-labelledby="ep-timeline-title" className="grid gap-5">
 				<div className="ep-section-head">
-					<h2 id="ep-timeline-title" className="section-title flex items-center gap-2"><span className="session-dot" data-tone="lilac" />Timeline</h2>
+					<h2 id="ep-timeline-title" className="sr-only">Timeline</h2>
 					{timeline.length ? <ul className="ep-legend" aria-label="Legend">
 						<li data-tone="peach"><span className="session-dot" />Triage</li>
 						<li data-tone="mint"><span className="session-dot" />Rehab</li>
