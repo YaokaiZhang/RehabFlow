@@ -15,11 +15,13 @@ die() {
 
 usage() {
 	cat <<'EOF'
-Usage: ./start-dev-apptainer.sh [start|restart|shutdown] [port options]
+Usage: ./start-dev-apptainer.sh [start|restart|shutdown] [--no-langfuse] [port options]
 
 Start the local RehabFlow development stack without Docker. PostgreSQL,
-Redis, and Qdrant run through Apptainer; FastAPI and Product run from the
-checked-out Python and Node dependencies.
+Redis, Qdrant, and a self-hosted Langfuse (LLM traces: ClickHouse, MinIO,
+web, and worker) run through Apptainer; FastAPI and Product run from the
+checked-out Python and Node dependencies. Langfuse keeps its data in its own
+PostgreSQL database and Redis database index.
 
 Commands:
   start       Start the stack (the default)
@@ -33,9 +35,23 @@ Port options (ports are configured here only; .env port values are ignored):
   --redis-port N        Redis                      (default 6379)
   --qdrant-port N       Qdrant HTTP                (default 6333)
   --qdrant-grpc-port N  Qdrant gRPC                (default 6334)
+  --langfuse-port N     Langfuse UI and API        (default 3100)
+  --langfuse-worker-port N     Langfuse worker     (default 3030)
+  --clickhouse-port N   Langfuse ClickHouse HTTP   (default 8123)
+  --clickhouse-tcp-port N      ClickHouse native   (default 9000)
+  --minio-port N        Langfuse MinIO S3 API      (default 9100)
+  --minio-console-port N       MinIO console       (default 9101)
+
+Other options:
+  --no-langfuse         Do not start Langfuse; the backend sends no LLM traces
 
 shutdown and restart reuse the ports of the last start unless a port option
-is given.
+is given. shutdown always stops Langfuse too if it is running.
+
+Langfuse receives full prompts and model outputs, including patient messages,
+so use synthetic test patients. Its passwords, API keys, and UI login are
+generated on first start into .rehabflow-runtime/langfuse/secrets.env (mode
+600); they are never passed on a command line.
 
 Other overrides (environment):
   REHABFLOW_RUNTIME_DIR=/path/to/runtime
@@ -56,12 +72,18 @@ EOF
 # Arguments
 # ---------------------------------------------------------------------------
 
-services=(postgres redis qdrant backend product)
+services=(postgres redis qdrant clickhouse minio langfuse langfuse_worker backend product)
 declare -A default_port=(
 	[postgres]=5432
 	[redis]=6379
 	[qdrant]=6333
 	[qdrant_grpc]=6334
+	[clickhouse]=8123
+	[clickhouse_tcp]=9000
+	[minio]=9100
+	[minio_console]=9101
+	[langfuse]=3100
+	[langfuse_worker]=3030
 	[backend]=8002
 	[product]=3002
 )
@@ -70,11 +92,18 @@ declare -A port_flag=(
 	[--redis-port]=redis
 	[--qdrant-port]=qdrant
 	[--qdrant-grpc-port]=qdrant_grpc
+	[--clickhouse-port]=clickhouse
+	[--clickhouse-tcp-port]=clickhouse_tcp
+	[--minio-port]=minio
+	[--minio-console-port]=minio_console
+	[--langfuse-port]=langfuse
+	[--langfuse-worker-port]=langfuse_worker
 	[--backend-port]=backend
 	[--product-port]=product
 )
 declare -A cli_port=()
 action=""
+langfuse_enabled=1
 
 while (($# > 0)); do
 	arg="$1"
@@ -83,6 +112,9 @@ while (($# > 0)); do
 		-h|--help)
 			usage
 			exit 0
+			;;
+		--no-langfuse)
+			langfuse_enabled=0
 			;;
 		--*=*)
 			flag="${arg%%=*}"
@@ -184,6 +216,10 @@ service_matches_pid() {
 		postgres) [[ "$args" == *postgres* ]] ;;
 		redis) [[ "$args" == *redis* ]] ;;
 		qdrant) [[ "$args" == *qdrant* ]] ;;
+		clickhouse) [[ "$args" == *clickhouse* ]] ;;
+		minio) [[ "$args" == *minio* ]] ;;
+		langfuse) [[ "$args" == *langfuse-web* || "$args" == *"web/server.js"* ]] ;;
+		langfuse_worker) [[ "$args" == *langfuse-worker* || "$args" == *"worker/dist"* ]] ;;
 		backend) [[ "$args" == *uvicorn* && "$args" == *"app.main:app"* ]] ;;
 		product) [[ "$args" == *"dev-next.mjs"* || "$args" == *"next dev"* || "$args" == *"next-server"* ]] ;;
 		*) return 1 ;;
@@ -196,7 +232,9 @@ service_is_root_pid() {
 	local args
 	args="$(pid_args "$2")"
 	case "$service" in
-		postgres|redis|qdrant) [[ "$args" == *"Apptainer runtime parent:"*"$service"* ]] ;;
+		postgres|redis|qdrant|clickhouse|minio) [[ "$args" == *"Apptainer runtime parent:"*"$service"* ]] ;;
+		langfuse) [[ "$args" == *"Apptainer runtime parent:"*langfuse-web* ]] ;;
+		langfuse_worker) [[ "$args" == *"Apptainer runtime parent:"*langfuse-worker* ]] ;;
 		backend) [[ "$args" == *uvicorn* && "$args" == *"app.main:app"* ]] ;;
 		product) [[ "$args" == *"dev-next.mjs"* ]] ;;
 		*) return 1 ;;
@@ -304,9 +342,14 @@ shutdown_stack() {
 	can_list_listeners || die "shutdown requires ss or lsof to discover running services"
 
 	declare -A targets=()
-	local service pid launcher_pid
-	for service in "${services[@]}"; do
+	local -a order=()
+	local service pid launcher_pid index
+	# Stop in reverse start order, so clients (Langfuse, the backend) close
+	# their connections before PostgreSQL and Redis go away.
+	for ((index = ${#services[@]} - 1; index >= 0; index--)); do
+		service="${services[$index]}"
 		if pid="$(service_pid "$service" "${port[$service]}")"; then
+			[[ -n "${targets[$pid]:-}" ]] || order+=("$pid")
 			targets["$pid"]="${targets[$pid]-}$service "
 		fi
 	done
@@ -315,7 +358,7 @@ shutdown_stack() {
 	if ((${#targets[@]} == 0)) && [[ -z "$launcher_pid" ]]; then
 		log "No running RehabFlow processes found"
 	fi
-	for pid in "${!targets[@]}"; do
+	for pid in ${order[@]+"${order[@]}"}; do
 		[[ "$pid" == "$launcher_pid" ]] && continue
 		log "Stopping ${targets[$pid]}(PID $pid)"
 		stop_process_tree "$pid"
@@ -335,6 +378,7 @@ fi
 if [[ "$action" == "restart" ]]; then
 	shutdown_stack
 	restart_args=()
+	((langfuse_enabled)) || restart_args+=(--no-langfuse)
 	for name in "${!port[@]}"; do
 		restart_args+=("--${name//_/-}-port" "${port[$name]}")
 	done
@@ -417,6 +461,49 @@ pull_image "$postgres_image" "${REHABFLOW_POSTGRES_IMAGE:-docker://library/postg
 pull_image "$redis_image" "${REHABFLOW_REDIS_IMAGE:-docker://library/redis:7-alpine}"
 pull_image "$qdrant_image" "${REHABFLOW_QDRANT_IMAGE:-docker://qdrant/qdrant:latest}"
 
+# Langfuse: the image file names must keep containing "clickhouse", "minio",
+# "langfuse-web", and "langfuse-worker"; shutdown identifies the processes by
+# them.
+langfuse_dir="$runtime_dir/langfuse"
+langfuse_secrets="$langfuse_dir/secrets.env"
+clickhouse_image="$image_dir/clickhouse-26.3.62.3.sif"
+minio_image="$image_dir/minio-latest.sif"
+langfuse_web_image="$image_dir/langfuse-web-4.sif"
+langfuse_worker_image="$image_dir/langfuse-worker-4.sif"
+langfuse_user_email="dev@rehabflow.local"
+
+if ((langfuse_enabled)); then
+	(umask 077 && mkdir -p "$langfuse_dir" "$langfuse_dir/clickhouse/config.d" \
+		"$langfuse_dir/clickhouse/users.d" "$data_dir/clickhouse" "$log_dir/clickhouse" \
+		"$data_dir/minio/langfuse")
+	chmod 700 "$langfuse_dir"
+	pull_image "$clickhouse_image" docker://clickhouse/clickhouse-server:26.3.62.3
+	pull_image "$minio_image" docker://cgr.dev/chainguard/minio:latest
+	pull_image "$langfuse_web_image" docker://langfuse/langfuse:4
+	pull_image "$langfuse_worker_image" docker://langfuse/langfuse-worker:4
+
+	# Random development secrets, generated once and kept with the Langfuse data
+	# (Langfuse's org, project, keys, and login are created from them on its
+	# first start). The node is shared, so nothing here is a public default.
+	if [[ ! -s "$langfuse_secrets" ]]; then
+		log "Generating Langfuse secrets in $langfuse_secrets"
+		(umask 077 && "$backend_python" - > "$langfuse_secrets" <<'PY'
+import secrets
+h = secrets.token_hex
+print(f"LF_PUBLIC_KEY=pk-lf-{h(16)}")
+print(f"LF_SECRET_KEY=sk-lf-{h(32)}")
+for name in ("DB_PASSWORD", "CLICKHOUSE_PASSWORD", "MINIO_PASSWORD",
+             "NEXTAUTH_SECRET", "SALT", "USER_PASSWORD"):
+    print(f"LF_{name}={h(24)}")
+print(f"LF_ENCRYPTION_KEY={h(32)}")
+PY
+		)
+	fi
+	chmod 600 "$langfuse_secrets"
+	# shellcheck disable=SC1090
+	source "$langfuse_secrets"
+fi
+
 # ---------------------------------------------------------------------------
 # start: service helpers
 # ---------------------------------------------------------------------------
@@ -457,12 +544,12 @@ started_pids=()
 
 cleanup() {
 	local status=$?
-	local pid
+	local index
 	trap - EXIT INT TERM
 	if ((${#started_pids[@]} > 0)); then
 		log "Stopping processes started by this launcher"
-		for pid in "${started_pids[@]}"; do
-			stop_process_tree "$pid"
+		for ((index = ${#started_pids[@]} - 1; index >= 0; index--)); do
+			stop_process_tree "${started_pids[$index]}"
 		done
 	fi
 	remove_pid_files launcher "${services[@]}"
@@ -549,6 +636,175 @@ if ! reuse_existing qdrant Qdrant "$healthy"; then
 	wait_until Qdrant 60 http_ok "$qdrant_url/healthz"
 fi
 
+# ---------------------------------------------------------------------------
+# start: Langfuse (optional)
+# ---------------------------------------------------------------------------
+
+langfuse_url="http://127.0.0.1:${port[langfuse]}"
+clickhouse_url="http://127.0.0.1:${port[clickhouse]}"
+minio_url="http://127.0.0.1:${port[minio]}"
+langfuse_worker_url="http://127.0.0.1:${port[langfuse_worker]}"
+
+# Every Langfuse container gets a clean environment, a private /tmp and home,
+# and only the bind mounts it needs. Secrets reach it through a mode-600
+# --env-file, so they never appear in the process list of this shared node.
+langfuse_flags=(--contain --cleanenv --writable-tmpfs)
+
+write_private_file() {
+	(umask 077 && cat > "$1")
+}
+
+if ((langfuse_enabled)); then
+	# Its own role and database in the RehabFlow PostgreSQL.
+	if ! postgres_exec psql -h 127.0.0.1 -p "${port[postgres]}" -U "$db_user" -d postgres \
+			-Atqc "SELECT 1 FROM pg_roles WHERE rolname = 'langfuse'" | grep -qx '1'; then
+		log "Creating PostgreSQL role langfuse"
+		postgres_exec psql -h 127.0.0.1 -p "${port[postgres]}" -U "$db_user" -d postgres -q \
+			-c "CREATE ROLE langfuse LOGIN" >/dev/null
+	fi
+	# The password goes over stdin, not the command line.
+	printf "ALTER ROLE langfuse PASSWORD '%s';\n" "$LF_DB_PASSWORD" |
+		apptainer exec --env "PGPASSWORD=$db_password" "$postgres_image" \
+			psql -h 127.0.0.1 -p "${port[postgres]}" -U "$db_user" -d postgres -q -v ON_ERROR_STOP=1 >/dev/null
+	if ! postgres_exec psql -h 127.0.0.1 -p "${port[postgres]}" -U "$db_user" -d postgres \
+			-Atqc "SELECT 1 FROM pg_database WHERE datname = 'langfuse'" | grep -qx '1'; then
+		log "Creating PostgreSQL database langfuse"
+		postgres_exec createdb -h 127.0.0.1 -p "${port[postgres]}" -U "$db_user" -O langfuse langfuse
+	fi
+
+	write_private_file "$langfuse_dir/clickhouse/config.d/rehabflow.xml" <<EOF
+<clickhouse>
+    <http_port>${port[clickhouse]}</http_port>
+    <tcp_port>${port[clickhouse_tcp]}</tcp_port>
+    <mysql_port remove="1"/>
+    <postgresql_port remove="1"/>
+    <interserver_http_port remove="1"/>
+    <max_server_memory_usage_to_ram_ratio>0.1</max_server_memory_usage_to_ram_ratio>
+    <logger>
+        <level>warning</level>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+    </logger>
+</clickhouse>
+EOF
+	write_private_file "$langfuse_dir/clickhouse/users.d/rehabflow.xml" <<EOF
+<clickhouse>
+    <users>
+        <default remove="remove"/>
+        <clickhouse>
+            <password>${LF_CLICKHOUSE_PASSWORD}</password>
+            <networks><ip>127.0.0.1</ip><ip>::1</ip></networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+            <named_collection_control>1</named_collection_control>
+        </clickhouse>
+    </users>
+</clickhouse>
+EOF
+	healthy=0; http_ok "$clickhouse_url/ping" && healthy=1
+	if ! reuse_existing clickhouse ClickHouse "$healthy"; then
+		port_open "${port[clickhouse_tcp]}" &&
+			die "port ${port[clickhouse_tcp]} is occupied; pick another with --clickhouse-tcp-port"
+		start_process clickhouse apptainer exec "${langfuse_flags[@]}" \
+			--bind "$langfuse_dir/clickhouse/config.d:/etc/clickhouse-server/config.d" \
+			--bind "$langfuse_dir/clickhouse/users.d:/etc/clickhouse-server/users.d" \
+			--bind "$data_dir/clickhouse:/var/lib/clickhouse" \
+			--bind "$log_dir/clickhouse:/var/log/clickhouse-server" \
+			--pwd /var/lib/clickhouse \
+			"$clickhouse_image" clickhouse-server --config-file=/etc/clickhouse-server/config.xml
+		wait_until ClickHouse 120 http_ok "$clickhouse_url/ping"
+	fi
+
+	write_private_file "$langfuse_dir/minio.env" <<EOF
+MINIO_ROOT_USER=minio
+MINIO_ROOT_PASSWORD=$LF_MINIO_PASSWORD
+EOF
+	healthy=0; http_ok "$minio_url/minio/health/live" && healthy=1
+	if ! reuse_existing minio MinIO "$healthy"; then
+		port_open "${port[minio_console]}" &&
+			die "port ${port[minio_console]} is occupied; pick another with --minio-console-port"
+		start_process minio apptainer exec "${langfuse_flags[@]}" \
+			--env-file "$langfuse_dir/minio.env" \
+			--bind "$data_dir/minio:/data" \
+			"$minio_image" minio server \
+			--address "127.0.0.1:${port[minio]}" \
+			--console-address "127.0.0.1:${port[minio_console]}" /data
+		wait_until MinIO 60 http_ok "$minio_url/minio/health/live"
+	fi
+
+	# Shared by the web app and the worker. HOSTNAME keeps both on loopback;
+	# Apptainer would otherwise pass the node's host name through.
+	langfuse_common_env="$(cat <<EOF
+HOSTNAME=127.0.0.1
+NEXTAUTH_URL=http://localhost:${port[langfuse]}
+DATABASE_URL=postgresql://langfuse:${LF_DB_PASSWORD}@127.0.0.1:${port[postgres]}/langfuse
+SALT=$LF_SALT
+ENCRYPTION_KEY=$LF_ENCRYPTION_KEY
+TELEMETRY_ENABLED=false
+LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES=false
+CLICKHOUSE_MIGRATION_URL=clickhouse://127.0.0.1:${port[clickhouse_tcp]}
+CLICKHOUSE_URL=$clickhouse_url
+CLICKHOUSE_USER=clickhouse
+CLICKHOUSE_PASSWORD=$LF_CLICKHOUSE_PASSWORD
+CLICKHOUSE_CLUSTER_ENABLED=false
+LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+LANGFUSE_S3_EVENT_UPLOAD_REGION=auto
+LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minio
+LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=$LF_MINIO_PASSWORD
+LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=$minio_url
+LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+LANGFUSE_S3_EVENT_UPLOAD_PREFIX=events/
+LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse
+LANGFUSE_S3_MEDIA_UPLOAD_REGION=auto
+LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=minio
+LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=$LF_MINIO_PASSWORD
+LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=$minio_url
+LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+LANGFUSE_S3_MEDIA_UPLOAD_PREFIX=media/
+REDIS_CONNECTION_STRING=redis://127.0.0.1:${port[redis]}/1
+EOF
+)"
+	write_private_file "$langfuse_dir/web.env" <<EOF
+$langfuse_common_env
+PORT=${port[langfuse]}
+NEXTAUTH_SECRET=$LF_NEXTAUTH_SECRET
+LANGFUSE_INIT_ORG_ID=rehabflow
+LANGFUSE_INIT_ORG_NAME=RehabFlow
+LANGFUSE_INIT_PROJECT_ID=rehabflow-dev
+LANGFUSE_INIT_PROJECT_NAME=rehabflow-dev
+LANGFUSE_INIT_PROJECT_PUBLIC_KEY=$LF_PUBLIC_KEY
+LANGFUSE_INIT_PROJECT_SECRET_KEY=$LF_SECRET_KEY
+LANGFUSE_INIT_USER_EMAIL=$langfuse_user_email
+LANGFUSE_INIT_USER_NAME="RehabFlow Dev"
+LANGFUSE_INIT_USER_PASSWORD=$LF_USER_PASSWORD
+AUTH_DISABLE_SIGNUP=true
+EOF
+	write_private_file "$langfuse_dir/worker.env" <<EOF
+$langfuse_common_env
+PORT=${port[langfuse_worker]}
+EOF
+
+	healthy=0; http_ok "$langfuse_url/api/public/health" && healthy=1
+	if ! reuse_existing langfuse "Langfuse web" "$healthy"; then
+		log "Starting Langfuse web (the first start runs database migrations)"
+		start_process langfuse apptainer run "${langfuse_flags[@]}" \
+			--env-file "$langfuse_dir/web.env" \
+			--pwd /app \
+			"$langfuse_web_image"
+		wait_until "Langfuse web" 300 http_ok "$langfuse_url/api/public/health"
+	fi
+
+	healthy=0; http_ok "$langfuse_worker_url/api/health" && healthy=1
+	if ! reuse_existing langfuse_worker "Langfuse worker" "$healthy"; then
+		start_process langfuse_worker apptainer run "${langfuse_flags[@]}" \
+			--env-file "$langfuse_dir/worker.env" \
+			--pwd /app \
+			"$langfuse_worker_image"
+		wait_until "Langfuse worker" 180 http_ok "$langfuse_worker_url/api/health"
+	fi
+fi
+
 backend_url="http://127.0.0.1:${port[backend]}"
 product_url="http://127.0.0.1:${port[product]}"
 frontend_origin="http://localhost:${port[product]}"
@@ -578,9 +834,18 @@ log "Initializing LangGraph checkpoint tables"
 
 healthy=0; http_ok "$backend_url/health" && healthy=1
 if ! reuse_existing backend FastAPI "$healthy"; then
+	if ((langfuse_enabled)); then
+		# Exported rather than passed to env, so the secret key stays out of the
+		# process list; only the backend inherits these.
+		export LANGFUSE_ENABLED=true LANGFUSE_BASE_URL="$langfuse_url" \
+			LANGFUSE_PUBLIC_KEY="$LF_PUBLIC_KEY" LANGFUSE_SECRET_KEY="$LF_SECRET_KEY"
+	fi
 	start_process backend env "${backend_env[@]}" "PYTHONPATH=$backend_dir" \
 		"$backend_python" -m uvicorn app.main:app --host 127.0.0.1 --port "${port[backend]}"
+	unset LANGFUSE_ENABLED LANGFUSE_BASE_URL LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY
 	wait_until FastAPI 60 http_ok "$backend_url/health"
+elif ((langfuse_enabled)); then
+	log "The reused FastAPI keeps its own Langfuse settings; restart it to trace to $langfuse_url"
 fi
 
 product_env=(
@@ -605,6 +870,9 @@ fi
 log "RehabFlow is running"
 log "Product: $product_url"
 log "API: $backend_url/health"
+if ((langfuse_enabled)); then
+	log "Langfuse: $langfuse_url (login $langfuse_user_email; password LF_USER_PASSWORD in $langfuse_secrets)"
+fi
 log "Runtime data and logs: $runtime_dir"
 log "Stop with Ctrl-C or './start-dev-apptainer.sh shutdown'"
 while :; do
