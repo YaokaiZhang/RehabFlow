@@ -118,7 +118,7 @@ export default function TestConsolePage() {
 	const [loginPassword, setLoginPassword] = useState("rehab-demo-123");
 	const [bindingStatus, setBindingStatus] = useState("Idle");
 	const [aiSessionId, setAiSessionId] = useState("new");
-	const [aiPrompt, setAiPrompt] = useState("I have mild knee stiffness after ACL rehab. What should I do today?");
+	const [aiPrompt, setAiPrompt] = useState("I'm three months out from ACL surgery and my knee gets stiff after sitting at my desk all day. What can I do about it?");
 	const [aiStatus, setAiStatus] = useState("Ready");
 	const [aiSending, setAiSending] = useState(false);
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);

@@ -55,10 +55,10 @@ type AgentProgressStep = {
 const PENDING_TRIAGE_SUMMARY_KEY = "rehab_pending_triage_summary";
 
 const suggestedPrompts = [
-	"My shoulder feels stiff after rotator cuff rehab. What should I do today?",
-	"My lower back flared up after yesterday exercise. Should I rest or move gently?",
-	"I rolled my ankle last week and still have swelling. Can I exercise today?",
-	"I am recovering from surgery and feel new pain during stairs. Should I contact my clinician?",
+	"Six weeks after my rotator cuff repair, my shoulder is still really stiff in the mornings. Is it okay to push through it?",
+	"I spent Saturday gardening and my lower back has been tight since. Getting out of bed is the worst part. Rest or keep moving?",
+	"Rolled my ankle at basketball five days ago. It's still a bit puffy, but I can walk on it fine. When can I start running again?",
+	"I had my knee replaced a month ago. Stairs hurt more this week than last, and the knee feels warm. Is that normal?",
 ];
 
 // How each suggestion sticker looks: its pastel, a short body-area tag and its resting angle.
