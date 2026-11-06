@@ -11,7 +11,9 @@ Langfuse as a *text* prompt with the same name, or upload them all:
 The script is standalone: writing files needs only Python, and uploading needs
 only the ``langfuse`` package (``pip install langfuse``), not the backend's
 other dependencies. Uploading reads LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and
-LANGFUSE_BASE_URL (or LANGFUSE_HOST) from the environment. Each upload creates a
+LANGFUSE_BASE_URL (or LANGFUSE_HOST) from the environment; without keys it uses
+the ones start-dev-apptainer.sh saved in .rehabflow-runtime/langfuse/secrets.env
+(or $REHABFLOW_RUNTIME_DIR/langfuse/secrets.env). Each upload creates a
 new prompt version; unchanged text still makes a new version, so upload only
 when you mean to.
 """
@@ -84,12 +86,39 @@ def write_files(directory: Path = EXPORT_DIR) -> list[Path]:
     return written
 
 
+def _apptainer_secrets_file() -> Path:
+    runtime_dir = os.getenv("REHABFLOW_RUNTIME_DIR") or str(BACKEND_DIR.parent / ".rehabflow-runtime")
+    return Path(runtime_dir) / "langfuse" / "secrets.env"
+
+
+def _apptainer_keys() -> tuple[str, str]:
+    # start-dev-apptainer.sh generates random Langfuse keys and keeps them here.
+    path = _apptainer_secrets_file()
+    values: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return "", ""
+    for line in lines:
+        key, sep, value = line.strip().partition("=")
+        if sep:
+            values[key.strip()] = value.strip().strip("'\"")
+    return values.get("LF_PUBLIC_KEY", ""), values.get("LF_SECRET_KEY", "")
+
+
 def upload(label: str) -> None:
     public_key = os.getenv("LANGFUSE_PUBLIC_KEY", "").strip()
     secret_key = os.getenv("LANGFUSE_SECRET_KEY", "").strip()
     base_url = (os.getenv("LANGFUSE_BASE_URL") or os.getenv("LANGFUSE_HOST") or "http://localhost:3100").strip()
+    if not public_key and not secret_key:
+        public_key, secret_key = _apptainer_keys()
+        if public_key and secret_key:
+            print(f"using Langfuse keys from {_apptainer_secrets_file()}")
     if not public_key or not secret_key:
-        raise SystemExit("Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY (and LANGFUSE_BASE_URL).")
+        raise SystemExit(
+            "No Langfuse keys: set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY, or start Langfuse with "
+            f"start-dev-apptainer.sh so its keys are in {_apptainer_secrets_file()}."
+        )
     try:
         from langfuse import Langfuse
     except ImportError:
