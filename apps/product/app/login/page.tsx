@@ -82,9 +82,15 @@ export default function LoginPage() {
 
 	return (
 		<section className="auth-page">
+			<div className="auth-deco" aria-hidden="true">
+				<span className="sticker tone-peach auth-deco-sticker auth-deco-a">triage</span>
+				<span className="sticker tone-mint auth-deco-sticker auth-deco-b">daily rehab</span>
+				<span className="sticker tone-sky auth-deco-sticker auth-deco-c">your doctor</span>
+				<svg className="auth-deco-scribble" viewBox="0 0 120 60" fill="none"><path d="M6 40c18-26 34-30 40-14s-10 22-6 8 24-24 44-10 22 10 30 2" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
+			</div>
 			<div className="auth-card">
-				<h1>Log in</h1>
-				<p className="auth-lead">Pick up where you left off with your rehab or your patients.</p>
+				<p className="scribble auth-note" aria-hidden="true">good to see you again</p>
+				<h1>Welcome back</h1>
 				<form onSubmit={onSubmit} className="auth-form">
 					<fieldset className="auth-role">
 						<legend className="sr-only">I am a</legend>
@@ -115,7 +121,7 @@ export default function LoginPage() {
 					</div>
 					{error ? <p className="notice notice-danger" role="alert">{error}</p> : null}
 					<AppButton type="submit" className="w-full" disabled={loading}>
-						{loading ? "Logging in" : "Log in"}
+						{loading ? "Logging in" : "Log in"}<span className="btn-arrow"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
 					</AppButton>
 				</form>
 				<p className="auth-switch">New to RehabFlow? <Link href={role === "doctor" ? "/register?role=doctor" : "/register"}>Create an account</Link></p>

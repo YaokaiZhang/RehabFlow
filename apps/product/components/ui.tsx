@@ -15,8 +15,8 @@ type AppButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 const buttonClasses: Record<AppButtonVariant, string> = {
   primary: "btn-primary",
   secondary: "btn-secondary",
-  ghost: "btn border-transparent bg-transparent text-ink hover:bg-[var(--rf-olive-tint)]",
-  danger: "btn border-danger bg-danger text-surface hover:border-ink hover:bg-ink",
+  ghost: "btn bg-transparent text-ink hover:bg-fill",
+  danger: "btn bg-[var(--rf-rose)] text-[var(--rf-rose-deep)] hover:bg-[var(--rf-rose-label)]",
 };
 
 export function AppButton({ variant = "primary", className, type = "button", ...props }: AppButtonProps) {
@@ -26,18 +26,18 @@ export function AppButton({ variant = "primary", className, type = "button", ...
 type StatusTone = "success" | "info" | "attention" | "risk" | "neutral";
 
 const statusClasses: Record<StatusTone, string> = {
-  success: "border-[rgba(82,97,78,0.3)] bg-[var(--rf-olive-tint)] text-action",
-  info: "border-line bg-surface text-ink",
-  attention: "border-[rgba(157,119,79,0.35)] bg-[#f5ead6] text-[#6c4f38]",
-  risk: "border-[rgba(139,63,49,0.3)] bg-[var(--rf-danger-tint)] text-danger",
-  neutral: "border-line bg-[var(--rf-surface-muted)] text-[var(--rf-ink-muted)]",
+  success: "bg-mint text-mint-deep",
+  info: "bg-sky text-sky-deep",
+  attention: "bg-peach text-peach-deep",
+  risk: "bg-[var(--rf-rose)] text-[var(--rf-rose-deep)]",
+  neutral: "bg-fill text-[var(--rf-ink-muted)]",
 };
 
 export function StatusBadge({ tone = "neutral", className, children, ...props }: HTMLAttributes<HTMLSpanElement> & { tone?: StatusTone }) {
   return (
     <span
       className={cx(
-        "inline-flex min-h-7 w-fit max-w-full items-center gap-1.5 rounded-full border px-3 py-0.5 text-[0.8125rem] font-semibold leading-snug",
+        "inline-flex min-h-7 w-fit max-w-full items-center gap-1.5 rounded-full px-3 py-0.5 text-[0.8125rem] font-semibold leading-snug",
         statusClasses[tone],
         className,
       )}
@@ -50,7 +50,7 @@ export function StatusBadge({ tone = "neutral", className, children, ...props }:
 
 export function DashboardCard({ className, children, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cx("dashboard-card rounded-card border border-line bg-surface p-6", className)} {...props}>
+    <div className={cx("dashboard-card rounded-card bg-surface p-6 shadow-soft", className)} {...props}>
       {children}
     </div>
   );
@@ -61,7 +61,7 @@ export function SectionHeader({ eyebrow, title, description, action, className }
     <div className={cx("flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between", className)}>
       <div className="min-w-0">
         {eyebrow && eyebrow.trim().toLowerCase() !== title.trim().toLowerCase() ? (
-          <p className="mb-1 text-sm font-semibold text-action">{eyebrow}</p>
+          <p className="mb-2 inline-flex rounded-full bg-fill px-3 py-0.5 text-xs font-semibold text-[var(--rf-ink-muted)]">{eyebrow}</p>
         ) : null}
         <h2 className="text-xl font-bold leading-tight text-ink">{title}</h2>
         {description ? <p className="mt-1.5 max-w-[62ch] text-[0.9375rem] leading-relaxed text-[var(--rf-ink-muted)]">{description}</p> : null}
@@ -77,9 +77,9 @@ export function ProgressPill({ value, max = 100, label, className }: { value: nu
   const percent = Math.round((boundedValue / safeMax) * 100);
 
   return (
-    <div className={cx("inline-flex min-h-8 w-fit items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-[0.8125rem] font-semibold text-ink", className)}>
-      <span className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--rf-surface-muted)]">
-        <span className="block h-full rounded-full bg-action" style={{ width: `${percent}%` }} />
+    <div className={cx("inline-flex min-h-8 w-fit items-center gap-2 rounded-full bg-fill px-3 py-1 text-[0.8125rem] font-semibold text-ink", className)}>
+      <span className="h-1.5 w-16 overflow-hidden rounded-full bg-white">
+        <span className="block h-full rounded-full bg-mint-stroke" style={{ width: `${percent}%` }} />
       </span>
       <span>{label || `${percent}%`}</span>
     </div>

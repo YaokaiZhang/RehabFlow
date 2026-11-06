@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import { usePatientProfessionalCareWorkspace } from "./usePatientProfessionalCareWorkspace";
+import { ArrowIcon } from "../../../../components/CareEpisodeBrief";
 import { AppButton, StatusBadge } from "../../../../components/ui";
 
 type Params = { episode_id?: string };
@@ -48,7 +49,7 @@ export default function EpisodeProfessionalCarePage() {
         setDoctorPage(1);
     }, [doctorSearchQuery, doctorSearchResults]);
 
-    if (loading) return <p className="text-sm text-slate-500">Loading Professional Care...</p>;
+    if (loading) return <p className="ep-loading">Loading Professional Care...</p>;
     if (error && !episode) return <section className="page-column-narrow"><p className="notice notice-danger">{error}</p></section>;
     if (!episode) return null;
 
@@ -75,95 +76,109 @@ export default function EpisodeProfessionalCarePage() {
     );
 
     return (
-        <div className="page-column space-y-6">
-            <section className="page-header">
+        <div className="page-column ep-page">
+            <header className="page-header" data-tone="sky">
                 <p className="page-header-kicker">Professional Care</p>
                 <h1>{episode.issue_title}</h1>
-                <p className="page-header-lead">Ask a doctor to follow this episode. Once a doctor accepts and you choose them, you can message each other here.</p>
-                <p className="mt-3">{episode.latest_triage_summary ? <StatusBadge tone="success">Your Triage Summary will be shared with the doctor</StatusBadge> : <StatusBadge tone="attention">No Triage Summary yet: the doctor starts from your episode details</StatusBadge>}</p>
-                <div className="page-header-actions">
-                    <Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}`}>Episode Overview</Link>
+                <div className="ep-header-meta">{episode.latest_triage_summary ? <StatusBadge tone="success">Your Triage Summary will be shared with the doctor</StatusBadge> : <StatusBadge tone="attention">No Triage Summary yet: the doctor starts from your episode details</StatusBadge>}</div>
+                <div className="ep-header-links">
+                    <Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}`}>Episode overview</Link>
                     <Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}/triage`}>Triage Summary</Link>
                 </div>
-            </section>
+            </header>
 
             {!isSubscriber ? (
-                <section className="card">
-                    <h2 className="section-title">Turn on Professional Care</h2>
-                    <p className="mt-2 max-w-[60ch] text-sm leading-relaxed text-slate-600">Professional Care lets you send this episode to doctors and talk with the one you choose. You can keep using AI Daily Rehab either way.</p>
-                    <AppButton className="mt-4" onClick={subscribe} disabled={busy}>{busy ? "Subscribing" : "Subscribe to Professional Care"}</AppButton>
+                <section className="sticker tone-sky ep-gate" aria-labelledby="ep-subscribe-title">
+                    <span className="tag"><span className="session-dot" />Professional Care</span>
+                    <h2 id="ep-subscribe-title">bring in a doctor</h2>
+                    <p>Send this episode to doctors and talk with the one you choose. You can keep using AI Daily Rehab either way.</p>
+                    <div className="ep-gate-actions">
+                        <AppButton onClick={subscribe} disabled={busy}>{busy ? "Subscribing" : "Subscribe to Professional Care"}{busy ? null : <ArrowIcon />}</AppButton>
+                    </div>
+                    {error ? <p className="notice notice-danger">{error}</p> : null}
+                    {statusMessage ? <p className="notice bg-white/70" role="status">{statusMessage}</p> : null}
                 </section>
             ) : (
                 <>
-                    <section className="card">
-                        <h2 className="section-title">Doctor Selection Queue</h2>
-                        {error ? <p className="notice notice-danger mt-3">{error}</p> : null}
-                        {statusMessage ? <p className="notice mt-3" role="status">{statusMessage}</p> : null}
-                        <div className="mt-4 grid gap-3">
-                            <div className="rounded-control border border-line p-4">
-                                <p className="text-sm font-semibold text-slate-500">Selected doctor</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-950">{selectedDoctorLabel}</p>
+                    <section aria-labelledby="ep-queue-title" className="grid gap-4">
+                        <h2 id="ep-queue-title" className="section-title">Doctor selection queue</h2>
+                        {error ? <p className="notice notice-danger">{error}</p> : null}
+                        {statusMessage ? <p className="notice" role="status">{statusMessage}</p> : null}
+                        <div className="ep-care-grid">
+                            <div className="sticker tone-sky tilt-l ep-care-tile">
+                                <span className="tag"><span className="session-dot" />Selected doctor</span>
+                                <p className="ep-care-doctor">{selectedDoctorLabel}</p>
                             </div>
-                            <div className="rounded-control border border-line p-4">
-                                <p className="text-sm font-semibold text-slate-500">Accepted doctors</p>
-                                {acceptedRequests.length === 0 ? <p className="mt-2 text-sm text-slate-500">No accepted requests yet.</p> : null}
-                                {acceptedRequests.map((request) => (
-                                    <div key={request.request_id} className="mt-2 flex flex-col gap-2 border-t border-slate-100 pt-2 sm:flex-row sm:items-center sm:justify-between">
-                                        <div>
-                                            <p className="text-sm font-semibold text-slate-950">{request.doctor_name || "Accepted doctor"}</p>
-                                            <p className="text-xs text-slate-500">{episode.selected_doctor_id === request.doctor_id ? "Selected for this episode" : "Accepted your request"}</p>
+                            <div className="card ep-care-tile" data-tone="sky">
+                                <span className="ep-care-tile-label">Accepted doctors</span>
+                                {acceptedRequests.length === 0 ? <p className="ep-care-muted">No accepted requests yet.</p> : null}
+                                {acceptedRequests.map((request) => {
+                                    const isSelected = episode.selected_doctor_id === request.doctor_id;
+                                    return (
+                                        <div key={request.request_id} className="ep-care-row">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-semibold">{request.doctor_name || "Accepted doctor"}</p>
+                                                <p className="text-xs text-[var(--rf-ink-muted)]">{isSelected ? "Selected for this episode" : "Accepted your request"}</p>
+                                            </div>
+                                            <AppButton variant={isSelected ? "secondary" : "primary"} className={isSelected ? "" : "ep-outline"} onClick={() => selectDoctor(request.doctor_id)} disabled={busy || isSelected}>{isSelected ? "Selected" : "Select"}</AppButton>
                                         </div>
-                                        <AppButton onClick={() => selectDoctor(request.doctor_id)} disabled={busy || episode.selected_doctor_id === request.doctor_id}>{episode.selected_doctor_id === request.doctor_id ? "Selected" : "Select"}</AppButton>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
-                            <div className="rounded-control border border-line p-4">
-                                <p className="text-sm font-semibold text-slate-500">Pending requests</p>
-                                {pendingRequests.length ? pendingRequests.map((request) => <p key={request.request_id} className="mt-2 text-sm text-slate-700">{request.doctor_name || "Requested doctor"}</p>) : <p className="mt-2 text-sm text-slate-500">No pending requests.</p>}
+                            <div className="card ep-care-tile" data-tone="sky">
+                                <span className="ep-care-tile-label">Pending requests</span>
+                                {pendingRequests.length ? pendingRequests.map((request) => <p key={request.request_id} className="flex items-center gap-2 text-sm font-semibold"><span className="session-dot" />{request.doctor_name || "Requested doctor"}</p>) : <p className="ep-care-muted">No pending requests.</p>}
                             </div>
                         </div>
                     </section>
 
-                    <section className="card">
-                        <h2 className="section-title">Find another doctor</h2>
-                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                            <input
-                                className="input"
-                                value={doctorSearchQuery}
-                                onChange={(event) => setDoctorSearchQuery(event.target.value)}
-                                placeholder="Search by goal, body area, sport, or expertise"
-                            />
+                    <section className="card" aria-labelledby="ep-find-title">
+                        <h2 id="ep-find-title" className="section-title">Find another doctor</h2>
+                        <div className="ep-search-row">
+                            <label className="ep-search">
+                                <span className="sr-only">Search doctors</span>
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.6" /><path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+                                <input
+                                    className="input"
+                                    value={doctorSearchQuery}
+                                    onChange={(event) => setDoctorSearchQuery(event.target.value)}
+                                    placeholder="Search by goal, body area, sport, or expertise"
+                                />
+                            </label>
                             <AppButton variant="secondary" onClick={() => searchDoctors()} disabled={busy}>Search</AppButton>
                         </div>
-                        <div className="mt-3 space-y-2">
-                            {availableDoctorRows.length === 0 ? <p className="text-sm text-slate-500">No matching doctors are available for this Care Episode.</p> : null}
+                        {availableDoctorRows.length === 0 ? <p className="ep-empty mt-4">no matching doctors right now</p> : null}
+                        <div className="ep-doctor-list">
                             {visibleDoctorRows.map((result) => {
                                 const doctor = result.doctor;
                                 return (
-                                    <div key={doctor.doctor_id} className="rounded-control border border-line p-4">
-                                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                    <article key={doctor.doctor_id} className="ep-doctor">
+                                        <div className="ep-doctor-head">
                                             <div className="min-w-0">
-                                                <p className="text-sm font-semibold text-slate-950">{doctor.display_name}</p>
-                                                <p className="mt-1 text-xs text-slate-500">{doctor.specialty || doctor.verification_status}</p>
-                                                <div className="mt-2 flex flex-wrap gap-1">
-                                                    {result.doctor.expertise_tags.map((tag) => <span key={tag} className="rounded-full bg-[var(--rf-surface-muted)] px-2.5 py-0.5 text-xs text-slate-700">{tag}</span>)}
-                                                </div>
+                                                <p className="ep-doctor-name">{doctor.display_name}</p>
+                                                <p className="ep-doctor-specialty">{doctor.specialty || (doctor.verification_status === "verified" ? "Verified" : doctor.verification_status.replace(/_/g, " "))}</p>
                                             </div>
-                                            <AppButton onClick={() => sendRequest(doctor.doctor_id)} disabled={busy}>Send Request</AppButton>
+                                            <AppButton className="ep-outline" onClick={() => sendRequest(doctor.doctor_id)} disabled={busy}>Send request</AppButton>
                                         </div>
+                                        {result.doctor.expertise_tags.length ? (
+                                            <div className="ep-doctor-tags">
+                                                {result.doctor.expertise_tags.map((tag) => <span key={tag}>{tag}</span>)}
+                                            </div>
+                                        ) : null}
                                         <textarea
-                                            className="textarea mt-3 min-h-16"
+                                            className="textarea"
+                                            aria-label={`Note for ${doctor.display_name}`}
                                             value={requestReasonByDoctor[doctor.doctor_id] || ""}
                                             onChange={(event) => setRequestReasonByDoctor((prev) => ({ ...prev, [doctor.doctor_id]: event.target.value }))}
                                             placeholder="Optional note for this doctor. Leave blank to use the latest Triage Summary."
                                         />
-                                    </div>
+                                    </article>
                                 );
                             })}
                         </div>
                         {availableDoctorRows.length > DOCTORS_PER_PAGE ? (
-                            <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
-                                <p className="text-xs text-slate-500">Page {currentDoctorPage} of {doctorPageCount}</p>
+                            <div className="ep-pager">
+                                <p className="ep-count">Page {currentDoctorPage} of {doctorPageCount}</p>
                                 <div className="flex gap-2">
                                     <AppButton
                                         variant="secondary"
@@ -185,19 +200,24 @@ export default function EpisodeProfessionalCarePage() {
                     </section>
 
                     {hasActiveRelationship ? (
-                        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-                            <div className="card">
-                                <h2 className="section-title">Care Conversation</h2>
-                                <div className="mt-3 max-h-80 space-y-2 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3">
-                                    {messages.length === 0 ? <p className="text-sm text-slate-500">No messages yet.</p> : null}
-                                    {messages.map((message) => <div key={message.message_id} className="rounded-md border border-slate-200 bg-white p-3 text-sm"><p className="text-xs font-bold text-action">{message.sender_role === "patient" ? "You" : message.sender_role === "doctor" ? selectedDoctorLabel : message.sender_role}</p><p className="mt-1 text-slate-700">{message.content}</p></div>)}
+                        <section className="ep-convo-grid">
+                            <section className="card" aria-labelledby="ep-convo-title">
+                                <h2 id="ep-convo-title" className="section-title">Care conversation</h2>
+                                <div className="ep-convo">
+                                    {messages.length === 0 ? <p className="ep-empty">no messages yet</p> : null}
+                                    {messages.map((message) => (
+                                        <div key={message.message_id} className={`chat-card ${message.sender_role === "patient" ? "chat-card-user" : "chat-card-assistant"} text-sm`}>
+                                            <span className="ep-convo-who">{message.sender_role === "patient" ? "You" : message.sender_role === "doctor" ? selectedDoctorLabel : message.sender_role}</span>
+                                            {message.content}
+                                        </div>
+                                    ))}
                                 </div>
-                                <div className="mt-3 flex flex-col gap-2 sm:flex-row"><input className="input" value={messageText} onChange={(event) => setMessageText(event.target.value)} placeholder="Message your doctor" /><AppButton onClick={sendMessage} disabled={busy || !messageText.trim()}>Send</AppButton></div>
-                            </div>
-                            <div className="card bg-[var(--rf-surface-muted)]">
-                                <h2 className="section-title">AI Care Summary</h2>
-                                {careSummary ? <><p className="mt-3 text-sm leading-6 text-slate-700">{careSummary.conversation_digest}</p><p className="mt-3 text-sm font-semibold text-slate-950">Plan</p><p className="mt-1 text-sm leading-6 text-slate-700">{careSummary.plan_digest}</p></> : <p className="mt-2 text-sm text-slate-600">Summarise your conversation with the doctor and the plan you agreed on. Optional Live Movement Monitoring is a separate tool your doctor can start.</p>}
-                                <AppButton className="mt-4" onClick={generateSummary} disabled={busy}>Generate Summary</AppButton>
+                                <div className="ep-composer"><input className="input" aria-label="Message your doctor" value={messageText} onChange={(event) => setMessageText(event.target.value)} placeholder="Message your doctor" /><AppButton onClick={sendMessage} disabled={busy || !messageText.trim()}>Send</AppButton></div>
+                            </section>
+                            <div className="sticker tone-sky ep-care-summary grid gap-3">
+                                <span className="tag"><span className="session-dot" />AI Care Summary</span>
+                                {careSummary ? <><p className="text-sm leading-6">{careSummary.conversation_digest}</p><p className="text-sm font-semibold">Plan</p><p className="text-sm leading-6">{careSummary.plan_digest}</p></> : <p className="scribble text-[var(--rf-sky-deep)]">no summary yet</p>}
+                                <AppButton variant="secondary" className="justify-self-start bg-white/70" onClick={generateSummary} disabled={busy}>Generate summary</AppButton>
                             </div>
                         </section>
                     ) : null}

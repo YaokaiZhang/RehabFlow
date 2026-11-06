@@ -1,0 +1,591 @@
+/* Area styles: AI Triage Intake home. Plain CSS (no @layer); tokens live in app/globals.css.
+ * Two moods share one tree: data-mode="hero" before the first message (a centred
+ * handwritten question with stickers floating around it) and data-mode="chat" after. */
+
+/* ---------- Layout ---------- */
+.triage-layout {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 28px;
+	width: min(100%, 1120px);
+	margin: 0 auto;
+	container: triage / inline-size;
+}
+
+.triage-chat {
+	position: relative;
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+}
+
+.triage-chat-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding-bottom: 18px;
+}
+
+.triage-kicker {
+	margin-bottom: 10px;
+}
+
+.triage-title {
+	margin: 0;
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: clamp(2rem, 4vw, 2.75rem);
+	font-weight: 700;
+	line-height: 0.95;
+	letter-spacing: -0.02em;
+	overflow-wrap: anywhere;
+}
+
+/* ---------- Chat log ---------- */
+.triage-chat-log {
+	display: flex;
+	flex: 1;
+	min-height: 320px;
+	flex-direction: column;
+	gap: 14px;
+	overflow-y: auto;
+	padding: 8px 2px 24px;
+	scrollbar-width: thin;
+}
+
+.chat-card-author {
+	margin: 0 0 4px;
+	color: var(--rf-ink-muted);
+	font-size: 0.8125rem;
+	font-weight: 700;
+}
+
+.chat-card-sources {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 14px;
+	margin-top: 12px;
+	border-top: 1px solid var(--rf-line);
+	padding-top: 8px;
+}
+
+.chat-card-source {
+	display: inline-flex;
+	max-width: 100%;
+	align-items: center;
+	gap: 4px;
+	color: var(--rf-ink);
+	font-size: 0.8125rem;
+	font-weight: 600;
+	text-decoration: underline;
+	text-decoration-color: var(--rf-line-strong);
+	text-underline-offset: 3px;
+}
+
+.chat-card-source:hover {
+	text-decoration-color: currentColor;
+}
+
+.chat-history-state {
+	padding: 16px 8px;
+	color: var(--rf-ink-muted);
+	font-size: 0.9375rem;
+	line-height: 1.5;
+	text-align: center;
+}
+
+.chat-history-empty {
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 1.5rem;
+	color: var(--rf-ink-soft);
+}
+
+.chat-history-state-error {
+	color: var(--rf-rose-deep);
+}
+
+/* Live stage while a reply is on its way. */
+.agent-progress-card {
+	min-width: min(100%, 280px);
+}
+
+.agent-progress-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.agent-progress-label {
+	margin: 0;
+	font-size: 0.9375rem;
+	font-weight: 650;
+}
+
+.agent-progress-detail {
+	margin: 4px 0 0;
+	color: var(--rf-ink-muted);
+	font-size: 0.875rem;
+	line-height: 1.45;
+}
+
+.agent-progress-dots {
+	display: inline-flex;
+	gap: 4px;
+}
+
+.agent-progress-dots span {
+	height: 7px;
+	width: 7px;
+	border-radius: 999px;
+	background: var(--rf-peach-stroke);
+	animation: agent-progress-pulse 1.2s ease-in-out infinite;
+}
+
+.agent-progress-dots span:nth-child(2) { animation-delay: 0.15s; }
+.agent-progress-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+/* ---------- Composer: a soft pill with a round black send button ---------- */
+.triage-composer {
+	position: sticky;
+	bottom: 12px;
+	z-index: 5;
+	background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--rf-paper) 28%);
+	padding-top: 14px;
+}
+
+.triage-composer-field {
+	display: flex;
+	align-items: flex-end;
+	gap: 8px;
+	border: 1px solid transparent;
+	border-radius: 30px;
+	background: var(--rf-fill);
+	padding: 6px 6px 6px 22px;
+	transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.triage-composer-field:hover {
+	background: var(--rf-fill-strong);
+}
+
+.triage-composer-field:focus-within {
+	border-color: var(--rf-ink);
+	background: var(--rf-paper);
+	box-shadow: 0 0 0 4px rgba(17, 17, 17, 0.07);
+}
+
+.triage-composer-input {
+	flex: 1;
+	min-width: 0;
+	min-height: 44px;
+	max-height: 200px;
+	resize: none;
+	border: 0;
+	background: transparent;
+	padding: 11px 0;
+	color: var(--rf-ink);
+	font-size: 1rem;
+	line-height: 1.4;
+	outline: none;
+	field-sizing: content;
+}
+
+.triage-composer-input::placeholder {
+	color: var(--rf-ink-soft);
+}
+
+.triage-composer-input:disabled {
+	cursor: not-allowed;
+}
+
+.triage-composer-send {
+	display: inline-flex;
+	height: 44px;
+	width: 44px;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	background: var(--rf-ink);
+	color: #ffffff;
+	transition: transform 300ms var(--rf-ease), box-shadow 300ms var(--rf-ease), opacity 160ms ease;
+}
+
+.triage-composer-send svg {
+	height: 20px;
+	width: 20px;
+}
+
+.triage-composer-send:hover:not(:disabled) {
+	transform: translateY(-2px);
+	box-shadow: 0 10px 20px rgba(0, 0, 0, 0.14);
+}
+
+.triage-composer-send:disabled {
+	cursor: not-allowed;
+	opacity: 0.25;
+}
+
+/* ---------- Side column ---------- */
+.triage-side {
+	display: grid;
+	align-content: start;
+	gap: 20px;
+}
+
+.triage-safety {
+	color: var(--rf-rose-deep);
+	transform: rotate(-1.2deg);
+}
+
+.triage-safety-title {
+	margin: 0;
+	color: var(--rf-rose-deep);
+	font-size: 1.0625rem;
+	font-weight: 700;
+}
+
+.triage-safety-list {
+	display: grid;
+	gap: 8px;
+	margin: 12px 0 0;
+	padding: 0;
+	list-style: none;
+	color: var(--rf-ink);
+	font-size: 0.9375rem;
+	line-height: 1.45;
+}
+
+.triage-safety-list li {
+	position: relative;
+	padding-left: 18px;
+}
+
+.triage-safety-list li::before {
+	position: absolute;
+	top: 0.5em;
+	left: 0;
+	height: 8px;
+	width: 8px;
+	border-radius: 999px;
+	background: var(--rf-rose-stroke);
+	content: "";
+}
+
+.triage-guest {
+	margin: 0;
+	padding: 0 4px;
+	color: var(--rf-ink-muted);
+	font-size: 0.9375rem;
+}
+
+.triage-guest a {
+	color: var(--rf-ink);
+	font-weight: 650;
+	text-decoration: underline;
+	text-decoration-color: var(--rf-line-strong);
+	text-underline-offset: 4px;
+}
+
+.triage-guest a:hover {
+	text-decoration-color: currentColor;
+}
+
+/* ---------- Hero: before the first message ---------- */
+.triage-prompts,
+.triage-note,
+.triage-dot {
+	display: none;
+}
+
+[data-mode="hero"] .triage-chat {
+	align-items: center;
+	padding: 12px 0 8px;
+	text-align: center;
+}
+
+[data-mode="hero"] .triage-chat-header {
+	flex-direction: column;
+	align-items: center;
+	padding-bottom: 14px;
+}
+
+[data-mode="hero"] .triage-kicker {
+	margin: 0 auto 18px;
+}
+
+[data-mode="hero"] .triage-title {
+	max-width: 15ch;
+	margin-inline: auto;
+	font-size: clamp(3rem, 9vw, 4.5rem);
+	line-height: 0.9;
+}
+
+[data-mode="hero"] .triage-chat-log {
+	flex: none;
+	min-height: 0;
+	overflow: visible;
+	padding: 0 0 22px;
+}
+
+/* The intro line sits under the question, not in a bubble. */
+[data-mode="hero"] .chat-card-assistant {
+	max-width: 34ch;
+	margin: 0 auto;
+	background: none;
+	padding: 0;
+	color: var(--rf-ink-muted);
+}
+
+[data-mode="hero"] .chat-card-author {
+	display: none;
+}
+
+[data-mode="hero"] .triage-composer {
+	position: relative;
+	bottom: auto;
+	width: min(100%, 600px);
+	background: none;
+	padding-top: 0;
+	text-align: left;
+}
+
+[data-mode="hero"] .triage-composer-field {
+	border-radius: 34px;
+	padding: 8px 8px 8px 26px;
+}
+
+[data-mode="hero"] .triage-composer-input {
+	min-height: 52px;
+	padding: 15px 0;
+	font-size: 1.0625rem;
+}
+
+[data-mode="hero"] .triage-composer-send {
+	height: 52px;
+	width: 52px;
+}
+
+/* Stickers: a row you can swipe on phones, a grid on tablets, floating on wide screens. */
+[data-mode="hero"] .triage-prompts {
+	display: flex;
+	width: calc(100% + 32px);
+	gap: 14px;
+	margin: 28px -16px 0;
+	overflow-x: auto;
+	overscroll-behavior-x: contain;
+	scroll-snap-type: x mandatory;
+	scroll-padding-inline: 16px;
+	padding: 14px 16px 22px;
+	scrollbar-width: none;
+	text-align: left;
+}
+
+[data-mode="hero"] .triage-prompts::-webkit-scrollbar {
+	display: none;
+}
+
+.triage-prompt {
+	display: flex;
+	width: 236px;
+	flex: 0 0 auto;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 20px 22px 22px;
+	color: var(--rf-ink);
+	text-align: left;
+	scroll-snap-align: start;
+	transform: rotate(calc(var(--tilt, 0deg) * 0.5));
+}
+
+.triage-prompt-text {
+	font-size: 0.9375rem;
+	font-weight: 600;
+	line-height: 1.4;
+}
+
+.triage-prompt:hover:not(:disabled) {
+	transform: rotate(0deg) translateY(-4px);
+	box-shadow: var(--rf-shadow-lift);
+}
+
+.triage-prompt:focus-visible {
+	transform: rotate(0deg);
+}
+
+.triage-prompt:disabled {
+	cursor: not-allowed;
+	opacity: 0.5;
+}
+
+[data-mode="hero"] .triage-note-prompts {
+	display: block;
+	order: 3;
+	margin: 22px 0 -16px;
+	font-size: 1.3rem;
+}
+
+[data-mode="hero"] .triage-note-prompts svg {
+	display: none;
+}
+
+[data-mode="hero"] .triage-prompts {
+	order: 4;
+}
+
+/* Tablets: a tidy 2 x 2 grid of stickers under the composer. */
+@container triage (min-width: 560px) {
+	[data-mode="hero"] .triage-prompts {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 20px;
+		width: min(100%, 600px);
+		margin: 28px auto 0;
+		overflow: visible;
+		padding: 8px 0;
+	}
+
+	.triage-prompt {
+		width: auto;
+		transform: rotate(var(--tilt, 0deg));
+	}
+}
+
+/* Wide: the question in the middle of a white canvas, stickers drifting around it. */
+@container triage (min-width: 940px) {
+	[data-mode="hero"] .triage-chat {
+		justify-content: center;
+		min-height: clamp(560px, calc(100vh - var(--rf-topbar-height) - 200px), 700px);
+		padding: 40px 0 72px;
+	}
+
+	[data-mode="hero"] .triage-prompts {
+		display: block;
+		margin: 0;
+		padding: 0;
+	}
+
+	.triage-prompt {
+		position: absolute;
+		z-index: 2;
+		width: clamp(200px, 20cqi, 240px);
+		transform: translate(calc(var(--px, 0) * var(--depth, 20) * 1px), calc(var(--py, 0) * var(--depth, 20) * 1px)) rotate(var(--tilt, 0deg));
+		transition: transform 500ms var(--rf-ease), box-shadow 300ms var(--rf-ease), opacity 160ms ease;
+	}
+
+	.triage-prompt:hover:not(:disabled),
+	.triage-prompt:focus-visible {
+		z-index: 3;
+		transform: translate(calc(var(--px, 0) * var(--depth, 20) * 1px), calc(var(--py, 0) * var(--depth, 20) * 1px - 4px)) rotate(0deg);
+	}
+
+	.triage-prompt-1 { top: 2%; left: 1%; }
+	.triage-prompt-2 { top: 7%; right: 2%; }
+	.triage-prompt-3 { bottom: 3%; left: 3%; }
+
+	[data-mode="hero"] .triage-composer {
+		width: min(100%, 540px);
+	}
+	.triage-prompt-4 { bottom: 1%; right: 0; }
+
+	[data-mode="hero"] .triage-note {
+		position: absolute;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0;
+		font-size: 1.35rem;
+		pointer-events: none;
+		white-space: nowrap;
+	}
+
+	[data-mode="hero"] .triage-note svg {
+		display: block;
+		height: 30px;
+		width: 44px;
+	}
+
+	.triage-note-prompts {
+		top: calc(2% + 196px);
+		left: calc(1% + 36px);
+		transform: rotate(-4deg);
+	}
+
+	.triage-note-composer {
+		top: calc(100% + 10px);
+		right: 8px;
+		transform: rotate(4deg);
+	}
+
+	[data-mode="hero"] .triage-dot {
+		position: absolute;
+		z-index: 0;
+		display: block;
+		height: 8px;
+		width: 8px;
+		border-radius: 999px;
+		background: var(--rf-fill-strong);
+		transform: translate(calc(var(--px, 0) * var(--depth, 40) * 1px), calc(var(--py, 0) * var(--depth, 40) * 1px));
+		transition: transform 700ms var(--rf-ease);
+	}
+
+	.triage-dot-1 { top: 8%; left: 42%; --depth: 40; }
+	.triage-dot-2 { bottom: 9%; left: 46%; --depth: 60; }
+	.triage-dot-3 { top: 48%; right: 4%; --depth: 80; }
+}
+
+/* ---------- Chat mode ---------- */
+@media (min-width: 1180px) {
+	[data-mode="chat"].triage-layout {
+		grid-template-columns: minmax(0, 1fr) 300px;
+		height: calc(100vh - var(--rf-topbar-height) - 80px);
+		min-height: 560px;
+	}
+
+	[data-mode="chat"] .triage-chat {
+		min-height: 0;
+	}
+
+	[data-mode="chat"] .triage-side {
+		position: sticky;
+		top: calc(var(--rf-topbar-height) + 40px);
+	}
+}
+
+@media (min-width: 760px) {
+	[data-mode="hero"] .triage-side {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: center;
+		gap: 24px 40px;
+	}
+
+	[data-mode="hero"] .triage-save,
+	[data-mode="hero"] .triage-safety {
+		width: min(100%, 420px);
+	}
+}
+
+@media (max-width: 760px) {
+	.triage-chat-header {
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.triage-chat-log {
+		min-height: 240px;
+	}
+
+	.triage-safety {
+		transform: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.triage-prompt,
+	.triage-dot {
+		transition: none;
+	}
+}

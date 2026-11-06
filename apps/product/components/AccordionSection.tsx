@@ -13,10 +13,10 @@ export function AccordionSection({ title, summary, defaultOpen = false, children
 	const [open, setOpen] = useState(defaultOpen);
 
 	return (
-		<section className="rounded-card border border-line bg-surface">
+		<section className="rounded-card bg-fill">
 			<button
 				type="button"
-				className="flex w-full items-start justify-between gap-4 rounded-card px-5 py-4 text-left hover:bg-[rgba(247,239,223,0.6)]"
+				className="flex w-full items-start justify-between gap-4 rounded-card px-5 py-4 text-left hover:bg-[var(--rf-fill-strong)]"
 				aria-expanded={open}
 				onClick={() => setOpen((current) => !current)}
 			>
@@ -28,7 +28,7 @@ export function AccordionSection({ title, summary, defaultOpen = false, children
 					<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
 				</svg>
 			</button>
-			{open ? <div className="border-t border-line px-5 py-4 text-sm text-slate-700">{children}</div> : null}
+			{open ? <div className="px-5 pb-5 text-sm text-slate-700">{children}</div> : null}
 		</section>
 	);
 }

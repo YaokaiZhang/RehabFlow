@@ -70,17 +70,17 @@ export default function ProductShell({ children }: { children: ReactNode }) {
 
   const navLinks = (
     <>
-      {showTriage ? <ShellNavLink href="/">AI Triage Intake</ShellNavLink> : null}
+      {showTriage ? <ShellNavLink href="/">Triage</ShellNavLink> : null}
       {auth?.role !== "doctor" ? (
         <>
-          {auth?.role === "patient" ? <ShellNavLink href="/episodes">Patient Dashboard</ShellNavLink> : null}
+          {auth?.role === "patient" ? <ShellNavLink href="/episodes">Episodes</ShellNavLink> : null}
           <ShellNavLink href="/settings">Settings</ShellNavLink>
         </>
       ) : null}
       {auth?.role === "doctor" ? (
         <>
-          <ShellNavLink href="/doctor">Care Worklist</ShellNavLink>
-          <ShellNavLink href="/doctor/dashboard">Doctor Dashboard</ShellNavLink>
+          <ShellNavLink href="/doctor">Worklist</ShellNavLink>
+          <ShellNavLink href="/doctor/dashboard">Dashboard</ShellNavLink>
           <ShellNavLink href="/settings">Settings</ShellNavLink>
         </>
       ) : null}
@@ -88,19 +88,15 @@ export default function ProductShell({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div className="product-app min-h-screen bg-[var(--rf-app-bg)] text-slate-900">
+    <div className="product-app min-h-screen bg-[var(--rf-paper)] text-ink">
       <header className={menuOpen ? "product-global-nav product-global-nav-open" : "product-global-nav"}>
         <div className="product-global-nav-inner">
           <Link href={homeHref} className="product-brand" aria-label="RehabFlow home">
-            <svg className="product-brand-mark" viewBox="0 0 26 26" aria-hidden="true">
-              <path d="M3 19.5c3.2 0 4.4-6 7.6-6s3.6 4.2 6.4 4.2S20.6 8 23 6.5" fill="none" stroke="#b7c4a8" strokeWidth="2.6" strokeLinecap="round" />
-              <circle cx="23" cy="6.5" r="2.4" fill="#f1e0c5" />
+            <svg className="product-brand-mark" viewBox="0 0 28 28" aria-hidden="true">
+              <path d="M3 20c3.4 0 4.6-7 8-7s3.8 4.6 6.8 4.6S21.4 8.4 25 6.5" fill="none" stroke="#111" strokeWidth="2.8" strokeLinecap="round" />
+              <circle cx="25" cy="6.5" r="2.6" fill="#10b981" />
             </svg>
-            <span className="product-brand-copy">
-              <span className="product-brand-name">
-                <span className="product-brand-name-rehab">Rehab</span><span className="product-brand-name-flow">Flow</span>
-              </span>
-            </span>
+            <span className="product-brand-name">RehabFlow.</span>
           </Link>
           <button
             type="button"
@@ -112,12 +108,19 @@ export default function ProductShell({ children }: { children: ReactNode }) {
             {menuOpen ? "Close" : "Menu"}
           </button>
           <div className="product-navigation" id="product-navigation">
-            <nav className="product-top-nav" aria-label="Global navigation">{navLinks}</nav>
+            <nav className="product-top-nav" aria-label="Global navigation">
+              {navLinks}
+              {auth ? <button type="button" onClick={signOut} className="product-nav-link product-nav-signout">Sign out</button> : null}
+              {auth === null ? <Link href="/login" className="product-nav-link product-nav-login">Log in</Link> : null}
+            </nav>
           </div>
           <div className="product-account">
             {auth ? (
               <>
-                <span className="product-account-name">{auth.username}</span>
+                <span className="product-account-name">
+                  <span className="product-account-avatar" aria-hidden="true">{auth.username.slice(0, 1).toUpperCase()}</span>
+                  <span className="product-account-name-text">{auth.username}</span>
+                </span>
                 <button onClick={signOut} className="product-signout-button">Sign out</button>
               </>
             ) : auth === null ? (
@@ -126,7 +129,7 @@ export default function ProductShell({ children }: { children: ReactNode }) {
                 <Link href="/register" className="product-account-link product-account-link-primary">Register</Link>
               </div>
             ) : (
-              <span className="product-account-loading">Loading...</span>
+              <span className="product-account-loading" aria-label="Loading account" />
             )}
           </div>
         </div>

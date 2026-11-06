@@ -171,6 +171,24 @@ function nearestPoseFrame(frames: DemoPoseFrame[], currentTime: number) {
     return nearest;
 }
 
+function trackingState(status: string, landmarkCount: number, modelStatus: string) {
+    if (status === "Starting") return { label: modelStatus === "Loading" ? "Loading tracking" : "Starting camera", dot: "bg-mint-stroke motion-safe:animate-pulse" };
+    if (status === "Live") return landmarkCount ? { label: "Tracking you", dot: "bg-mint-stroke" } : { label: "Step into view", dot: "bg-amber-500" };
+    if (status === "Detection error") return { label: "Tracking stopped", dot: "bg-rose-600" };
+    return { label: "Camera off", dot: "bg-slate-400" };
+}
+
+// Short, actionable versions of camera and tracking failures.
+function friendlyError(message: string) {
+    if (/permission|notallowed|denied/i.test(message)) return "Camera access is blocked. Allow the camera for this site in your browser, then press Start.";
+    if (/requested device not found|notfound|no camera/i.test(message)) return "No camera found. Connect one, then press Start.";
+    if (/could not start|notreadable|in use/i.test(message)) return "Your camera is busy in another app. Close it there, then press Start.";
+    if (/import|module|wasm|mediapipe|\.task/i.test(message)) return "Movement tracking couldn't load. Check your connection and press Start again.";
+    if (/detection/i.test(message)) return "Tracking stopped. Press Stop, then Start to try again.";
+    if (/failed to fetch|network/i.test(message)) return "Couldn't reach RehabFlow. Check your connection and reload the page.";
+    return message;
+}
+
 export default function RehabSessionPage() {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -334,7 +352,7 @@ export default function RehabSessionPage() {
             if (patientNotesRef.current === submittedPatientNotes) {
                 updatePatientNotes(updated.patient_notes);
             }
-            setSessionStatus("Session progress saved.");
+            setSessionStatus("Progress saved.");
         } catch (err) {
             setSessionError((err as Error).message);
         } finally {
@@ -374,7 +392,7 @@ export default function RehabSessionPage() {
             if (patientNotesRef.current === submittedPatientNotes) {
                 updatePatientNotes(updated.patient_notes);
             }
-            setSessionStatus("Session summary saved to Episode Memory inputs.");
+            setSessionStatus("Summary saved to History.");
         } catch (err) {
             setSessionError((err as Error).message);
         } finally {
@@ -568,12 +586,12 @@ export default function RehabSessionPage() {
 
             const auth = loadAuth();
             if (!auth || auth.role !== "patient" || !auth.access_token) {
-                setScoringNotice("Sign in for live scoring and saved progress. Pose detection continues locally.");
+                setScoringNotice("Log in for live scoring. Tracking still works on this device.");
                 return;
             }
 
             if (!referenceHasPoseOverlay) {
-                setScoringNotice("Scoring will be available when reference pose data is added for this movement.");
+                setScoringNotice("Scoring isn't ready for this exercise yet. Tracking still works on this device.");
                 return;
             }
 
@@ -582,7 +600,7 @@ export default function RehabSessionPage() {
                 ticket = await issuePatientStreamTicket(auth.access_token);
             } catch {
                 if (attempt !== sessionAttemptRef.current) return;
-                setScoringNotice("Scoring is temporarily unavailable. Pose detection continues locally.");
+                setScoringNotice("Scoring is paused for now. Tracking still works on this device.");
                 return;
             }
             if (attempt !== sessionAttemptRef.current) return;
@@ -606,15 +624,15 @@ export default function RehabSessionPage() {
                 };
                 ws.onerror = () => {
                     if (wsRef.current !== ws) return;
-                    setScoringNotice("Scoring is temporarily unavailable. Pose detection continues locally.");
+                    setScoringNotice("Scoring is paused for now. Tracking still works on this device.");
                 };
                 ws.onclose = () => {
                     if (wsRef.current !== ws || !detectionActiveRef.current) return;
-                    setScoringNotice("Scoring is temporarily unavailable. Pose detection continues locally.");
+                    setScoringNotice("Scoring is paused for now. Tracking still works on this device.");
                 };
             } catch {
                 if (attempt !== sessionAttemptRef.current) return;
-                setScoringNotice("Scoring is temporarily unavailable. Pose detection continues locally.");
+                setScoringNotice("Scoring is paused for now. Tracking still works on this device.");
                 return;
             }
         } catch (err) {
@@ -624,145 +642,283 @@ export default function RehabSessionPage() {
         }
     };
 
+    const tracking = trackingState(status, landmarkCount, modelStatus);
+    const friendlyErrorText = error ? friendlyError(error) : "";
+    const checklistDone = rehabSession?.checklist.filter((item) => item.completed).length ?? 0;
+    const checklistTotal = rehabSession?.checklist.length ?? 0;
+    const isDemo = !patientId || !episodeId;
+    const sessionRunning = status === "Live" || status === "Starting";
+
     return (
-        <div className="space-y-5">
-            <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
-                    <div className="flex flex-col gap-4 p-4">
-                        <section aria-label="Live camera feed" className="relative overflow-hidden rounded-md bg-slate-950">
-                            <video ref={videoRef} className="aspect-video w-full scale-x-[-1] object-cover" playsInline muted />
-                            <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full scale-x-[-1]" />
-                            {status === "Ready" ? (
-                                <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-[rgba(241,224,197,0.8)]">
-                                    Your camera appears here when you press Start. Video stays on this device.
-                                </div>
-                            ) : null}
-                            <div className="absolute left-4 top-4 flex flex-wrap gap-2">
-                                <span className="rounded-full bg-[rgba(255,250,241,0.92)] px-3 py-1 text-xs font-semibold text-ink">{status}</span>
-                                {status === "Live" ? <span className="rounded-full bg-[#b7c4a8] px-3 py-1 text-xs font-semibold text-ink">{landmarkCount ? "Tracking your movement" : "Step into view"}</span> : null}
-                            </div>
-                        </section>
-                        <section aria-label="Reference movement video" className="relative flex flex-col rounded-md border border-slate-200 bg-white p-4">
-                            <div>
-                                <h2 className="text-xl font-bold text-slate-950">{selectedVideo?.title || "Choose an exercise below"}</h2>
-                                <p className="mt-1 text-xs text-slate-500">{referenceHasPoseOverlay ? "Pose overlay appears when downloaded pose data is available." : "Reference video only. Pose data for this movement can be added later."}</p>
-                            </div>
-                            <div className="mt-4">
-                                {localReferenceUrl ? (
-                                    <div className="relative overflow-hidden rounded-md bg-slate-950">
-                                        <video key={selectedVideo?.exercise_id} ref={sourceVideoRef} className="aspect-video w-full object-contain" src={localReferenceUrl} controls playsInline />
-                                        <canvas ref={sourceCanvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
-                                    </div>
-                                ) : onlineVideoUrl ? (
-                                    <div className="overflow-hidden rounded-md bg-slate-950">
-                                        <iframe key={selectedVideo?.exercise_id} className="aspect-video w-full" src={onlineVideoUrl} title={selectedVideo?.title || "Reference video"} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen />
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center justify-center rounded-md border border-dashed border-line px-4 py-10 text-center text-sm text-slate-500">No demonstration video for this exercise yet.</div>
-                                )}
-                            </div>
-                            {selectedVideo?.source_url ? (
-                                <a className="mt-3 text-sm font-semibold text-action underline underline-offset-4" href={selectedVideo.source_url} target="_blank" rel="noreferrer">
-                                    Open the original exercise page
-                                </a>
-                            ) : null}
-                        </section>
-                    </div>
-                    <aside className="flex flex-col gap-4 border-t border-slate-200 p-5 lg:border-l lg:border-t-0">
-                        <div>
-                            <p className="text-sm font-semibold text-action">AI Daily Rehab</p>
-                            <h1 className="mt-1 text-2xl font-bold leading-tight text-slate-950">Live Rehab Session</h1>
-                            <p className="mt-1 text-sm text-slate-600">Today&apos;s guided movement session</p>
-                        </div>
-                        {gateBlocked ? (
-                            <div className="notice">
-                                <p className="font-semibold text-ink">Finish the safety check first</p>
-                                <p className="mt-1 text-sm">This episode still needs AI Triage Intake before guided exercise.</p>
-                                <a className="btn-primary mt-3 w-full" href={`/episodes/${episodeId}/triage`}>Open AI Triage Intake</a>
-                            </div>
-                        ) : (
-                            <div className="flex gap-2">
-                                <button className="btn-primary flex-1" onClick={startSession} disabled={status === "Starting" || status === "Live"}>
-                                    Start
-                                </button>
-                                <button className="btn-secondary" onClick={stopSession} disabled={status !== "Live" && status !== "Starting"}>
-                                    Stop
-                                </button>
-                            </div>
+        <div className="space-y-8">
+            <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4" data-tone="mint">
+                <div>
+                    <p className="page-header-kicker">AI Daily Rehab</p>
+                    <h1 className="font-hand text-[clamp(2.25rem,5vw,3.5rem)] leading-[0.95] tracking-[-0.02em]">Today&apos;s session</h1>
+                </div>
+                {isDemo ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-2 rounded-full bg-fill px-4 py-2 text-sm font-semibold text-ink">
+                            <span aria-hidden="true" className="h-2 w-2 rounded-full bg-[var(--rf-ink-soft)]" />
+                            {patientId ? "Demo, not saved to an episode" : "Demo session"}
+                        </span>
+                        {patientId ? null : (
+                            <a href="/login" className="rounded-full px-3 py-2 text-sm font-semibold text-ink underline decoration-[var(--rf-line-strong)] underline-offset-4 hover:decoration-ink">
+                                Log in to save progress
+                            </a>
                         )}
-                        {status === "Live" ? (
-                            <div className="rounded-control border border-line p-3">
-                                <p className="text-sm text-slate-600">Form score</p>
-                                <p className="text-3xl font-bold text-action">{score}</p>
-                                <p className="mt-1 text-xs text-slate-500">Pose model: {modelStatus.toLowerCase()}</p>
+                    </div>
+                ) : (
+                    <span className="inline-flex items-center gap-2 rounded-full bg-mint px-4 py-2 text-sm font-semibold text-mint-deep">
+                        <span aria-hidden="true" className="h-2 w-2 rounded-full bg-mint-stroke" />
+                        Saving to this Care Episode
+                    </span>
+                )}
+            </header>
+
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+                <div className="min-w-0 space-y-4">
+                    <section aria-label="Live camera feed" className="relative overflow-hidden rounded-[32px] bg-[#111111] shadow-lift">
+                        <video ref={videoRef} className="aspect-[4/5] w-full scale-x-[-1] object-cover sm:aspect-video" playsInline muted />
+                        <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full scale-x-[-1]" />
+                        {status === "Ready" ? (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+                                <span aria-hidden="true" className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10 text-white">
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M15 10.5 20 7v10l-5-3.5" />
+                                        <rect x="3" y="6" width="12" height="12" rx="3" />
+                                    </svg>
+                                </span>
+                                <p className="font-hand text-3xl text-white sm:text-4xl">{gateBlocked ? "Safety check first" : "Ready when you are"}</p>
+                                <p className="text-sm text-white/60">Video stays on this device.</p>
                             </div>
                         ) : null}
-                        <p className="text-sm text-slate-600">
-                            {patientId ? (episodeId ? "Progress is saved to this Care Episode." : "Demo session: progress is not saved to an episode.") : "Demo session. Log in to save progress."}
+                        <div className="absolute inset-x-3 top-3 flex flex-wrap items-start justify-between gap-2 sm:inset-x-5 sm:top-5">
+                            <span className="inline-flex items-center gap-2 rounded-full bg-white/95 px-3.5 py-1.5 text-sm font-semibold text-ink">
+                                <span aria-hidden="true" className={`session-dot ${tracking.dot}`} />
+                                {tracking.label}
+                            </span>
+                            {selectedVideo ? (
+                                <span className="tag max-w-full truncate bg-mint-label py-1.5 text-mint-deep sm:max-w-[60%]" data-tone="mint">
+                                    <span className="truncate">{selectedVideo.title}</span>
+                                </span>
+                            ) : null}
+                        </div>
+                        {status === "Live" ? (
+                            <div className="sticker tone-mint tilt-l absolute bottom-4 left-4 flex items-end gap-3 px-5 py-3 sm:bottom-6 sm:left-6">
+                                <span className="font-hand text-6xl leading-[0.85] text-ink">{score}</span>
+                                <span className="pb-1 text-sm font-semibold leading-tight text-mint-deep">
+                                    Form
+                                    <br />
+                                    score
+                                </span>
+                            </div>
+                        ) : null}
+                    </section>
+
+                    {gateBlocked ? (
+                        <div className="sticker tone-peach flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <p className="font-hand text-3xl leading-none text-ink">Triage comes first</p>
+                                <p className="mt-2 text-sm text-peach-deep">This episode needs AI Triage Intake before guided exercise.</p>
+                            </div>
+                            <a className="btn-primary shrink-0" href={`/episodes/${episodeId}/triage`}>
+                                Open AI Triage Intake
+                                <span aria-hidden="true" className="btn-arrow">
+                                    <ArrowIcon />
+                                </span>
+                            </a>
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap items-center gap-3">
+                            <button className={`${sessionRunning ? "btn-secondary" : "btn-primary"} min-w-[9rem] pl-6 pr-3`} onClick={startSession} disabled={status === "Starting" || status === "Live"}>
+                                Start
+                                <span aria-hidden="true" className="btn-arrow">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z" />
+                                    </svg>
+                                </span>
+                            </button>
+                            <button className={`${sessionRunning ? "btn-primary" : "btn-secondary"} min-w-[7rem]`} onClick={stopSession} disabled={status !== "Live" && status !== "Starting"}>
+                                Stop
+                            </button>
+                        </div>
+                    )}
+
+                    {friendlyErrorText ? (
+                        <p className="notice notice-danger flex items-start gap-3" role="alert">
+                            <span aria-hidden="true" className="mt-[0.45em] h-2 w-2 shrink-0 rounded-full bg-rose-600" />
+                            {friendlyErrorText}
                         </p>
-                        {scoringNotice ? <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">{scoringNotice}</p> : null}
-                        {error ? <p className="notice notice-danger">{error}</p> : null}
-                    </aside>
+                    ) : null}
+                    {scoringNotice ? <p className="notice text-[var(--rf-ink-muted)]">{scoringNotice}</p> : null}
                 </div>
-            </section>
+
+                <aside className="min-w-0 space-y-4">
+                    <section aria-label="Reference movement video" className="card p-5">
+                        <h2 className="font-hand text-3xl leading-none">How it&apos;s done</h2>
+                        <div className="mt-4">
+                            {localReferenceUrl ? (
+                                <div className="relative overflow-hidden rounded-[22px] bg-[#111111]">
+                                    <video key={selectedVideo?.exercise_id} ref={sourceVideoRef} className="aspect-video w-full object-contain" src={localReferenceUrl} controls playsInline />
+                                    <canvas ref={sourceCanvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+                                </div>
+                            ) : onlineVideoUrl ? (
+                                <div className="overflow-hidden rounded-[22px] bg-[#111111]">
+                                    <iframe key={selectedVideo?.exercise_id} className="aspect-video w-full" src={onlineVideoUrl} title={selectedVideo?.title || "Reference video"} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen />
+                                </div>
+                            ) : (
+                                <div className="flex aspect-video flex-col items-center justify-center rounded-[22px] bg-fill px-4 text-center">
+                                    <p className="font-hand text-2xl text-[var(--rf-ink-soft)]">No demo video yet</p>
+                                </div>
+                            )}
+                        </div>
+                        {selectedVideo ? <p className="mt-4 font-semibold leading-snug text-ink">{selectedVideo.title}</p> : null}
+                        {selectedVideo?.source_url ? (
+                            <a className="mt-2 inline-flex items-center gap-1.5 rounded-full text-sm font-semibold text-[var(--rf-ink-muted)] underline decoration-[var(--rf-line-strong)] underline-offset-4 hover:text-ink hover:decoration-ink" href={selectedVideo.source_url} target="_blank" rel="noreferrer">
+                                Original exercise page
+                                <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M7 17 17 7M9 7h8v8" />
+                                </svg>
+                            </a>
+                        ) : null}
+                    </section>
+
+                    <div className="flex items-start gap-3 rounded-[22px] bg-rose-100 px-4 py-3.5 text-sm text-rose-700">
+                        <svg aria-hidden="true" className="mt-0.5 shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M12 7.5v5.5M12 16.5h.01" />
+                        </svg>
+                        <p>
+                            <span className="font-semibold">Stop if pain turns sharp or keeps building.</span> Rest, and tell your clinician before the next session.
+                        </p>
+                    </div>
+                </aside>
+            </div>
 
             {hasRealSessionContext && rehabSession ? (
-                <section className="card">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                            <h2 className="section-title">Session checklist</h2>
-                            <p className="mt-1 text-sm text-slate-600">Tick each exercise as you finish it.</p>
-                        </div>
-                        <button className="btn-secondary" onClick={() => void persistSession(completedIdentifiers)} disabled={sessionBusy}>
-                            {sessionBusy ? "Saving" : "Save Session Progress"}
-                        </button>
+                <section className="card sm:p-8">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                        <h2 className="font-hand text-4xl leading-none">Checklist</h2>
+                        <p className="flex items-baseline gap-2" aria-label={`${checklistDone} of ${checklistTotal} done`}>
+                            <span className="font-hand text-5xl leading-none text-ink">
+                                {checklistDone}
+                                <span className="text-[var(--rf-ink-soft)]">/{checklistTotal}</span>
+                            </span>
+                            <span className="text-sm font-semibold text-[var(--rf-ink-muted)]">done</span>
+                        </p>
                     </div>
-                    <div className="mt-4 space-y-2">
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
                         {rehabSession.checklist.map((item, index) => {
                             const identifier = item.exercise_id || item.label;
                             return (
-                                <label key={item.exercise_id || item.label + "-" + index} className="flex cursor-pointer items-center gap-3 rounded-control border border-line bg-white p-3 text-sm text-slate-700">
-                                    <input type="checkbox" checked={item.completed} onChange={() => toggleChecklistItem(identifier)} disabled={sessionBusy} />
-                                    <span className="font-medium text-slate-950">{item.label}</span>
+                                <label
+                                    key={item.exercise_id || item.label + "-" + index}
+                                    className={`flex min-h-[64px] cursor-pointer items-center gap-4 rounded-[22px] px-4 py-3 transition-colors ${item.completed ? "bg-mint" : "bg-fill hover:bg-[var(--rf-fill-strong)]"} ${sessionBusy ? "cursor-wait opacity-70" : ""}`}
+                                >
+                                    <input className="peer sr-only" type="checkbox" checked={item.completed} onChange={() => toggleChecklistItem(identifier)} disabled={sessionBusy} />
+                                    <span
+                                        aria-hidden="true"
+                                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-colors peer-focus-visible:outline peer-focus-visible:outline-[3px] peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink ${item.completed ? "border-mint-stroke bg-mint-stroke text-white" : "border-[var(--rf-line-strong)] bg-white text-transparent"}`}
+                                    >
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="m5 12.5 4.5 4.5L19 7.5" />
+                                        </svg>
+                                    </span>
+                                    <span className={`font-semibold leading-snug ${item.completed ? "text-mint-deep" : "text-ink"}`}>{item.label}</span>
                                 </label>
                             );
                         })}
                     </div>
-                    <label className="mt-4 block">
-                        <span className="field-label">Patient notes</span>
-                        <textarea className="textarea min-h-24" value={patientNotes} onChange={(event) => updatePatientNotes(event.target.value)} placeholder="Symptoms before or after today's session" />
+                    <label className="mt-6 block">
+                        <span className="field-label mt-0">Your notes</span>
+                        <textarea className="textarea mt-2 min-h-24" value={patientNotes} onChange={(event) => updatePatientNotes(event.target.value)} placeholder="Symptoms before or after today's session" />
                     </label>
-                    {rehabSession.session_summary ? <p className="notice mt-4">{rehabSession.session_summary}</p> : null}
-                    <button className="btn-primary mt-4" onClick={summarizeSession} disabled={sessionBusy}>Generate Session Summary</button>
-                    {sessionError ? <p className="mt-3 text-sm text-rose-700">{sessionError}</p> : null}
-                    {sessionStatus ? <p className="mt-3 text-sm text-emerald-700">{sessionStatus}</p> : null}
+                    {rehabSession.session_summary ? (
+                        <div className="mt-5 rounded-[22px] bg-mint px-5 py-4">
+                            <p className="text-sm font-semibold text-mint-deep">Summary</p>
+                            <p className="mt-1 text-ink">{rehabSession.session_summary}</p>
+                        </div>
+                    ) : null}
+                    <div className="mt-5 flex flex-wrap items-center gap-3">
+                        <button className="btn bg-mint-label text-mint-deep hover:bg-mint" onClick={summarizeSession} disabled={sessionBusy}>
+                            Finish and summarise
+                        </button>
+                        <button className="btn-secondary" onClick={() => void persistSession(completedIdentifiers)} disabled={sessionBusy}>
+                            {sessionBusy ? "Saving" : "Save progress"}
+                        </button>
+                        {sessionStatus ? (
+                            <p className="inline-flex items-center gap-2 text-sm font-semibold text-mint-deep">
+                                <span aria-hidden="true" className="h-2 w-2 rounded-full bg-mint-stroke" />
+                                {sessionStatus}
+                            </p>
+                        ) : null}
+                    </div>
+                    {sessionError ? <p className="notice notice-danger mt-4">{sessionError}</p> : null}
                 </section>
             ) : hasRealSessionContext ? (
-                <section className="card text-sm text-slate-600">
-                    {sessionLoading ? "Loading session details..." : sessionError || "This rehab session is unavailable."}
+                <section className="card text-center">
+                    {sessionLoading ? (
+                        <p className="font-hand text-2xl text-[var(--rf-ink-soft)]">Loading your checklist…</p>
+                    ) : (
+                        <p className="notice notice-danger text-left">{sessionError || "This rehab session is unavailable."}</p>
+                    )}
                 </section>
             ) : null}
 
-            <section className="card">
-                <div>
-                    <h2 className="section-title">Exercises in this session</h2>
-                    <p className="mt-1 text-sm text-slate-600">Pick one to show its demonstration next to your camera.</p>
+            <section aria-labelledby="session-exercises-title">
+                <div className="flex flex-wrap items-baseline gap-3">
+                    <h2 id="session-exercises-title" className="font-hand text-4xl leading-none">
+                        Exercises
+                    </h2>
+                    {videos.length ? (
+                        <span className="tag" data-tone="mint">
+                            {videos.length}
+                        </span>
+                    ) : null}
                 </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {videos.map((video) => (
-                        <button
-                            key={video.exercise_id}
-                            onClick={() => setSelectedId(video.exercise_id)}
-                            className={selectedId === video.exercise_id ? "w-full rounded-control border border-action bg-[var(--rf-olive-tint)] p-4 text-left shadow-[inset_3px_0_0_var(--rf-olive-deep)] transition" : "w-full rounded-control border border-line bg-white p-4 text-left transition hover:border-[var(--rf-line-strong)]"}
-                        >
-                            <p className="font-semibold text-slate-950">{video.title}</p>
-                            <p className="mt-2 line-clamp-2 text-sm text-slate-600">{video.relevance_notes}</p>
-                            
-                        </button>
-                    ))}
-                    {!videos.length ? <p className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-600">No exercise videos are attached to this session yet.</p> : null}
-                </div>
+                {videos.length ? (
+                    <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                        {videos.map((video, index) => {
+                            const isSelected = selectedId === video.exercise_id;
+                            return (
+                                <button
+                                    key={video.exercise_id}
+                                    onClick={() => setSelectedId(video.exercise_id)}
+                                    aria-pressed={isSelected}
+                                    className={`sticker flex w-full items-start gap-4 p-5 text-left ${isSelected ? "tone-mint rotate-[-1.2deg]" : "bg-fill shadow-none"}`}
+                                >
+                                    <span aria-hidden="true" className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full font-hand text-2xl ${isSelected ? "bg-white text-mint-deep" : "bg-white text-[var(--rf-ink-muted)]"}`}>
+                                        {index + 1}
+                                    </span>
+                                    <span className="min-w-0">
+                                        <span className="block font-semibold leading-snug text-ink">{video.title}</span>
+                                        {video.relevance_notes ? <span className="mt-1.5 line-clamp-2 block text-sm text-[var(--rf-ink-muted)]">{video.relevance_notes}</span> : null}
+                                        {isSelected ? (
+                                            <span className="tag mt-3 bg-white text-mint-deep">
+                                                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-mint-stroke" />
+                                                On screen
+                                            </span>
+                                        ) : null}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="mt-5 flex flex-col items-center justify-center gap-1 rounded-[28px] border-2 border-dashed border-[var(--rf-line-strong)] px-6 py-12 text-center">
+                        <p className="font-hand text-3xl text-ink">No exercises here yet</p>
+                    </div>
+                )}
             </section>
         </div>
+    );
+}
+
+function ArrowIcon() {
+    return (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14M13 6l6 6-6 6" />
+        </svg>
     );
 }

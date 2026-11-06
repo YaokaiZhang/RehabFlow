@@ -41,26 +41,26 @@ function SummaryPanel({
 }) {
     const saved = isSavedSummary(summary);
     return (
-        <section className={`card ${saved ? "" : "border-[rgba(157,119,79,0.45)]"}`}>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
+        <section className={`card ep-summary ${saved ? "" : "ep-summary-draft"}`} data-tone="peach">
+            <div className="ep-summary-head">
+                <div className="min-w-0">
                     <StatusBadge tone={saved ? "success" : "attention"}>
                         {saved ? `Saved summary, version ${summary.version}` : "Draft: review before saving"}
                     </StatusBadge>
-                    <h2 className="mt-3 text-xl font-bold leading-snug text-slate-950">{summary.concern || episodeIssueTitle}</h2>
+                    <h2 className="ep-summary-title">{summary.concern || episodeIssueTitle}</h2>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="ep-summary-actions">
                     {!saved && onSave ? <AppButton onClick={onSave} disabled={busy}>{busy ? "Saving" : "Save to episode"}</AppButton> : null}
                     {!saved && onDelete ? <AppButton variant="ghost" className="text-danger" onClick={onDelete} disabled={busy}>{busy ? "Working" : "Discard"}</AppButton> : null}
                 </div>
             </div>
-            <div className="mt-5">
-                <h3 className="text-base font-bold text-slate-950">What we heard</h3>
-                <p className="mt-1.5 max-w-[68ch] leading-relaxed text-slate-700">{summary.relevant_context}</p>
+            <div className="ep-summary-block">
+                <h3>What we heard</h3>
+                <p>{summary.relevant_context}</p>
             </div>
-            <div className="mt-5 border-t border-line pt-4">
-                <h3 className="text-base font-bold text-slate-950">Suggested next step</h3>
-                <p className="mt-1.5 max-w-[68ch] leading-relaxed text-slate-700">{summary.recommendation}</p>
+            <div className="ep-summary-block">
+                <h3>Suggested next step</h3>
+                <p>{summary.recommendation}</p>
             </div>
         </section>
     );
@@ -164,30 +164,31 @@ export default function EpisodeTriagePage() {
         }
     };
 
-    if (loading) return <p className="text-sm text-slate-500">Loading episode triage...</p>;
+    if (loading) return <p className="ep-loading">Loading episode triage...</p>;
     if (error && !episode) return <section className="page-column-narrow"><p className="notice notice-danger">{error}</p></section>;
     if (!episode) return null;
 
     const latestSummary = summaries[0] || episode.latest_triage_summary || null;
+    const hasDrafts = drafts.length > 0;
 
     return (
-        <div className="page-column-narrow space-y-6">
-            <section className="page-header">
+        <div className="page-column-narrow ep-page">
+            <header className="page-header" data-tone="peach">
                 <p className="page-header-kicker">AI Triage Intake</p>
                 <h1>{episode.issue_title}</h1>
-                <p className="page-header-lead">Turn your triage chat into a summary, check it, and save it to this episode. A saved summary unlocks AI Daily Rehab.</p>
-                <div className="page-header-actions">
+                {!latestSummary ? <p className="scribble ep-header-note">a saved summary unlocks AI Daily Rehab</p> : null}
+                <div className="ep-header-links">
                     <Link className="btn-secondary" href={`/?episode_id=${episode.care_episode_id}`}>Continue AI Triage Chat</Link>
-                    <Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}`}>Episode Overview</Link>
+                    <Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}`}>Episode overview</Link>
                 </div>
-            </section>
+            </header>
 
             <section className="card">
                 <h2 className="section-title">{latestSummary ? "Update the summary" : "Create a summary"}</h2>
                 <label className="block">
                     <span className="field-label">Anything new since your last chat? (optional)</span>
                     <textarea
-                        className="textarea min-h-28"
+                        className="textarea mt-1.5 min-h-28"
                         value={additionalContext}
                         onChange={(event) => setAdditionalContext(event.target.value)}
                         placeholder="For example: swelling went down, stairs still hurt, no numbness"
@@ -195,13 +196,13 @@ export default function EpisodeTriagePage() {
                 </label>
                 {error ? <p className="notice notice-danger mt-3">{error}</p> : null}
                 {statusMessage ? <p className="notice mt-3" role="status">{statusMessage}</p> : null}
-                <AppButton className="mt-4" onClick={generateSummary} disabled={generating}>
+                <AppButton variant={hasDrafts ? "secondary" : "primary"} className="mt-4" onClick={generateSummary} disabled={generating}>
                     {generating ? "Writing summary" : latestSummary ? "Write a new draft" : "Write a draft summary"}
                 </AppButton>
             </section>
 
-            {drafts.length ? (
-                <section className="space-y-3">
+            {hasDrafts ? (
+                <section className="space-y-4" aria-label="Draft summaries">
                     {drafts.map((draft) => (
                         <SummaryPanel
                             key={draft.triage_summary_draft_id}
@@ -215,16 +216,19 @@ export default function EpisodeTriagePage() {
                 </section>
             ) : null}
 
-            {latestSummary ? <SummaryPanel summary={latestSummary} episodeIssueTitle={episode.issue_title} /> : null}
+            {latestSummary ? <SummaryPanel summary={latestSummary} episodeIssueTitle={episode.issue_title} /> : !hasDrafts ? <p className="ep-empty">no summary saved yet</p> : null}
 
             {summaries.length > 1 ? (
                 <section className="card">
-                    <h2 className="section-title">Earlier summaries</h2>
-                    <div className="mt-3 space-y-2">
+                    <div className="ep-section-head">
+                        <h2 className="section-title">Earlier summaries</h2>
+                        <span className="ep-count">{summaries.length - 1}</span>
+                    </div>
+                    <div className="ep-earlier">
                         {summaries.slice(1).map((summary) => (
-                            <div key={summary.triage_summary_id} className="rounded-control border border-line p-4 text-sm text-slate-700">
-                                <p className="font-semibold text-slate-950">Version {summary.version}</p>
-                                <p className="mt-1">{summary.recommendation}</p>
+                            <div key={summary.triage_summary_id} className="ep-earlier-item">
+                                <p className="font-semibold">Version {summary.version}</p>
+                                <p className="text-[var(--rf-ink-muted)]">{summary.recommendation}</p>
                             </div>
                         ))}
                     </div>

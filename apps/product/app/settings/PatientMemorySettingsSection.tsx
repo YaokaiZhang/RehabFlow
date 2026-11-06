@@ -4,7 +4,7 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import { type MemoryDocumentFieldInput } from "@rehab/shared/api";
 
-import { AppButton, DashboardCard, SectionHeader } from "../../components/ui";
+import { AppButton } from "../../components/ui";
 import { usePatientMemoryDocument } from "../memory/usePatientMemoryDocument";
 
 const emptyForm: MemoryDocumentFieldInput = {
@@ -64,97 +64,75 @@ export default function PatientMemorySettingsSection() {
 
 	if (!auth || auth.role !== "patient") {
 		return (
-			<DashboardCard className="max-w-2xl">
-				<SectionHeader
-					eyebrow="Patient Memory"
-					title="Sign in as a patient to manage Patient Memory"
-					description="Patient Memory stores durable context patients can Directly edit, while Episode Memory stays system-managed for each care concern."
-				/>
-			</DashboardCard>
+			<div className="card settings-card">
+				<p className="settings-empty">Sign in as a patient to manage Patient Memory.</p>
+			</div>
 		);
 	}
 
 	return (
-		<section className="space-y-5" id="patient-memory">
-			<DashboardCard className="p-5 md:p-6">
-				<SectionHeader
-					title="Patient Memory"
-					description="Facts RehabFlow keeps in mind across all your episodes, like an old injury or a sport you play. You can directly edit them here. What each episode remembers is managed automatically."
-				/>
-			</DashboardCard>
-
+		<section className="settings-content" id="patient-memory" aria-labelledby="patient-memory-title">
 			{error ? <p className="notice notice-danger">{error}</p> : null}
 			{statusMessage ? <p className="notice" role="status">{statusMessage}</p> : null}
-			{loading ? <p className="text-sm text-slate-500">Loading Patient Memory...</p> : null}
+			{loading ? <p className="dashboard-loading">Loading Patient Memory...</p> : null}
 
-			<DashboardCard className="p-5 md:p-6">
-				<div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-					<div>
-						<h3 className="text-lg font-bold text-slate-950">Patient Memory summary</h3>
-					</div>
-					{memoryDocument?.compiled_text && memoryDocument?.last_compiled_at ? <p className="text-xs font-medium text-slate-500">Updated {new Date(memoryDocument.last_compiled_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</p> : null}
+			<div className="sticker tone-lilac settings-memory-summary">
+				<div className="settings-card-title-row">
+					<h2 className="settings-card-title" id="patient-memory-title">Patient memory</h2>
+					{memoryDocument?.compiled_text && memoryDocument?.last_compiled_at ? <p className="settings-meta">Updated {new Date(memoryDocument.last_compiled_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</p> : null}
 				</div>
-				<div className="mt-4 whitespace-pre-wrap rounded-control border border-line bg-[var(--rf-surface-muted)] p-4 text-sm leading-6 text-slate-700">
-					{memoryDocument?.compiled_text || "Nothing remembered yet. Add a fact below, or keep chatting and RehabFlow will add what matters."}
-				</div>
-			</DashboardCard>
+				{memoryDocument?.compiled_text ? (
+					<p className="settings-memory-text">{memoryDocument.compiled_text}</p>
+				) : (
+					<p className="settings-empty">Nothing remembered yet. Add a fact below, or keep chatting and RehabFlow will add what matters.</p>
+				)}
+			</div>
 
-			<DashboardCard className="p-5 md:p-6">
-				<h3 className="text-lg font-bold text-slate-950">Add something to remember</h3>
-				<form className="mt-4 grid gap-3" onSubmit={submitNewItem}>
-					<label className="grid gap-1 text-sm font-medium text-slate-700">
-						<span>Topic</span>
-						<input className="input" value={newItem.field_name} onChange={(event) => setNewItem((prev) => ({ ...prev, field_name: event.target.value }))} placeholder="For example: Favourite activity" />
-					</label>
-					<label className="grid gap-1 text-sm font-medium text-slate-700">
-						<span>Value</span>
-						<textarea className="textarea min-h-28" value={newItem.value} onChange={(event) => setNewItem((prev) => ({ ...prev, value: event.target.value }))} placeholder="For example: I play padel twice a week and want to keep doing it." />
-					</label>
-					<div>
-						<AppButton type="submit" disabled={busy || !newItem.field_name.trim() || !newItem.value.trim()}>{busy ? "Saving" : "Add"}</AppButton>
+			<section aria-labelledby="patient-memory-items-title">
+				<h3 className="settings-section-label" id="patient-memory-items-title">What RehabFlow remembers</h3>
+				{!loading && activeItems.length === 0 ? <p className="settings-empty">Nothing here yet.</p> : null}
+				{activeItems.length ? (
+					<ul className="settings-memory-list">
+						{activeItems.map((item) => (
+							<li key={item.field_name} className={editingItemId === item.field_name ? "card settings-memory-item settings-memory-item-editing" : "card settings-memory-item"} data-tone="lilac">
+								{editingItemId === item.field_name ? (
+									<form className="settings-form" onSubmit={submitEditItem}>
+										<label className="field-label" htmlFor="memory-edit-topic">Topic</label>
+										<input id="memory-edit-topic" className="input" value={editingItem.field_name} onChange={(event) => setEditingItem((prev) => ({ ...prev, field_name: event.target.value }))} />
+										<label className="field-label" htmlFor="memory-edit-value">Value</label>
+										<textarea id="memory-edit-value" className="textarea mt-1.5 min-h-28" value={editingItem.value} onChange={(event) => setEditingItem((prev) => ({ ...prev, value: event.target.value }))} />
+										<div className="settings-form-actions">
+											<AppButton type="submit" disabled={busy || !editingItem.field_name.trim() || !editingItem.value.trim()}>{busy ? "Saving" : "Save"}</AppButton>
+											<AppButton variant="secondary" type="button" onClick={() => setEditingItemId(null)} disabled={busy}>Cancel</AppButton>
+										</div>
+									</form>
+								) : (
+									<>
+										<h4><span className="session-dot" aria-hidden="true" />{item.field_name}</h4>
+										<p>{item.value}</p>
+										<div className="settings-item-actions">
+											<button type="button" className="settings-text-button" onClick={() => startEditing(item)} disabled={busy}>Edit<span className="sr-only"> {item.field_name}</span></button>
+											<button type="button" className="settings-text-button settings-text-button-danger" onClick={() => deleteItem(item.field_name)} disabled={busy}>Delete<span className="sr-only"> {item.field_name}</span></button>
+										</div>
+									</>
+								)}
+							</li>
+						))}
+					</ul>
+				) : null}
+			</section>
+
+			<section className="card settings-card" aria-labelledby="patient-memory-add-title">
+				<h3 className="settings-card-title" id="patient-memory-add-title">Add something to remember</h3>
+				<form className="settings-form" onSubmit={submitNewItem}>
+					<label className="field-label" htmlFor="memory-new-topic">Topic</label>
+					<input id="memory-new-topic" className="input" value={newItem.field_name} onChange={(event) => setNewItem((prev) => ({ ...prev, field_name: event.target.value }))} placeholder="For example: Favourite activity" />
+					<label className="field-label" htmlFor="memory-new-value">Value</label>
+					<textarea id="memory-new-value" className="textarea mt-1.5 min-h-28" value={newItem.value} onChange={(event) => setNewItem((prev) => ({ ...prev, value: event.target.value }))} placeholder="For example: I play padel twice a week and want to keep doing it." />
+					<div className="settings-form-actions">
+						<AppButton type="submit" variant={editingItemId ? "secondary" : "primary"} disabled={busy || !newItem.field_name.trim() || !newItem.value.trim()}>{busy ? "Saving" : "Add"}</AppButton>
 					</div>
 				</form>
-			</DashboardCard>
-
-			<section className="space-y-3">
-				<SectionHeader eyebrow="Directly edit" title="What RehabFlow remembers" />
-				{!loading && activeItems.length === 0 ? (
-					<p className="rounded-control border border-dashed border-line p-4 text-sm text-slate-600">Nothing here yet.</p>
-				) : null}
-				{activeItems.map((item) => (
-					<DashboardCard key={item.field_name} className="p-5">
-						{editingItemId === item.field_name ? (
-							<form className="grid gap-3" onSubmit={submitEditItem}>
-								<label className="grid gap-1 text-sm font-medium text-slate-700">
-									<span>Topic</span>
-									<input className="input" value={editingItem.field_name} onChange={(event) => setEditingItem((prev) => ({ ...prev, field_name: event.target.value }))} />
-								</label>
-								<label className="grid gap-1 text-sm font-medium text-slate-700">
-									<span>Value</span>
-									<textarea className="textarea min-h-28" value={editingItem.value} onChange={(event) => setEditingItem((prev) => ({ ...prev, value: event.target.value }))} />
-								</label>
-								<div className="flex flex-wrap gap-2">
-									<AppButton type="submit" disabled={busy || !editingItem.field_name.trim() || !editingItem.value.trim()}>{busy ? "Saving" : "Save"}</AppButton>
-									<AppButton variant="secondary" type="button" onClick={() => setEditingItemId(null)} disabled={busy}>Cancel</AppButton>
-								</div>
-							</form>
-						) : (
-							<>
-								<div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-									<div>
-										<p className="text-sm font-semibold text-emerald-700">Patient Memory field</p>
-										<h3 className="mt-1 text-lg font-semibold text-slate-950">{item.field_name}</h3>
-									</div>
-								</div>
-								<p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{item.value}</p>
-								<div className="mt-4 flex flex-wrap gap-2">
-									<AppButton variant="secondary" type="button" onClick={() => startEditing(item)} disabled={busy}>Edit</AppButton>
-									<AppButton variant="secondary" type="button" onClick={() => deleteItem(item.field_name)} disabled={busy}>Delete</AppButton>
-								</div>
-							</>
-						)}
-					</DashboardCard>
-				))}
 			</section>
 		</section>
 	);

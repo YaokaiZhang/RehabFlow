@@ -1,0 +1,185 @@
+/* Area styles: auth. Plain CSS (no @layer); tokens live in app/globals.css. */
+.auth-page {
+	position: relative;
+	display: grid;
+	width: min(100%, 820px);
+	margin: 0 auto;
+	place-items: start center;
+	padding: clamp(8px, 5vh, 56px) 0 48px;
+}
+
+.auth-card {
+	position: relative;
+	z-index: 1;
+	width: min(100%, 440px);
+	border: 1px solid rgba(17, 17, 17, 0.04);
+	border-radius: var(--rf-radius-feature);
+	background: var(--rf-paper);
+	box-shadow: var(--rf-shadow-lift);
+	padding: 40px 36px 30px;
+}
+
+.auth-note {
+	position: absolute;
+	top: -30px;
+	right: 18px;
+	margin: 0;
+	transform: rotate(-4deg);
+	white-space: nowrap;
+}
+
+.auth-card h1 {
+	margin: 0;
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: clamp(2.5rem, 7vw, 3.25rem);
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	line-height: 0.95;
+}
+
+.auth-form {
+	display: grid;
+	gap: 16px;
+	margin-top: 26px;
+}
+
+/* Patient / doctor: a segmented pill on soft grey. */
+.auth-role {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 4px;
+	margin: 0 0 4px;
+	border: 0;
+	border-radius: var(--rf-radius-control);
+	background: var(--rf-fill);
+	padding: 5px;
+}
+
+.auth-role-option {
+	position: relative;
+	display: flex;
+	min-height: 42px;
+	cursor: pointer;
+	align-items: center;
+	justify-content: center;
+	border-radius: var(--rf-radius-control);
+	color: var(--rf-ink-muted);
+	font-size: 0.9375rem;
+	font-weight: 650;
+	transition: background-color 160ms ease, color 160ms ease, box-shadow 200ms var(--rf-ease);
+}
+
+.auth-role-option:hover {
+	color: var(--rf-ink);
+}
+
+.auth-role-option input {
+	position: absolute;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.auth-role-option:has(input:focus-visible) {
+	outline: 3px solid var(--rf-ink);
+	outline-offset: 2px;
+}
+
+.auth-role-option-active {
+	background: var(--rf-paper);
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+	color: var(--rf-ink);
+}
+
+.auth-hint {
+	margin: 6px 0 0 4px;
+	color: var(--rf-ink-soft);
+	font-size: 0.8125rem;
+}
+
+.auth-form button[type="submit"] {
+	min-height: 52px;
+	margin-top: 8px;
+}
+
+.auth-switch {
+	margin: 22px 0 0;
+	color: var(--rf-ink-muted);
+	font-size: 0.9375rem;
+	text-align: center;
+}
+
+.auth-switch a {
+	color: var(--rf-ink);
+	font-weight: 700;
+	text-decoration: underline;
+	text-decoration-color: var(--rf-line-strong);
+	text-underline-offset: 4px;
+}
+
+.auth-switch a:hover {
+	text-decoration-color: currentColor;
+}
+
+/* Floating stickers around the card; decoration only. */
+.auth-deco {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.auth-deco-sticker {
+	position: absolute;
+	padding: 14px 22px;
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 1.5rem;
+	font-weight: 700;
+	line-height: 1;
+	color: var(--tone-deep);
+	white-space: nowrap;
+}
+
+.auth-deco-a {
+	top: 90px;
+	left: 0;
+	transform: rotate(-7deg);
+}
+
+.auth-deco-b {
+	top: 300px;
+	right: -6px;
+	transform: rotate(6deg);
+}
+
+.auth-deco-c {
+	bottom: 70px;
+	left: 24px;
+	transform: rotate(4deg);
+}
+
+.auth-deco-scribble {
+	position: absolute;
+	top: 40px;
+	right: 40px;
+	width: 110px;
+	color: var(--rf-ink-soft);
+}
+
+@media (max-width: 900px) {
+	.auth-deco {
+		display: none;
+	}
+}
+
+@media (max-width: 520px) {
+	.auth-page {
+		padding-top: 36px;
+	}
+
+	.auth-card {
+		padding: 34px 22px 24px;
+	}
+
+	.auth-note {
+		right: 12px;
+	}
+}

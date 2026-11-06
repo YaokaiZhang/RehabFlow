@@ -9,7 +9,7 @@ import { loadAuth, type AuthState } from "@rehab/shared/auth";
 import { connectDoctorEpisodeMonitor } from "@rehab/shared/ws";
 
 import { CareEpisodeBrief } from "../../../../../components/CareEpisodeBrief";
-import { AppButton, DashboardCard, SectionHeader, StatusBadge } from "../../../../../components/ui";
+import { AppButton, StatusBadge } from "../../../../../components/ui";
 
 type Params = { episode_id?: string };
 
@@ -153,59 +153,65 @@ export default function ProfessionalCareLiveMonitorPage() {
 		return <section className="page-column-narrow"><p className="notice">Log in as a doctor to use Optional Live Movement Monitoring.</p></section>;
 	}
 
-	if (loading) return <p className="text-sm text-slate-500">Loading Care Episode...</p>;
+	if (loading) return <p className="ep-loading">Loading Care Episode...</p>;
+
+	const connectionTone = connectionStatus === "connected" ? "success" : connectionStatus === "error" ? "risk" : "neutral";
 
 	return (
-		<div className="page-column space-y-6">
-			<section className="page-header">
+		<div className="page-column ep-page">
+			<header className="page-header" data-tone="sky">
 				<p className="page-header-kicker">Professional Care</p>
 				<h1>Optional Live Movement Monitoring</h1>
-				<p className="page-header-lead">See the patient&apos;s movement score while they do a guided session. Connect, then ask the patient to press Start in AI Daily Rehab.</p>
-				<div className="page-header-actions">
+				<p className="scribble ep-header-note">connect, then ask the patient to press Start in AI Daily Rehab</p>
+				<div className="ep-header-links">
 					<Link className="btn-secondary" href="/doctor">Back to Care Worklist</Link>
 				</div>
-			</section>
+			</header>
 
 			{errorMessage ? <p className="notice notice-danger">{errorMessage}</p> : null}
 
 			{workspace ? <CareEpisodeBrief workspace={workspace} role="doctor" compact /> : null}
 
-			<section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-				<DashboardCard className="p-4">
-					<p className="text-sm font-semibold text-slate-500">Connection</p>
-					<StatusBadge className="mt-2" tone={connectionStatus === "connected" ? "success" : connectionStatus === "error" ? "risk" : "neutral"}>{statusMessage}</StatusBadge>
-				</DashboardCard>
-				<DashboardCard className="p-4">
-					<p className="text-sm font-semibold text-slate-500">Latest signal</p>
-					<p className="mt-2 text-sm text-slate-700">{latestEvent ? `Score ${latestEvent.current_score}` : "Patient not streaming"}</p>
-				</DashboardCard>
-				<DashboardCard className="p-4">
-					<p className="text-sm font-semibold text-slate-500">Pose points seen</p>
-					<p className="mt-2 text-sm text-slate-700">{latestEvent?.coordinates?.length ?? 0}</p>
-				</DashboardCard>
-				<DashboardCard className="p-4">
-					<p className="text-sm font-semibold text-slate-500">Last received</p>
-					<p className="mt-2 text-sm text-slate-700">{formatReceivedTime(latestEvent?.timestamp)}</p>
-				</DashboardCard>
+			<section className="ep-monitor-stats" aria-label="Monitor status">
+				<div className="ep-stat ep-stat-sky">
+					<span className="ep-stat-label">Connection</span>
+					<StatusBadge tone={connectionTone}>{statusMessage}</StatusBadge>
+				</div>
+				<div className="ep-stat">
+					<span className="ep-stat-label">Latest signal</span>
+					<p className="ep-stat-value">{latestEvent ? `Score ${latestEvent.current_score}` : "Patient not streaming"}</p>
+				</div>
+				<div className="ep-stat">
+					<span className="ep-stat-label">Pose points seen</span>
+					<p className="ep-stat-value">{latestEvent?.coordinates?.length ?? 0}</p>
+				</div>
+				<div className="ep-stat">
+					<span className="ep-stat-label">Last received</span>
+					<p className="ep-stat-value ep-stat-value-sm">{formatReceivedTime(latestEvent?.timestamp)}</p>
+				</div>
 			</section>
 
-			<section className="card">
-				<SectionHeader
-					title="Recent movement events"
-					description="Newest first. Scores support your judgement; they don't replace watching the movement."
-					action={<AppButton onClick={() => void connect()} disabled={!workspace}>Connect to Optional Live Movement Monitoring</AppButton>}
-				/>
-
-				<div className="mt-4 max-h-96 space-y-2 overflow-auto">
-					{orderedEvents.length === 0 ? <p className="rounded-control border border-dashed border-line p-4 text-sm text-slate-500">The patient isn&apos;t streaming yet.</p> : null}
-					{orderedEvents.map((evt, idx) => (
-						<DashboardCard key={`${evt.timestamp || "event"}-${idx}`} className="p-3 text-sm text-slate-600">
-							<p><span className="font-semibold text-slate-950">Time:</span> {formatReceivedTime(evt.timestamp)}</p>
-							<p><span className="font-semibold text-slate-950">Score:</span> {evt.current_score}</p>
-							<p><span className="font-semibold text-slate-950">Pose points:</span> {evt.coordinates?.length ?? 0}</p>
-						</DashboardCard>
-					))}
+			<section className="card" aria-labelledby="ep-events-title">
+				<div className="ep-section-head">
+					<div className="min-w-0">
+						<h2 id="ep-events-title" className="section-title">Recent movement events</h2>
+						<p className="mt-1 max-w-[62ch] text-sm text-[var(--rf-ink-muted)]">Newest first. Scores support your judgement; they don&apos;t replace watching the movement.</p>
+					</div>
+					<AppButton onClick={() => void connect()} disabled={!workspace}>Connect to Optional Live Movement Monitoring</AppButton>
 				</div>
+
+				{orderedEvents.length === 0 ? <p className="ep-empty mt-4">the patient isn&apos;t streaming yet</p> : null}
+				{orderedEvents.length ? (
+					<ul className="ep-events">
+						{orderedEvents.map((evt, idx) => (
+							<li key={`${evt.timestamp || "event"}-${idx}`} className="ep-event">
+								<span className="ep-event-score" aria-label={`Score ${evt.current_score}`}>{evt.current_score}</span>
+								<span className="ep-event-time">{formatReceivedTime(evt.timestamp)}</span>
+								<span className="ep-event-points">{evt.coordinates?.length ?? 0} pose points</span>
+							</li>
+						))}
+					</ul>
+				) : null}
 			</section>
 		</div>
 	);

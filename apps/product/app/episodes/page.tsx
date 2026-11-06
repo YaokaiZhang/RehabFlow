@@ -6,33 +6,37 @@ import { useEffect, useState } from "react";
 import { deleteCareEpisode, listCareEpisodes, type CareEpisode } from "@rehab/shared/api";
 import { loadAuth, type AuthState } from "@rehab/shared/auth";
 
-import { AppButton, DashboardCard, SectionHeader, StatusBadge } from "../../components/ui";
 
-function safetyCopy(status: CareEpisode["safety_gate_status"]) {
-	if (status === "needs_triage") return "Needs AI Triage Intake before AI Daily Rehab";
-	if (status === "clinician_reviewed") return "Clinician-reviewed context available";
-	return "AI triage context available";
-}
 
-function safetyTone(status: CareEpisode["safety_gate_status"]) {
-	if (status === "needs_triage") return "attention";
-	if (status === "clinician_reviewed") return "success";
-	return "info";
+type EpisodeTone = "peach" | "mint" | "sky";
+
+// The sticker colour follows the session the episode is in right now.
+function episodeStage(episode: CareEpisode): { tone: EpisodeTone; label: string } {
+	if (episode.safety_gate_status === "needs_triage") return { tone: "peach", label: "Needs triage" };
+	if (episode.selected_doctor_id) return { tone: "sky", label: "With a doctor" };
+	return { tone: "mint", label: "In rehab" };
 }
 
 function statusCopy(status: CareEpisode["status"]) {
-	return status
-		.split("_")
-		.filter(Boolean)
-		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-		.join(" ") || "Active";
+	const words = status.split("_").filter(Boolean).join(" ");
+	return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Active";
 }
 
 function formatDate(value?: string | null) {
 	if (!value) return "Not recorded";
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return "Not recorded";
-	return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(date);
+	return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+}
+
+const tilts = ["tilt-l", "tilt-r", "tilt-r", "tilt-l"];
+
+function ArrowIcon() {
+	return (
+		<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+			<path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	);
 }
 
 export default function PatientDashboardPage() {
@@ -78,112 +82,101 @@ export default function PatientDashboardPage() {
 		}
 	};
 
-	const metricValue = (value: number) => {
-		if (episodesLoaded) return value;
-		return loading ? "Loading..." : "Unavailable";
-	};
+	const needsTriageCount = episodes.filter((episode) => episode.safety_gate_status === "needs_triage").length;
+	const withDoctorCount = episodes.filter((episode) => episode.selected_doctor_id).length;
 
 	if (!auth || auth.role !== "patient") {
 		return (
-			<DashboardCard className="dashboard-guest-card max-w-2xl p-5 md:p-6">
-				<h1 className="mt-0 text-2xl font-semibold text-slate-950">Sign in to organize rehab by concern</h1>
-				<p className="mt-2 text-sm leading-6 text-slate-600">Care Episodes keep shoulder, back, ankle, and other recovery concerns separate so triage, rehab, and Professional Care do not blend together.</p>
-				<div className="mt-4 flex flex-wrap gap-2">
-					<Link className="btn-primary" href="/login">Login</Link>
-					<Link className="btn-secondary" href="/register">Register</Link>
+			<section className="dashboard-guest">
+				<div className="card dashboard-guest-card">
+					<h1 className="font-hand">Sign in to see your episodes</h1>
+					<Link className="btn-primary" href="/login">Log in<span className="btn-arrow"><ArrowIcon /></span></Link>
 				</div>
-			</DashboardCard>
+			</section>
 		);
 	}
 
 	return (
 		<div className="dashboard-page">
-			<section className="dashboard-intro">
-				<div className="dashboard-intro-copy">
-					<h1>Your rehab concerns, organized by episode</h1>
-					<p>Each episode keeps one concern, like a knee or your lower back, with its own triage, rehab and doctor conversation.</p>
-				</div>
-				<div className="dashboard-intro-actions">
-					<Link className="btn-primary" href="/">Create Episode With AI Triage</Link>
-					<Link className="btn-secondary" href="/episodes/new">New Manual Episode</Link>
-				</div>
-			</section>
+			<header className="page-header dashboard-header">
+				<h1>My episodes</h1>
+				<p className="scribble dashboard-header-note">one concern each, so nothing gets mixed up</p>
+				{episodesLoaded && episodes.length > 0 ? (
+					<ul className="dashboard-counts" aria-label="Episode counts">
+						<li className="tag">{episodes.length} {episodes.length === 1 ? "episode" : "episodes"}</li>
+						{needsTriageCount ? <li className="tag" data-tone="peach"><span className="session-dot" aria-hidden="true" />{needsTriageCount} need triage</li> : null}
+						{withDoctorCount ? <li className="tag" data-tone="sky"><span className="session-dot" aria-hidden="true" />{withDoctorCount} with a doctor</li> : null}
+					</ul>
+				) : null}
+			</header>
 
-			<section className="dashboard-status-strip" aria-label="Patient dashboard status">
-				<div className="dashboard-status-item">
-					<p className="dashboard-status-label">Episodes</p>
-					<p className="dashboard-status-value">{metricValue(episodes.length)}</p>
-					<p className="dashboard-status-description">Current and past concerns</p>
-				</div>
-				<div className="dashboard-status-item">
-					<p className="dashboard-status-label">Waiting for triage</p>
-					<p className="dashboard-status-value">{metricValue(episodes.filter((episode) => episode.safety_gate_status === "needs_triage").length)}</p>
-					<p className="dashboard-status-description">Answer the safety questions to unlock rehab</p>
-				</div>
-				<div className="dashboard-status-item">
-					<p className="dashboard-status-label">With a doctor</p>
-					<p className="dashboard-status-value">{metricValue(episodes.filter((episode) => episode.selected_doctor_id).length)}</p>
-					<p className="dashboard-status-description">Episodes where you chose a doctor</p>
-				</div>
-			</section>
+			{error ? <p className="notice notice-danger">{error}</p> : null}
+			{statusMessage ? <p className="notice" role="status">{statusMessage}</p> : null}
+			{loading ? <p className="dashboard-loading">Loading Care Episodes...</p> : null}
 
 			<section className="dashboard-episode-section" aria-label="Care Episode List">
-				<SectionHeader
-					className="dashboard-section-header"
-					title="Care Episode List"
-				/>
-
-				{error ? <p className="notice notice-danger">{error}</p> : null}
-				{statusMessage ? <p className="notice" role="status">{statusMessage}</p> : null}
-				{loading ? <p className="text-sm text-slate-500">Loading Care Episodes...</p> : null}
-
-				{episodesLoaded && episodes.length === 0 ? (
-					<DashboardCard className="dashboard-empty-card max-w-2xl p-5">
-						<h2 className="text-lg font-semibold text-slate-950">No Care Episodes yet</h2>
-						<p className="mt-2 text-sm leading-6 text-slate-600">Start with AI Triage Intake to create an episode with safety context, or create a Manual Episode if you already know what you want to track.</p>
-						<div className="mt-4 flex flex-wrap gap-3">
-							<Link className="btn-primary" href="/">Create Episode With AI Triage</Link>
-							<Link className="btn-secondary" href="/episodes/new">Create Manual Episode</Link>
-						</div>
-					</DashboardCard>
-				) : null}
-
-				<div className="dashboard-episode-list">
-					{episodes.map((episode) => (
-						<DashboardCard key={episode.care_episode_id} className="dashboard-episode-card">
-							<div className="dashboard-episode-main">
-								<div className="dashboard-episode-heading">
-									<div>
-										<p className="dashboard-episode-kicker">{episode.body_area}</p>
-										<h2>{episode.issue_title}</h2>
+				<ul className="dashboard-episode-grid">
+					{!loading ? (
+						<li className={`sticker tone-plain dashboard-new-card tilt-l`}>
+							<span className="dashboard-new-plus" aria-hidden="true">+</span>
+							<h2 className="font-hand dashboard-new-title">{episodesLoaded && episodes.length === 0 ? "No Care Episodes yet" : "New episode"}</h2>
+							<Link className="btn-primary" href="/">Start with AI triage<span className="btn-arrow"><ArrowIcon /></span></Link>
+							<Link className="dashboard-new-manual" href="/episodes/new">or add one by hand</Link>
+						</li>
+					) : null}
+					{episodes.map((episode, index) => {
+						const stage = episodeStage(episode);
+						const triageDone = episode.safety_gate_status !== "needs_triage";
+						const steps = [
+							{ tone: "peach", label: "AI Triage Intake", done: triageDone },
+							{ tone: "mint", label: "AI Daily Rehab", done: triageDone },
+							{ tone: "sky", label: "Professional Care", done: Boolean(episode.selected_doctor_id) },
+						];
+						const doneCount = steps.filter((step) => step.done).length;
+						const deleting = deletingEpisodeId === episode.care_episode_id;
+						return (
+							<li key={episode.care_episode_id} className={`sticker tone-${stage.tone} ${tilts[(index + 1) % tilts.length]} dashboard-episode-card`}>
+								<div className="dashboard-episode-top">
+									<div className="dashboard-episode-tags">
+										<span className="tag">{stage.label}</span>
+										{episode.status && episode.status !== "active" ? <span className="tag dashboard-tag-plain">{statusCopy(episode.status)}</span> : null}
 									</div>
-									<StatusBadge className="dashboard-status-badge dashboard-status-badge-neutral" tone="neutral">{statusCopy(episode.status)}</StatusBadge>
+									<button
+										type="button"
+										className="dashboard-delete-button"
+										onClick={() => deleteEpisode(episode)}
+										disabled={deleting}
+										aria-label={deleting ? `Deleting ${episode.issue_title}` : `Delete ${episode.issue_title}`}
+										title="Delete episode"
+									>
+										{deleting ? (
+											<span className="dashboard-delete-busy" aria-hidden="true" />
+										) : (
+											<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+												<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+											</svg>
+										)}
+									</button>
 								</div>
-								<p className="dashboard-episode-goal">{episode.goal}</p>
-								<div className="dashboard-episode-badges">
-									<StatusBadge className={`dashboard-status-badge dashboard-status-badge-${safetyTone(episode.safety_gate_status)}`} tone={safetyTone(episode.safety_gate_status)}>{safetyCopy(episode.safety_gate_status)}</StatusBadge>
-									{episode.selected_doctor_id ? <StatusBadge className="dashboard-status-badge dashboard-status-badge-info" tone="info">Professional Care selected</StatusBadge> : null}
+								<p className="dashboard-episode-area">{episode.body_area}</p>
+								<h2 className="dashboard-episode-title">
+									<Link className="dashboard-episode-link" href={`/episodes/${episode.care_episode_id}`}>{episode.issue_title}</Link>
+								</h2>
+								{episode.goal ? <p className="dashboard-episode-goal">{episode.goal}</p> : null}
+								<div className="dashboard-episode-progress" role="img" aria-label={`${doneCount} of 3 steps: ${steps.map((step) => `${step.label} ${step.done ? "done" : "not yet"}`).join(", ")}`}>
+									{steps.map((step) => (
+										<span key={step.label} data-tone={step.tone} className={step.done ? "dashboard-step dashboard-step-done" : "dashboard-step"} />
+									))}
 								</div>
-								<dl className="dashboard-episode-meta">
-									<div>
-										<dt>Latest activity</dt>
-										<dd>{formatDate(episode.updated_at)}</dd>
-									</div>
-									<div>
-										<dt>Created</dt>
-										<dd>{formatDate(episode.created_at)}</dd>
-									</div>
-								</dl>
-							</div>
-							<div className="dashboard-episode-actions">
-								<Link className="btn-primary" href={`/episodes/${episode.care_episode_id}`}>Open</Link>
-								<AppButton className="dashboard-delete-button" variant="ghost" onClick={() => deleteEpisode(episode)} disabled={deletingEpisodeId === episode.care_episode_id}>
-									{deletingEpisodeId === episode.care_episode_id ? "Deleting" : "Delete"}
-								</AppButton>
-							</div>
-						</DashboardCard>
-					))}
-				</div>
+								<div className="dashboard-episode-foot">
+									<span>Updated {formatDate(episode.updated_at)}</span>
+									<span className="dashboard-episode-go" aria-hidden="true"><ArrowIcon /></span>
+								</div>
+							</li>
+						);
+					})}
+
+				</ul>
 			</section>
 		</div>
 	);

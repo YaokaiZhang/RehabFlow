@@ -2,83 +2,88 @@
 
 ## Direction
 
-RehabFlow is an operate-first patient workspace. The interface should make the
-next safe action clear, keep one recovery concern coherent, and let patients
-move between focused sessions without losing episode context.
+A bright, hand-made recovery notebook. White paper, black ink, pastel sticky
+notes and handwritten headlines. The interface should feel light and friendly
+while making the next safe action obvious. The layout does the explaining:
+colour says what kind of session something is, size says what matters, and
+copy is cut to labels, data and actions.
 
-## Color
+## Colour
 
-- Champagne Mist: `#F1E0C5` for the application canvas and warm navigation surfaces.
-- Khaki Beige: `#C9B79C` for quiet structure, dividers, and secondary emphasis.
-- Dusty Olive: `#71816D` for actions, active navigation, progress, and safe-route emphasis.
-- Dark Coffee: `#342A21` for primary text, strong contrast, and clinical seriousness.
+Paper `#FFFFFF`, ink `#111111`, soft fill `#F5F5F5` (fields, secondary
+buttons, quiet surfaces), muted text `#5F5F5F`, soft text `#8A8A8A`.
 
-Use derived tints and shades of these four colors for states. Keep body text at
-accessible contrast and reserve the olive family for actions and active state.
-A muted brick (`#8B3F31`) is the only extra hue, used for risk, destructive
-actions and the "stop and get help" safety list.
+Each kind of care session owns one pastel. Use it wherever that session
+appears (rail dot, tag, sticker, page kicker) and nowhere else:
 
-Tokens live in `apps/product/app/globals.css` (`--rf-*`) and are mirrored as
-Tailwind names in `tailwind.config.ts` (`canvas`, `surface`, `ink`, `line`,
-`action`, `danger`, radii `control`/`card`/`feature`).
+| Session            | Pastel   | Label    | Deep (text) | Stroke  |
+|--------------------|----------|----------|-------------|---------|
+| AI Triage Intake   | `#FFE8D6` peach | `#FED7AA` | `#9A3412` | `#F97316` |
+| AI Daily Rehab     | `#D7F1E1` mint  | `#BBF7D0` | `#166534` | `#10B981` |
+| Professional Care  | `#E0F2FE` sky   | `#BAE6FD` | `#075985` | `#0EA5E9` |
+| History and memory | `#F3E8FF` lilac | `#E9D5FF` | `#6B21A8` | `#A855F7` |
+| Risk / stop        | `#FFE4E6` rose  | `#FECDD3` | `#9F1239` | `#E11D48` |
 
-## Frame and surfaces
+One exception: the example-prompt stickers on the triage hero mix all four
+pastels purely as decoration, because nothing there belongs to a session yet.
 
-- The global header is a solid Dark Coffee band; the workspace inside it is light.
-- Three surface levels: Champagne canvas, paper cards (`#FFFAF1`, 1px line, no
-  shadow), and one dark feature band.
-- Radii grow with importance: controls 8px, cards 12px, the feature band 20px.
-- The one bold element per screen is the episode overview's "Next step" band
-  (Dark Coffee, large type, a single champagne button). Do not add a second one.
+Tokens live in `apps/product/app/globals.css` (`--rf-*`). Apply a pastel with
+`.tone-peach|mint|sky|lilac|rose` (sets background and tone variables) or
+`data-tone="..."` (tone variables only). Tailwind exposes `bg-mint`,
+`text-mint-deep`, `bg-peach-label`, `bg-fill`, `shadow-soft`, `rounded-card`,
+`font-hand` and so on. Legacy Tailwind names (`slate`, `emerald`, `amber`,
+`rose`, `teal`) are remapped to the new palette.
 
 ## Typography
 
-- One family: Atkinson Hyperlegible Next (loaded with `next/font`), chosen for
-  low-vision legibility. Weights 400 to 700.
-- Scale: 13 / 15 / 16 / 18 / 21 / 26 / 32 to 40px. Nothing below 13px.
-- Labels and eyebrows are sentence case, never all caps or letter-spaced.
-- Every page uses the same header: an olive kicker naming the session, the h1,
-  a one-sentence lead, then actions (`.page-header`).
+- Display: Gaegu 700 (`.display`, `.font-hand`, `.page-header h1`), handwritten.
+  Used for page titles, the logo, empty states and margin notes (`.scribble`).
+  Never for body text, buttons or form labels.
+- Body: Atkinson Hyperlegible Next 400 to 700, kept for low-vision legibility.
+- Sentence case everywhere. No all-caps or letter-spaced labels.
+
+## Surfaces and shape
+
+- Cards: white, radius 28px, soft shadow `0 20px 50px rgba(0,0,0,.05)`, no
+  heavy borders (`.card`).
+- Stickers: pastel cards (`.sticker.tone-*`) that may sit at a slight angle
+  (`.tilt-l`, `.tilt-r`, max about 3.5deg) and straighten when hovered. Use them
+  for things a patient picks or that summarise a session, not for forms.
+- Controls are pills: black primary (`.btn-primary`, optional `.btn-arrow`
+  circle inside), soft grey secondary (`.btn-secondary`). One primary per view.
+- Fields are soft grey with radius 18px and an ink border on focus.
 
 ## Layout
 
-- Pages centre in one column: 1120px (`.page-column`) or 760px for forms
-  (`.page-column-narrow`).
-- Below 1000px the top navigation folds into a Menu button and the episode rail
-  collapses into an episode switcher above the content.
-- The Care Worklist is master-detail: the queue on the left, the selected
-  patient on the right.
+- Floating white top bar: handwritten logo left, short grey links centred, the
+  account pill right.
+- Signed-in patients get the episode rail on the left: "my episodes", the open
+  episode expands to its sessions, each marked by its session colour.
+- Pages centre in 1120px (`.page-column`) or 760px for forms (`.page-column-narrow`).
+- Below 1000px the links fold into a Menu pill and the rail into a switcher.
 
-## Information Architecture
+## Copy
 
-- The top navigation is global and stays visible across patient and doctor pages.
-- The patient episode rail is a folder list, not an episode index or generic app navigation.
-- The active episode expands to show `Episode overview`, `AI Triage Intake`, `AI Daily Rehab`, `Professional Care`, and `History`.
-- Episode-level context, safety status, and progress live on the episode overview.
-- Focused sessions contain one care task and do not repeat the full episode context fold.
-- Patient Memory and settings remain global destinations, outside the episode folder.
+- Let the layout talk. Prefer a title, the data and an action over a sentence
+  explaining them. No leads that restate the title, no helper text that
+  restates a label, no "Not sure how to start?" prompts.
+- Keep safety copy: the stop-and-get-help list, urgent route messages and
+  error messages that say what to do.
+- Product terms: `Care Episode`, `AI Triage Intake`, `AI Daily Rehab`,
+  `Professional Care`, `History`. Never show raw enum values or field names.
 
-## Interaction Rules
+## Motion
 
-- Clicking another episode folder switches the active episode and expands its sessions.
-- The episode overview presents one explicit recommended next action based on the
-  safety gate and current rehab progress.
-- Session pages should not show a generic next-step panel before the route is known.
-- Loading, empty, error, disabled, hover, focus, and reduced-motion states are
-  part of the shared component contract.
-- One primary (olive) button per view. Secondary actions are outlined;
-  destructive ones are quiet brick text, never as heavy as the primary.
-- Show one empty state per missing thing, with what to do next. Do not repeat
-  "nothing yet" in several cards.
-- The episode rail is shown only to signed-in patients. Doctors visiting `/`
-  go to the Care Worklist.
+One orchestrated moment per screen at most (for example the triage stickers
+drifting with the pointer). Hover lifts on stickers and primary buttons.
+Everything respects `prefers-reduced-motion`.
+
+## Interaction rules (unchanged)
+
+- Clicking another episode switches the active episode and expands its sessions.
+- The episode overview shows one recommended next action from the safety gate
+  and rehab progress.
+- Loading, empty, error, disabled, hover, focus and reduced-motion states are
+  part of every component.
 - Guided exercise never starts on an episode that still needs triage.
-
-## Surface Language
-
-Prefer direct product terms: `Care Episode`, `AI Triage Intake`, `AI Daily Rehab`,
-`Professional Care`, and `History`. Never show raw enum values, field names or
-internal labels (`self_serve`, `continuation`, `preferred_activity`, "MVP",
-"landmarks") to patients or doctors; map them to plain words. Use calm, actionable safety language. Avoid
-diagnostic claims, vague calls to action, and marketing-style hero treatment in
-the authenticated workspace.
+- Doctors visiting `/` go to the Care Worklist.

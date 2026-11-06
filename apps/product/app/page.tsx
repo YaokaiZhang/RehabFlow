@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { loadAuth } from "@rehab/shared/auth";
 import { createEpisodeFromTriageSummaryRequest, createTriageSummaryDraft, getAiChatSession, getCareEpisode, streamAiChatTurn, type AiChatProgress } from "@rehab/shared/api";
@@ -60,6 +60,16 @@ const suggestedPrompts = [
 	"I rolled my ankle last week and still have swelling. Can I exercise today?",
 	"I am recovering from surgery and feel new pain during stairs. Should I contact my clinician?",
 ];
+
+// How each suggestion sticker looks: its pastel, a short body-area tag and its resting angle.
+const promptStickers = [
+	{ tag: "Shoulder", tone: "sky", tilt: -3, depth: 18 },
+	{ tag: "Lower back", tone: "peach", tilt: 2.5, depth: 30 },
+	{ tag: "Ankle", tone: "mint", tilt: 3, depth: 24 },
+	{ tag: "After surgery", tone: "lilac", tilt: -2, depth: 36 },
+] as const;
+
+const introText = "Hi, I'll ask a few questions, then suggest a safe next step.";
 
 // Stages reported live by the backend while a turn runs; the label comes from the server.
 const agentProgressDetails: Record<string, string> = {
@@ -172,7 +182,7 @@ function HomePageContent() {
 		{
 			id: "intro",
 			role: "assistant",
-			text: "Welcome. Describe your current symptoms, rehab stage, and what changes the discomfort. I will triage your situation and suggest a safe next step for today.",
+			text: introText,
 		},
 	]);
 	const [routeState, setRouteState] = useState<RouteState>({
@@ -251,7 +261,7 @@ function HomePageContent() {
 			setMessages([{
 				id: "intro",
 				role: "assistant",
-				text: "Welcome. Describe your current symptoms, rehab stage, and what changes the discomfort. I will triage your situation and suggest a safe next step for today.",
+				text: introText,
 			}]);
 			setPrompt("");
 			setRouteState({ routingDecision: "", needsMoreInfo: null, safetyPassed: null });
@@ -458,19 +468,19 @@ function HomePageContent() {
 
 	const conversationStarted = messages.some((message) => message.role === "user");
 
+	const showHero = !conversationStarted && !historyLoading && !historyError;
+
+	// Only the safety-relevant routes get a line; otherwise the layout says enough.
 	const routeSummary = useMemo(() => {
-		if (!routeState.routingDecision) {
-			return conversationStarted
-				? "When you've answered the follow-up questions, request a Triage Summary to save this chat to an episode."
-				: "Describe what hurts. RehabFlow asks follow-up questions, then you can request a Triage Summary.";
-		}
+		if (!routeState.routingDecision) return "";
 		if (routeState.safetyPassed === false || routeState.routingDecision.includes("urgent")) {
 			return "Your answers suggest getting checked in person. If symptoms are severe, contact emergency services.";
 		}
-		if (routeState.needsMoreInfo || routeState.routingDecision === "ask_clarification") return "Answer the follow-up question so the advice fits your situation.";
-		if (routeState.routingDecision === "unsupported") return "This question is outside rehab triage. A clinician is the right person to ask.";
-		return "Keep answering until the advice feels complete, then request a Triage Summary to save it to an episode.";
-	}, [routeState, conversationStarted]);
+		if (routeState.needsMoreInfo || routeState.routingDecision === "ask_clarification") return "Answer the follow-up question first.";
+		if (routeState.routingDecision === "unsupported") return "This one is for a clinician.";
+		return "";
+	}, [routeState]);
+	const routeIsUrgent = routeState.safetyPassed === false || routeState.routingDecision.includes("urgent");
 
 	// Keep the newest message in view, like any chat.
 	useEffect(() => {
@@ -478,14 +488,41 @@ function HomePageContent() {
 		if (log) log.scrollTop = log.scrollHeight;
 	}, [messages, isWaiting, historyLoading]);
 
+	// The suggestion stickers drift a little with the pointer (CSS reads --px/--py).
+	const heroRef = useRef<HTMLElement | null>(null);
+	useEffect(() => {
+		const hero = heroRef.current;
+		if (!showHero || !hero) return;
+		const calm = window.matchMedia("(prefers-reduced-motion: reduce)");
+		const finePointer = window.matchMedia("(pointer: fine)");
+		if (calm.matches || !finePointer.matches) return;
+		let frame = 0;
+		const onMove = (event: PointerEvent) => {
+			cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(() => {
+				hero.style.setProperty("--px", (event.clientX / window.innerWidth - 0.5).toFixed(3));
+				hero.style.setProperty("--py", (event.clientY / window.innerHeight - 0.5).toFixed(3));
+			});
+		};
+		window.addEventListener("pointermove", onMove);
+		return () => {
+			cancelAnimationFrame(frame);
+			window.removeEventListener("pointermove", onMove);
+			hero.style.removeProperty("--px");
+			hero.style.removeProperty("--py");
+		};
+	}, [showHero]);
+
 	const tone = routeTone(routeState);
+	const composerDisabled = historyLoading || Boolean(historyError);
+	const sendDisabled = isWaiting || historyLoading || Boolean(historyError) || !prompt.trim();
 	return (
-		<div className="triage-layout">
-			<section className="triage-chat" aria-labelledby="triage-chat-title">
+		<div className="triage-layout" data-mode={showHero ? "hero" : "chat"}>
+			<section className="triage-chat" aria-labelledby="triage-chat-title" ref={heroRef}>
 				<header className="triage-chat-header">
 					<div className="min-w-0">
-						<p className="text-sm font-semibold text-action">AI Triage Intake</p>
-						<h1 id="triage-chat-title" className="mt-0.5 text-2xl font-bold leading-tight">{episodeTitleLoading ? "Loading rehab episode..." : episodeTitle || "What does your body need today?"}</h1>
+						<p className="page-header-kicker triage-kicker" data-tone="peach">AI Triage Intake</p>
+						<h1 id="triage-chat-title" className="triage-title">{episodeTitleLoading ? "opening your episode..." : episodeTitle || "what's bothering you today?"}</h1>
 					</div>
 					{routeState.routingDecision ? <span className={`route-badge route-${tone}`}>{prettyRoute(routeState.routingDecision)}</span> : null}
 				</header>
@@ -493,7 +530,7 @@ function HomePageContent() {
 				<div className="triage-chat-log" aria-live="polite" ref={chatLogRef}>
 					{historyLoading ? <p className="chat-history-state">Loading previous chat...</p> : null}
 					{historyError ? <p className="chat-history-state chat-history-state-error">{historyError}</p> : null}
-					{!historyLoading && !historyError && !messages.length ? <p className="chat-history-state">This chat has no messages yet.</p> : null}
+					{!showHero && !historyLoading && !historyError && !messages.length ? <p className="chat-history-state chat-history-empty">nothing here yet</p> : null}
 					{!historyLoading && !historyError ? messages.map((message) => (
 						<div
 							key={message.id}
@@ -504,9 +541,9 @@ function HomePageContent() {
 							{message.role === "user" ? null : <p className="chat-card-author">{message.role === "system" ? "Something went wrong" : "RehabFlow"}</p>}
 							<p className="whitespace-pre-wrap text-[0.9875rem] leading-relaxed">{message.text}</p>
 							{message.sources?.length ? (
-								<div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-line pt-2">
+								<div className="chat-card-sources">
 									{message.sources.map((source) => (
-										<a key={source.url} className="inline-flex max-w-full items-center gap-1 text-xs font-medium text-action underline decoration-[rgba(82,97,78,0.35)] underline-offset-2" href={source.url} target="_blank" rel="noreferrer" title={source.title}>
+										<a key={source.url} className="chat-card-source" href={source.url} target="_blank" rel="noreferrer" title={source.title}>
 											<svg aria-hidden="true" className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9.5 2.5h4v4M13.25 2.75 7.5 8.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M13 9v3.25A1.25 1.25 0 0 1 11.75 13.5h-8A1.25 1.25 0 0 1 2.5 12.25v-8A1.25 1.25 0 0 1 3.75 3H7" strokeLinecap="round" /></svg>
 											<span className="truncate">{source.title || source.label}</span>
 										</a>
@@ -517,23 +554,11 @@ function HomePageContent() {
 					)) : null}
 					{isWaiting ? (
 						<div className="chat-card chat-card-assistant agent-progress-card" role="status">
-							<div className="flex items-center gap-2">
-								<span className="agent-progress-dot" />
-								<p className="text-sm font-semibold">{agentProgress.label}</p>
+							<div className="agent-progress-head">
+								<span className="agent-progress-dots" aria-hidden="true"><span /><span /><span /></span>
+								<p className="agent-progress-label">{agentProgress.label}</p>
 							</div>
-							{agentProgress.detail ? <p className="mt-1 text-sm text-[var(--rf-ink-muted)]">{agentProgress.detail}</p> : null}
-						</div>
-					) : null}
-					{!conversationStarted && !historyLoading && !historyError ? (
-						<div className="triage-examples">
-							<p className="text-sm font-semibold text-[var(--rf-ink-muted)]">Not sure how to start? Try one of these.</p>
-							<div className="mt-2 flex flex-wrap gap-2">
-								{suggestedPrompts.map((item) => (
-									<button key={item} className="suggestion-chip" onClick={() => setPrompt(item)} disabled={isWaiting}>
-										{item}
-									</button>
-								))}
-							</div>
+							{agentProgress.detail ? <p className="agent-progress-detail">{agentProgress.detail}</p> : null}
 						</div>
 					) : null}
 				</div>
@@ -545,43 +570,87 @@ function HomePageContent() {
 						sendPrompt();
 					}}
 				>
-					<label htmlFor="triage-message" className="sr-only">Your message</label>
-					<textarea
-						id="triage-message"
-						className="textarea triage-composer-input"
-						rows={2}
-						placeholder="Describe what hurts, since when, and what makes it better or worse"
-						value={prompt}
-						onChange={(event) => setPrompt(event.target.value)}
-						disabled={historyLoading || Boolean(historyError)}
-						onKeyDown={(event) => {
-							if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-								event.preventDefault();
-								sendPrompt();
-							}
-						}}
-					/>
-					<button type="submit" className="btn-primary triage-composer-send" disabled={isWaiting || historyLoading || Boolean(historyError) || !prompt.trim()}>
-						{isWaiting ? "Sending" : "Send"}
-					</button>
-					<p className="triage-composer-hint">Enter to send, Shift + Enter for a new line.</p>
+					<div className="triage-composer-field">
+						<label htmlFor="triage-message" className="sr-only">Your message</label>
+						<textarea
+							id="triage-message"
+							className="triage-composer-input"
+							rows={1}
+							placeholder="What hurts, since when, and what makes it worse?"
+							aria-describedby="triage-message-hint"
+							value={prompt}
+							onChange={(event) => setPrompt(event.target.value)}
+							disabled={composerDisabled}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+									event.preventDefault();
+									sendPrompt();
+								}
+							}}
+						/>
+						<button type="submit" className="triage-composer-send" disabled={sendDisabled}>
+							<span className="sr-only">{isWaiting ? "Sending" : "Send"}</span>
+							<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" /></svg>
+						</button>
+					</div>
+					<p id="triage-message-hint" className="sr-only">Enter to send, Shift + Enter for a new line.</p>
+					{showHero ? (
+						<p className="scribble triage-note triage-note-composer" aria-hidden="true">
+							<svg viewBox="0 0 44 30" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M40 26C30 26 14 22 6 6" /><path d="M4 14 6 5l8 4" /></svg>
+							say it in your own words
+						</p>
+					) : null}
 				</form>
+
+				{showHero ? (
+					<>
+						<div className="triage-prompts" role="group" aria-label="Example messages">
+							{suggestedPrompts.map((item, index) => {
+								const look = promptStickers[index % promptStickers.length];
+								return (
+									<button
+										key={item}
+										type="button"
+										className={`sticker tone-${look.tone} triage-prompt triage-prompt-${index + 1}`}
+										style={{ "--tilt": `${look.tilt}deg`, "--depth": look.depth } as CSSProperties}
+										onClick={() => setPrompt(item)}
+										disabled={isWaiting}
+									>
+										<span className="tag">{look.tag}</span>
+										<span className="triage-prompt-text">{item}</span>
+									</button>
+								);
+							})}
+						</div>
+						<p className="scribble triage-note triage-note-prompts" aria-hidden="true">
+							<svg viewBox="0 0 44 30" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M40 24C26 26 14 20 10 4" /><path d="M4 10 10 3l6 7" /></svg>
+							tap one to start
+						</p>
+						<span className="triage-dot triage-dot-1" aria-hidden="true" />
+						<span className="triage-dot triage-dot-2" aria-hidden="true" />
+						<span className="triage-dot triage-dot-3" aria-hidden="true" />
+					</>
+				) : null}
 			</section>
 
 			<aside className="triage-side" aria-label="Triage progress and safety">
-				<div className="card summary-request-card">
-					<h2 className="section-title">Save this triage</h2>
-					<p className="mt-1.5 text-sm text-[var(--rf-ink-muted)]">{routeSummary}</p>
-					<button className="btn-secondary mt-4 w-full" onClick={finishTriage} disabled={isWaiting || isGeneratingSummary || !conversationStarted}>
-						{isGeneratingSummary ? "Requesting" : "Request Summary"}
-					</button>
-					{summaryError ? <p className="notice notice-danger mt-3 text-sm">{summaryError}</p> : null}
-					<p className="mt-3 text-xs text-[var(--rf-ink-soft)]">The summary is saved to a Care Episode, where you can start AI Daily Rehab or ask for Professional Care.</p>
-				</div>
+				{!showHero || summaryError ? (
+					<div className="card triage-save">
+						<h2 className="section-title">Save this triage</h2>
+						{routeSummary ? <p className={routeIsUrgent ? "notice notice-danger mt-3 text-sm" : "mt-1.5 text-sm text-[var(--rf-ink-muted)]"}>{routeSummary}</p> : null}
+						<button className="btn-primary mt-4 w-full" onClick={finishTriage} disabled={isWaiting || isGeneratingSummary || !conversationStarted}>
+							{isGeneratingSummary ? "Requesting" : "Request Summary"}
+							<span className="btn-arrow" aria-hidden="true">
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
+							</span>
+						</button>
+						{summaryError ? <p className="notice notice-danger mt-3 text-sm">{summaryError}</p> : null}
+					</div>
+				) : null}
 
-				<div className="triage-safety">
-					<h2 className="text-base font-bold">Stop and get help if</h2>
-					<ul className="mt-2 space-y-1.5 text-sm">
+				<div className="sticker tone-rose triage-safety">
+					<h2 className="triage-safety-title">Stop and get help if</h2>
+					<ul className="triage-safety-list">
 						<li>pain is sharp, the joint gives way, or swelling comes on suddenly</li>
 						<li>you have a fever, numbness, or weakness that is spreading</li>
 						<li>there was a serious fall or injury: call emergency services</li>
@@ -589,8 +658,8 @@ function HomePageContent() {
 				</div>
 
 				{viewerRole === null ? (
-					<p className="px-1 text-sm text-[var(--rf-ink-muted)]">
-						Just looking? <Link className="font-semibold text-action underline underline-offset-4" href="/rehab/session">Try a demo exercise session</Link>
+					<p className="triage-guest">
+						Just looking? <Link href="/rehab/session">Try a demo exercise session</Link>
 					</p>
 				) : null}
 			</aside>

@@ -8,6 +8,17 @@ type Props = {
 	showContext?: boolean;
 };
 
+/** The circled arrow that rides inside a black primary pill. */
+export function ArrowIcon() {
+	return (
+		<span className="btn-arrow" aria-hidden="true">
+			<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+				<path d="M2.5 6h7M6.5 3l3 3-3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+			</svg>
+		</span>
+	);
+}
+
 function listText(items: string[] | undefined, fallback: string) {
 	return items && items.length ? items.join(" ") : fallback;
 }
@@ -19,17 +30,14 @@ function summaryRisk(summary: TriageSummaryArtifact | null | undefined) {
 	return "No major safety signals captured.";
 }
 
-function triageContextSummary(summary: TriageSummaryArtifact | null | undefined) {
-	return summary?.relevant_context?.trim() || "";
+function riskTone(summary: TriageSummaryArtifact | null | undefined) {
+	if (!summary) return "peach";
+	if (summary.clinician_review_needed || summary.safety_signals.length) return "rose";
+	return "mint";
 }
 
-function TriageContextSummary({ text }: { text: string }) {
-	return (
-		<details className="episode-context mt-3 text-sm text-slate-600">
-			<summary className="cursor-pointer text-sm font-semibold text-slate-500">Triage context summary</summary>
-			<p className="mt-2 whitespace-pre-line leading-6">{text}</p>
-		</details>
-	);
+function triageContextSummary(summary: TriageSummaryArtifact | null | undefined) {
+	return summary?.relevant_context?.trim() || "";
 }
 
 export function CareEpisodeBrief({ workspace, role, compact = false, showTitle = true, showContext = true }: Props) {
@@ -48,36 +56,50 @@ export function CareEpisodeBrief({ workspace, role, compact = false, showTitle =
 	const triageContext = triageContextSummary(triage);
 
 	return (
-		<section className="episode-brief">
-			<div className="episode-brief-header">
-				<div className="min-w-0">
-					<h2 className="episode-brief-title">Care Episode Brief</h2>
-					{showTitle ? <p className="episode-brief-subtitle">{episode.issue_title}</p> : null}
-					{showContext && triageContext ? <TriageContextSummary text={triageContext} /> : null}
-				</div>
-			</div>
+		<section className="ep-brief" aria-labelledby={`ep-brief-${episode.care_episode_id}`}>
+			<h2 id={`ep-brief-${episode.care_episode_id}`} className="ep-brief-kicker">Care Episode Brief</h2>
+			{showTitle ? <p className="ep-brief-title">{episode.issue_title}</p> : null}
+			<ul className="ep-chips" aria-label="Episode details">
+				<li className="ep-chip"><span className="ep-chip-label">Body area</span>{episode.body_area}</li>
+				<li className="ep-chip"><span className="ep-chip-label">Goal</span>{episode.goal}</li>
+			</ul>
+			{showContext && triageContext ? (
+				<details className="ep-disclosure">
+					<summary>Triage context summary</summary>
+					<p className="whitespace-pre-line">{triageContext}</p>
+				</details>
+			) : null}
 
-			<div className="episode-brief-facts">
-				<p className="episode-brief-fact"><span className="episode-brief-label">Body area</span><span>{episode.body_area}</span></p>
-				<p className="episode-brief-fact"><span className="episode-brief-label">Goal</span><span>{episode.goal}</span></p>
-				{role === "doctor" ? <p className="episode-brief-fact"><span className="episode-brief-label">Safety</span><span>{summaryRisk(triage)}</span></p> : null}
-				<p className="episode-brief-fact"><span className="episode-brief-label">Rehab</span><span>{total ? `${completed} of ${total} exercises done` : "Not started"}</span></p>
-				<p className="episode-brief-fact"><span className="episode-brief-label">Professional Care</span><span>{professionalCare.has_active_relationship ? "Working with a doctor" : "No doctor yet"}</span></p>
-			</div>
+			<dl className="ep-brief-facts">
+				{role === "doctor" ? (
+					<div className="ep-brief-fact" data-tone={riskTone(triage)}>
+						<dt><span className="session-dot" />Safety</dt>
+						<dd>{summaryRisk(triage)}</dd>
+					</div>
+				) : null}
+				<div className="ep-brief-fact" data-tone="mint">
+					<dt><span className="session-dot" />Rehab</dt>
+					<dd>{total ? `${completed} of ${total} exercises done` : "Not started"}</dd>
+				</div>
+				<div className="ep-brief-fact" data-tone="sky">
+					<dt><span className="session-dot" />Professional Care</dt>
+					<dd>{professionalCare.has_active_relationship ? "Working with a doctor" : "No doctor yet"}</dd>
+				</div>
+			</dl>
 
 			{triage && (role === "doctor" || compact) ? (
-				<div className="episode-brief-triage">
-					<span className="episode-brief-label">Triage</span>
+				<div className="ep-brief-triage" data-tone="peach">
+					<span className="tag">Triage</span>
 					<p>{triage.recommendation}</p>
 				</div>
 			) : null}
 
 			{role === "doctor" && !compact && triage ? (
-				<div className="episode-brief-doctor-note text-sm text-slate-700">
-					<p className="font-semibold text-slate-950">Patient situation</p>
-					<p className="mt-1">{triage.concern}</p>
-					<p className="mt-2"><span className="font-semibold text-slate-950">Limitations:</span> {listText(triage.limitations, "None captured.")}</p>
-					<p className="mt-1"><span className="font-semibold text-slate-950">Unresolved questions:</span> {listText(unresolvedQuestions, "None captured.")}</p>
+				<div className="ep-brief-note">
+					<p className="ep-brief-note-title">Patient situation</p>
+					<p>{triage.concern}</p>
+					<p><strong>Limitations:</strong> {listText(triage.limitations, "None captured.")}</p>
+					<p><strong>Unresolved questions:</strong> {listText(unresolvedQuestions, "None captured.")}</p>
 				</div>
 			) : null}
 		</section>

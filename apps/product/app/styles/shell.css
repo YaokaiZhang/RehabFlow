@@ -1,0 +1,707 @@
+/* Shell: floating top bar, episode rail, workspace frame. Plain CSS (no @layer). */
+
+/* ---------- Top bar: logo left, quiet links, account right ---------- */
+.product-global-nav {
+	position: sticky;
+	top: 0;
+	z-index: 30;
+	background: rgba(255, 255, 255, 0.86);
+	backdrop-filter: saturate(1.4) blur(14px);
+	-webkit-backdrop-filter: saturate(1.4) blur(14px);
+}
+
+.product-global-nav-inner {
+	display: flex;
+	align-items: center;
+	gap: 36px;
+	min-height: var(--rf-topbar-height);
+	max-width: 1600px;
+	margin: 0 auto;
+	padding: 0 clamp(16px, 3vw, 40px);
+}
+
+.product-navigation {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: center;
+	min-width: 0;
+}
+
+.product-brand {
+	display: inline-flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 8px;
+	color: var(--rf-ink);
+}
+
+.product-brand-mark {
+	display: block;
+	height: 28px;
+	width: 28px;
+	flex-shrink: 0;
+}
+
+.product-brand-name {
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 1.875rem;
+	font-weight: 700;
+	line-height: 1;
+	letter-spacing: -0.04em;
+}
+
+.product-top-nav {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.product-nav-link {
+	position: relative;
+	display: inline-flex;
+	min-height: 40px;
+	align-items: center;
+	border-radius: 999px;
+	padding: 0 14px;
+	color: #888888;
+	font-size: 0.875rem;
+	font-weight: 600;
+	white-space: nowrap;
+	transition: color 160ms ease, background-color 160ms ease;
+}
+
+.product-nav-link:hover {
+	color: var(--rf-ink);
+}
+
+.product-nav-link-active {
+	background: var(--rf-fill);
+	color: var(--rf-ink);
+}
+
+.product-account {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 6px;
+}
+
+.product-account-actions {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.product-account-name {
+	display: inline-flex;
+	min-height: 40px;
+	align-items: center;
+	gap: 8px;
+	border-radius: 999px;
+	background: var(--rf-fill);
+	padding: 0 14px 0 6px;
+	font-size: 0.875rem;
+	font-weight: 650;
+}
+
+.product-account-avatar {
+	display: inline-flex;
+	height: 28px;
+	width: 28px;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	background: var(--rf-mint);
+	color: var(--rf-mint-deep);
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 1.125rem;
+	font-weight: 700;
+	line-height: 1;
+}
+
+.product-account-link,
+.product-signout-button {
+	display: inline-flex;
+	min-height: 40px;
+	align-items: center;
+	border-radius: 999px;
+	padding: 0 14px;
+	color: #888888;
+	font-size: 0.875rem;
+	font-weight: 600;
+	transition: color 160ms ease, background-color 160ms ease;
+}
+
+.product-account-link:hover,
+.product-signout-button:hover {
+	color: var(--rf-ink);
+}
+
+.product-account-link-primary {
+	background: var(--rf-ink);
+	color: #ffffff;
+	padding: 0 18px;
+}
+
+.product-account-link-primary:hover {
+	color: #ffffff;
+}
+
+.product-account-loading {
+	color: var(--rf-ink-soft);
+	font-size: 0.875rem;
+}
+
+.product-menu-button,
+.product-nav-signout,
+.product-nav-login {
+	display: none;
+}
+
+/* ---------- Workspace frame ---------- */
+.product-workspace {
+	max-width: 1600px;
+	margin: 0 auto;
+	padding: 8px clamp(16px, 3vw, 40px) 72px;
+}
+
+.product-workspace-with-rail {
+	display: grid;
+	grid-template-columns: 272px minmax(0, 1fr);
+	gap: clamp(24px, 3vw, 48px);
+	align-items: start;
+}
+
+.product-main {
+	min-width: 0;
+	padding-top: 16px;
+}
+
+/* ---------- Episode rail: a notebook of episodes ---------- */
+.episode-rail {
+	position: sticky;
+	top: calc(var(--rf-topbar-height) + 8px);
+	max-height: calc(100vh - var(--rf-topbar-height) - 24px);
+	overflow-y: auto;
+	padding: 16px 4px 24px 0;
+	scrollbar-width: thin;
+}
+
+.episode-rail-toggle {
+	display: none;
+}
+
+.episode-rail-heading {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 0 8px;
+}
+
+.episode-rail-heading-title {
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 1.75rem;
+	font-weight: 700;
+	line-height: 1;
+}
+
+.episode-rail-all {
+	color: var(--rf-ink-soft);
+	font-size: 0.8125rem;
+	font-weight: 600;
+}
+
+.episode-rail-all:hover {
+	color: var(--rf-ink);
+}
+
+.episode-rail-actions {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+	margin: 16px 0 18px;
+}
+
+.episode-rail-new {
+	display: inline-flex;
+	min-height: 40px;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	border-radius: 999px;
+	background: var(--rf-ink);
+	color: #ffffff;
+	font-size: 0.875rem;
+	font-weight: 650;
+	transition: transform 300ms var(--rf-ease);
+}
+
+.episode-rail-new:hover {
+	transform: translateY(-2px);
+}
+
+.episode-rail-new-chat {
+	background: var(--rf-fill);
+	color: var(--rf-ink);
+}
+
+.episode-rail-list {
+	display: grid;
+	gap: 4px;
+}
+
+.episode-folder-shell {
+	display: grid;
+}
+
+.episode-folder {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	border-radius: 18px;
+	padding: 10px 12px;
+	transition: background-color 160ms ease;
+}
+
+.episode-folder:hover {
+	background: var(--rf-fill);
+}
+
+.episode-folder-marker {
+	height: 12px;
+	width: 12px;
+	flex-shrink: 0;
+	border: 2px solid var(--rf-ink-soft);
+	border-radius: 999px;
+}
+
+.episode-folder-title {
+	display: block;
+	overflow: hidden;
+	font-size: 0.9375rem;
+	font-weight: 650;
+	line-height: 1.3;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.episode-folder-meta {
+	display: block;
+	color: var(--rf-ink-soft);
+	font-size: 0.8125rem;
+	line-height: 1.3;
+}
+
+.episode-folder-active {
+	background: var(--rf-fill);
+	border-bottom-left-radius: 0;
+	border-bottom-right-radius: 0;
+}
+
+.episode-folder-active .episode-folder-marker {
+	border-color: var(--rf-ink);
+	background: var(--rf-ink);
+}
+
+/* The open folder: its sessions, each marked with its session colour. */
+.episode-sessions {
+	display: grid;
+	gap: 2px;
+	border-radius: 0 0 18px 18px;
+	background: var(--rf-fill);
+	padding: 2px 8px 10px;
+}
+
+.episode-session-link {
+	display: flex;
+	min-height: 36px;
+	align-items: center;
+	gap: 10px;
+	border-radius: 12px;
+	padding: 0 10px;
+	color: var(--rf-ink-muted);
+	font-size: 0.875rem;
+	font-weight: 600;
+	transition: background-color 160ms ease, color 160ms ease;
+}
+
+.episode-session-link::before {
+	height: 8px;
+	width: 8px;
+	flex-shrink: 0;
+	border-radius: 999px;
+	background: var(--tone-stroke, var(--rf-ink-soft));
+	content: "";
+}
+
+.episode-session-link:hover {
+	background: var(--rf-paper);
+	color: var(--rf-ink);
+}
+
+.episode-session-link-active {
+	background: var(--tone-bg, var(--rf-paper));
+	color: var(--tone-deep, var(--rf-ink));
+}
+
+.episode-session-link-active:hover {
+	background: var(--tone-bg, var(--rf-paper));
+	color: var(--tone-deep, var(--rf-ink));
+}
+
+/* ---------- Chats ---------- */
+.episode-chat-group {
+	display: grid;
+	gap: 2px;
+}
+
+.episode-chat-group-nested {
+	margin: 10px 0 8px;
+	padding-left: 12px;
+}
+
+.episode-chat-group-heading,
+.episode-chat-directory-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 4px 8px 6px;
+}
+
+.episode-chat-group h3,
+.episode-chat-directory-heading h2 {
+	color: var(--rf-ink-soft);
+	font-size: 0.8125rem;
+	font-weight: 650;
+}
+
+.episode-chat-directory {
+	margin-top: 24px;
+}
+
+.episode-chat-directory-heading > span {
+	display: inline-flex;
+	min-width: 22px;
+	height: 22px;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	background: var(--rf-peach);
+	padding: 0 6px;
+	color: var(--rf-peach-deep);
+	font-size: 0.75rem;
+	font-weight: 700;
+}
+
+.episode-chat-new {
+	display: inline-flex;
+	height: 26px;
+	align-items: center;
+	border-radius: 999px;
+	padding: 0 10px;
+	color: var(--rf-ink-muted);
+	font-size: 0.8125rem;
+	font-weight: 650;
+}
+
+.episode-chat-new:hover {
+	background: var(--rf-fill);
+	color: var(--rf-ink);
+}
+
+.episode-chat-row {
+	position: relative;
+	display: flex;
+	align-items: center;
+	border-radius: 14px;
+	transition: background-color 160ms ease;
+}
+
+.episode-chat-row:hover {
+	background: var(--rf-fill);
+}
+
+.episode-chat-row-active {
+	background: var(--rf-peach);
+}
+
+.episode-chat-row-active:hover {
+	background: var(--rf-peach);
+}
+
+.episode-chat-link {
+	display: grid;
+	flex: 1;
+	min-width: 0;
+	gap: 1px;
+	padding: 8px 10px;
+}
+
+.episode-chat-title {
+	overflow: hidden;
+	font-size: 0.875rem;
+	font-weight: 600;
+	line-height: 1.3;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.episode-chat-meta {
+	overflow: hidden;
+	color: var(--rf-ink-soft);
+	font-size: 0.75rem;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.episode-chat-delete {
+	display: inline-flex;
+	height: 30px;
+	width: 30px;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: center;
+	margin-right: 4px;
+	border-radius: 999px;
+	color: var(--rf-ink-soft);
+	opacity: 0;
+	transition: opacity 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.episode-chat-row:hover .episode-chat-delete,
+.episode-chat-delete:focus-visible {
+	opacity: 1;
+}
+
+.episode-chat-delete:hover {
+	background: var(--rf-rose);
+	color: var(--rf-rose-deep);
+}
+
+.episode-chat-delete-confirmation {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	border-radius: 14px;
+	background: var(--rf-rose);
+	padding: 4px 6px 4px 12px;
+	color: var(--rf-rose-deep);
+	font-size: 0.8125rem;
+	font-weight: 650;
+}
+
+.episode-chat-delete-actions {
+	display: flex;
+	gap: 4px;
+}
+
+.episode-chat-delete-cancel,
+.episode-chat-delete-confirm {
+	min-height: 28px;
+	border-radius: 999px;
+	padding: 0 10px;
+	font-size: 0.8125rem;
+	font-weight: 650;
+}
+
+.episode-chat-delete-cancel {
+	background: var(--rf-paper);
+	color: var(--rf-ink);
+}
+
+.episode-chat-delete-confirm {
+	background: var(--rf-rose-deep);
+	color: #ffffff;
+}
+
+.episode-chat-feedback,
+.episode-rail-loading,
+.episode-rail-empty {
+	padding: 6px 10px;
+	color: var(--rf-ink-soft);
+	font-size: 0.8125rem;
+}
+
+.episode-rail-empty {
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 1.125rem;
+}
+
+.episode-rail-feedback {
+	display: grid;
+	gap: 6px;
+	border-radius: 16px;
+	background: var(--rf-rose);
+	padding: 10px 12px;
+	color: var(--rf-rose-deep);
+	font-size: 0.8125rem;
+}
+
+.episode-rail-retry {
+	width: fit-content;
+	font-weight: 700;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.chat-history-state {
+	color: var(--rf-ink-soft);
+	font-size: 0.9375rem;
+}
+
+.chat-history-state-error {
+	color: var(--rf-rose-deep);
+}
+
+.chat-card-system .chat-card-author {
+	color: var(--rf-rose-deep);
+}
+
+/* ---------- Tablet and phone: menu button, rail becomes a switcher ---------- */
+@media (max-width: 1000px) {
+	.product-global-nav-inner {
+		flex-wrap: wrap;
+		gap: 12px;
+	}
+
+	.product-menu-button {
+		display: inline-flex;
+		min-height: 40px;
+		align-items: center;
+		order: 3;
+		border-radius: 999px;
+		background: var(--rf-fill);
+		padding: 0 16px;
+		font-size: 0.875rem;
+		font-weight: 650;
+	}
+
+	.product-account {
+		order: 2;
+		margin-left: auto;
+	}
+
+	.product-signout-button {
+		display: none;
+	}
+
+	.product-nav-signout {
+		display: inline-flex;
+		color: var(--rf-rose-deep);
+	}
+
+	.product-navigation {
+		display: none;
+		order: 4;
+		flex-basis: 100%;
+		justify-content: flex-start;
+		padding-bottom: 12px;
+	}
+
+	.product-global-nav-open .product-navigation {
+		display: flex;
+	}
+
+	.product-top-nav {
+		flex-direction: column;
+		align-items: stretch;
+		width: 100%;
+	}
+
+	.product-nav-link {
+		min-height: 46px;
+		font-size: 1rem;
+	}
+
+	.product-workspace-with-rail {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 8px;
+	}
+
+	.episode-rail {
+		position: static;
+		max-height: none;
+		overflow: visible;
+		padding: 0;
+	}
+
+	.episode-rail-toggle {
+		display: flex;
+		width: 100%;
+		min-height: 48px;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		border-radius: 999px;
+		background: var(--rf-fill);
+		padding: 0 18px;
+		font-size: 0.9375rem;
+		font-weight: 650;
+		text-align: left;
+	}
+
+	.episode-rail-toggle-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.episode-rail-toggle-label span {
+		color: var(--rf-ink-soft);
+		font-weight: 500;
+	}
+
+	.episode-rail-toggle svg {
+		flex-shrink: 0;
+		transition: transform 200ms var(--rf-ease);
+	}
+
+	.episode-rail-open .episode-rail-toggle svg {
+		transform: rotate(180deg);
+	}
+
+	.episode-rail-body {
+		display: none;
+		margin-top: 8px;
+		border-radius: var(--rf-radius-card);
+		background: var(--rf-paper);
+		box-shadow: var(--rf-shadow);
+		padding: 18px 12px;
+	}
+
+	.episode-rail-open .episode-rail-body {
+		display: block;
+	}
+}
+
+@media (max-width: 640px) {
+	.product-account-name {
+		padding-right: 6px;
+	}
+
+	.product-account-name-text,
+	.product-account-actions .product-account-link:not(.product-account-link-primary) {
+		display: none;
+	}
+
+	.product-nav-login {
+		display: inline-flex;
+	}
+
+	.product-brand-name {
+		font-size: 1.625rem;
+	}
+}
+
+.episode-chat-delete svg {
+	height: 16px;
+	width: 16px;
+}

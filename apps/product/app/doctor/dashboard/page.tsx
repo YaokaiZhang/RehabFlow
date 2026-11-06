@@ -5,13 +5,18 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import { type DoctorDashboardRelationship } from "@rehab/shared/api";
 
-import { AppButton, DashboardCard, SectionHeader, StatusBadge } from "../../../components/ui";
+import { AppButton } from "../../../components/ui";
 import { useDoctorDashboard } from "./useDoctorDashboard";
 
 type BriefingSection = {
 	key?: string;
 	title?: string;
 	items?: Array<Record<string, unknown>>;
+};
+
+const bucketTone: Record<string, string> = {
+	clinician_review: "rose",
+	upcoming_appointments: "sky",
 };
 
 const artifactInitialState = {
@@ -29,11 +34,8 @@ function textValue(value: unknown, fallback = "Not provided") {
 }
 
 function statusCopy(status: string) {
-	return status
-		.split("_")
-		.filter(Boolean)
-		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-		.join(" ") || "Not recorded";
+	const words = status.split("_").filter(Boolean).join(" ");
+	return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Not recorded";
 }
 
 function safetyCopy(status: string | null | undefined) {
@@ -51,17 +53,17 @@ function sectionItems(section: BriefingSection) {
 function BriefingSections({ sections }: { sections: Array<Record<string, unknown>> }) {
 	// Only sections with content; empty ones repeat what the rest of the page already says.
 	const filled = sections.map((section) => section as BriefingSection).filter((section) => sectionItems(section).length);
-	if (!filled.length) return <p className="mt-3 text-sm text-slate-600">Nothing in today&apos;s briefing yet.</p>;
+	if (!filled.length) return <p className="doctor-empty-note">nothing in today&apos;s briefing yet</p>;
 	return (
-		<div className="mt-4 grid gap-6 lg:grid-cols-2">
+		<div className="doctor-briefing-sections">
 			{filled.map((typedSection, index) => (
 				<div key={typedSection.key || index}>
-					<h3 className="text-base font-bold text-slate-950">{textValue(typedSection.title, "Briefing section")}</h3>
-					<ul className="mt-2 divide-y divide-[var(--rf-line)] border-y border-line">
+					<h3 className="doctor-subheading">{textValue(typedSection.title, "Briefing section")}</h3>
+					<ul className="doctor-briefing-list">
 						{sectionItems(typedSection).map((item, itemIndex) => (
-							<li key={String(item.relationship_id || item.care_episode_id || item.appointment_id || itemIndex)} className="py-2.5 text-sm text-slate-700">
-								<p className="font-semibold text-slate-950">{textValue(item.patient_name || item.issue_title || item.label || item.title, "Panel item")}</p>
-								{item.goal ? <p className="mt-0.5">Goal: {String(item.goal)}</p> : null}
+							<li key={String(item.relationship_id || item.care_episode_id || item.appointment_id || itemIndex)}>
+								<p className="doctor-row-title">{textValue(item.patient_name || item.issue_title || item.label || item.title, "Panel item")}</p>
+								{item.goal ? <p className="doctor-row-meta">Goal: {String(item.goal)}</p> : null}
 							</li>
 						))}
 					</ul>
@@ -74,27 +76,27 @@ function BriefingSections({ sections }: { sections: Array<Record<string, unknown
 function RelationshipSummary({ relationship }: { relationship: DoctorDashboardRelationship }) {
 	const triage = relationship.latest_triage_summary as { recommendation?: string; concern?: string; clinician_review_needed?: boolean } | null | undefined;
 	return (
-		<DashboardCard className="p-5">
-			<div className="flex flex-wrap items-start justify-between gap-2">
+		<article className="doctor-relationship">
+			<div className="doctor-relationship-head">
 				<div className="min-w-0">
-					<h3 className="text-base font-bold text-slate-950">{relationship.issue_title || "Care Episode"}</h3>
-					<p className="mt-0.5 text-sm text-slate-600">{textValue(relationship.patient_name, "Patient")}</p>
+					<h3 className="doctor-row-title">{textValue(relationship.patient_name, "Patient")}</h3>
+					<p className="doctor-row-meta">{relationship.issue_title || "Care Episode"}</p>
 				</div>
-				{triage?.clinician_review_needed ? <StatusBadge tone="risk">Needs your review</StatusBadge> : null}
+				{triage?.clinician_review_needed ? <span className="tag" data-tone="rose">Needs your review</span> : null}
 			</div>
-			<div className="mt-3 grid gap-2 text-sm text-slate-700 md:grid-cols-2">
-				<p><span className="font-medium text-slate-950">Goal:</span> {relationship.goal || "Not recorded"}</p>
-				<p><span className="font-medium text-slate-950">Body area:</span> {relationship.body_area || "Not recorded"}</p>
-				<p><span className="font-medium text-slate-950">Safety gate:</span> {safetyCopy(relationship.safety_gate_status)}</p>
-				<p><span className="font-medium text-slate-950">Started:</span> {formatDateTime(relationship.started_at)}</p>
-			</div>
+			<dl className="doctor-relationship-facts">
+				<div><dt>Goal</dt><dd>{relationship.goal || "Not recorded"}</dd></div>
+				<div><dt>Body area</dt><dd>{relationship.body_area || "Not recorded"}</dd></div>
+				<div><dt>Safety gate</dt><dd>{safetyCopy(relationship.safety_gate_status)}</dd></div>
+				<div><dt>Started</dt><dd>{formatDateTime(relationship.started_at)}</dd></div>
+			</dl>
 			{triage?.recommendation || triage?.concern ? (
-				<div className="mt-3 border-t border-line pt-3 text-sm text-slate-700">
-					<p className="font-semibold text-slate-950">Latest triage summary</p>
-					<p className="mt-1">{triage.recommendation || triage.concern}</p>
+				<div className="doctor-relationship-triage" data-tone="peach">
+					<span className="tag">Latest triage summary</span>
+					<p>{triage.recommendation || triage.concern}</p>
 				</div>
 			) : null}
-		</DashboardCard>
+		</article>
 	);
 }
 
@@ -120,121 +122,137 @@ export default function DoctorDashboardPage() {
 
 	if (auth === undefined) {
 		return (
-			<section className="page-column-narrow page-header">
-				<p className="page-header-kicker">Doctor Dashboard</p>
-				<h1>Loading Doctor Dashboard...</h1>
-				<p className="page-header-lead">Checking your session.</p>
+			<section className="page-column-narrow page-header" data-tone="sky">
+				<p className="page-header-kicker">Professional Care</p>
+				<h1>Doctor Dashboard</h1>
+				<p className="scribble mt-4" role="status">checking your session…</p>
 			</section>
 		);
 	}
 
 	if (!auth || auth.role !== "doctor") {
 		return (
-			<section className="page-column-narrow page-header">
-				<p className="page-header-kicker">Doctor Dashboard</p>
+			<section className="page-column-narrow page-header" data-tone="sky">
+				<p className="page-header-kicker">Professional Care</p>
 				<h1>Sign in to open Doctor Dashboard</h1>
-				<p className="page-header-lead">Log in with a doctor account to see your patient briefing.</p>
 				<div className="page-header-actions">
 					<Link className="btn-primary" href="/login?role=doctor">Log in</Link>
-					<Link className="btn-secondary" href="/doctor">Care Worklist</Link>
 				</div>
 			</section>
 		);
 	}
 
 	const attentionBuckets = (dashboard?.attention_map.buckets || []).filter((bucket) => bucket.items.length);
+	const relationships = dashboard?.care_relationships || [];
+	const appointments = dashboard?.upcoming_appointments || [];
 
 	return (
-		<div className="page-column space-y-8">
-			<section className="page-header">
-				<p className="page-header-kicker">Professional Care</p>
-				<h1>Doctor Dashboard</h1>
-				<p className="page-header-lead">A short briefing on your patients and appointments. Requests and conversations live in the <Link className="font-semibold text-action underline underline-offset-4" href={dashboard?.care_worklist_href || "/doctor"}>Care Worklist</Link>.</p>
-				<div className="page-header-actions">
-					<AppButton onClick={refreshBriefing} disabled={loading || busyAction !== null}>{busyAction === "refresh" ? "Refreshing" : "Refresh Briefing"}</AppButton>
+		<div className="page-column">
+			<section className="page-header doctor-page-header doctor-dashboard-header" data-tone="sky">
+				<div>
+					<p className="page-header-kicker">Professional Care</p>
+					<h1>Doctor Dashboard</h1>
+				</div>
+				<div className="doctor-header-actions">
+					<Link className="btn-secondary" href={dashboard?.care_worklist_href || "/doctor"}>Care Worklist</Link>
+					<AppButton variant="secondary" onClick={refreshBriefing} disabled={loading || busyAction !== null}>{busyAction === "refresh" ? "Refreshing…" : "Refresh briefing"}</AppButton>
 				</div>
 			</section>
 
-			{error ? <p className="notice notice-danger">{error}</p> : null}
-			{statusMessage ? <p className="notice" role="status">{statusMessage}</p> : null}
-			{loading ? <p className="text-sm text-slate-500">Loading Doctor Dashboard...</p> : null}
+			<div className="doctor-messages">
+				{error ? <p className="notice notice-danger">{error}</p> : null}
+				{statusMessage ? <p className="notice" role="status">{statusMessage}</p> : null}
+				{loading ? <p className="scribble" role="status">loading dashboard…</p> : null}
+			</div>
 
-			<section className="card">
-				<SectionHeader title={dashboard?.patient_panel_briefing.title || "Patient Panel Briefing"} />
-				<BriefingSections sections={briefingSections} />
-				{dashboard?.patient_panel_briefing.content ? (
-					<details className="mt-5 text-sm">
-						<summary className="cursor-pointer font-semibold text-action">Read the full briefing text</summary>
-						<div className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-control border border-line bg-[var(--rf-surface-muted)] p-4 leading-6 text-slate-700">
-							{dashboard.patient_panel_briefing.content}
+			<div className="doctor-dashboard">
+				<section className="doctor-attention" aria-labelledby="doctor-attention-title">
+					<div className="doctor-section-head">
+						<h2 id="doctor-attention-title" className="section-title">Attention map</h2>
+						{dashboard?.attention_map.summary ? <p className="doctor-section-meta">{dashboard.attention_map.summary}</p> : null}
+					</div>
+					{attentionBuckets.length ? (
+						<div className="doctor-attention-grid">
+							{attentionBuckets.map((bucket) => (
+								<article key={bucket.bucket} className={`doctor-bucket tone-${bucketTone[bucket.bucket] || "plain"}`}>
+									<h3 className="doctor-bucket-head">
+										<span>{bucket.label}</span>
+										<span className="doctor-bucket-count">{bucket.items.length}</span>
+									</h3>
+									<ul className="doctor-bucket-list">
+										{bucket.items.map((item, index) => (
+											<li key={String(item.relationship_id || item.appointment_id || index)}>{textValue(item.label || item.issue_title || item.purpose, "Attention item")}</li>
+										))}
+									</ul>
+								</article>
+							))}
 						</div>
-					</details>
-				) : null}
-			</section>
+					) : !loading ? <p className="doctor-empty-note">nothing needs you right now</p> : null}
+				</section>
 
-			<section>
-				<SectionHeader title="Attention Map" description={dashboard?.attention_map.summary || "Nothing needs your attention right now."} />
-				{attentionBuckets.length ? (
-					<div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-						{attentionBuckets.map((bucket) => (
-							<article key={bucket.bucket} className="card p-5">
-								<h3 className="flex items-center justify-between gap-2 text-base font-bold text-slate-950">{bucket.label}<StatusBadge tone="neutral">{bucket.items.length}</StatusBadge></h3>
-								<ul className="mt-3 space-y-1.5 text-sm text-slate-700">
-									{bucket.items.map((item, index) => (
-										<li key={String(item.relationship_id || item.appointment_id || index)}>{textValue(item.label || item.issue_title || item.purpose, "Attention item")}</li>
-									))}
-								</ul>
-							</article>
-						))}
-					</div>
-				) : null}
-			</section>
+				<section className="card doctor-briefing" aria-labelledby="doctor-briefing-title">
+					<h2 id="doctor-briefing-title" className="section-title">{dashboard?.patient_panel_briefing.title || "Patient Panel Briefing"}</h2>
+					<BriefingSections sections={briefingSections} />
+					{dashboard?.patient_panel_briefing.content ? (
+						<details className="doctor-briefing-full">
+							<summary>Read the full briefing</summary>
+							<div className="doctor-briefing-text">{dashboard.patient_panel_briefing.content}</div>
+						</details>
+					) : null}
+				</section>
 
-			<section className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.6fr)]">
-				<div>
-					<SectionHeader title="Your patients" />
-					<div className="mt-4 grid gap-3">
-						{dashboard?.care_relationships.length ? dashboard.care_relationships.map((relationship) => (
-							<RelationshipSummary key={relationship.relationship_id} relationship={relationship} />
-						)) : <p className="rounded-control border border-dashed border-line p-4 text-sm text-slate-600">No patients yet. They appear after choosing you in the Care Worklist.</p>}
-					</div>
+				<div className="doctor-dashboard-columns">
+					<section aria-labelledby="doctor-patients-title" data-tone="sky">
+						<h2 id="doctor-patients-title" className="doctor-queue-heading">
+							<span className="session-dot" aria-hidden="true" />
+							<span>Your patients</span>
+							<span className="doctor-queue-count">{relationships.length}</span>
+						</h2>
+						<div className="doctor-stack">
+							{relationships.length ? relationships.map((relationship) => (
+								<RelationshipSummary key={relationship.relationship_id} relationship={relationship} />
+							)) : <p className="doctor-empty-note">no patients yet</p>}
+						</div>
+					</section>
+
+					<section aria-labelledby="doctor-appointments-title" data-tone="sky">
+						<h2 id="doctor-appointments-title" className="doctor-queue-heading">
+							<span className="session-dot" aria-hidden="true" />
+							<span>Upcoming appointments</span>
+							<span className="doctor-queue-count">{appointments.length}</span>
+						</h2>
+						<div className="doctor-stack">
+							{appointments.length ? appointments.map((appointment) => (
+								<article key={appointment.appointment_id} className="doctor-appointment">
+									<p className="doctor-row-title">{appointment.purpose || "Care appointment"}</p>
+									<p className="doctor-row-meta">{formatDateTime(appointment.scheduled_start)}</p>
+									<span className="tag">{statusCopy(appointment.status)}</span>
+								</article>
+							)) : <p className="doctor-empty-note">no appointments yet</p>}
+						</div>
+					</section>
 				</div>
 
-				<div>
-					<SectionHeader title="Upcoming appointments" />
-					<div className="mt-4 space-y-2">
-						{dashboard?.upcoming_appointments.length ? dashboard.upcoming_appointments.map((appointment) => (
-							<DashboardCard key={appointment.appointment_id} className="p-4 text-sm text-slate-700">
-								<p className="font-semibold text-slate-950">{appointment.purpose || "Care appointment"}</p>
-								<p className="mt-1">{formatDateTime(appointment.scheduled_start)}</p>
-								<p className="mt-1 text-xs font-medium text-slate-500">{statusCopy(appointment.status)}</p>
-							</DashboardCard>
-						)) : <p className="rounded-control border border-dashed border-line p-4 text-sm text-slate-600">No upcoming appointments.</p>}
+				<section className="card doctor-prep" aria-labelledby="doctor-prep-title">
+					<div className="doctor-section-head">
+						<h2 id="doctor-prep-title" className="section-title">Prep note</h2>
+						{savedArtifact ? <span className="tag" data-tone="sky">Saved v{savedArtifact.version}</span> : null}
 					</div>
-				</div>
-			</section>
-
-			<section className="card">
-				<div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-					<div>
-						<SectionHeader eyebrow="Doctor Intelligence Artifact" title="Save a prep note" description="Notes you save here are kept with your briefing history." />
-					</div>
-					{savedArtifact ? <p className="text-xs font-medium text-slate-500">Saved v{savedArtifact.version}</p> : null}
-				</div>
-				<form className="mt-4 grid gap-3" onSubmit={submitArtifact}>
-					<label className="grid gap-1 text-sm font-medium text-slate-700">
-						<span>Title</span>
-						<input className="input" value={artifactDraft.title} onChange={(event) => setArtifactDraft((prev) => ({ ...prev, title: event.target.value }))} placeholder="Prep note title" />
-					</label>
-					<label className="grid gap-1 text-sm font-medium text-slate-700">
-						<span>Content</span>
-						<textarea className="textarea min-h-32" value={artifactDraft.content} onChange={(event) => setArtifactDraft((prev) => ({ ...prev, content: event.target.value }))} placeholder="What you want to remember before your next sessions" />
-					</label>
-					<div>
-						<AppButton type="submit" disabled={busyAction !== null || !artifactDraft.title.trim() || !artifactDraft.content.trim()}>{busyAction === "save" ? "Saving" : "Save Doctor Intelligence Artifact"}</AppButton>
-					</div>
-				</form>
-			</section>
+					<form className="doctor-prep-form" onSubmit={submitArtifact}>
+						<label className="doctor-field">
+							<span>Title</span>
+							<input className="input" value={artifactDraft.title} onChange={(event) => setArtifactDraft((prev) => ({ ...prev, title: event.target.value }))} placeholder="Prep note title" />
+						</label>
+						<label className="doctor-field">
+							<span>Note</span>
+							<textarea className="textarea min-h-32" value={artifactDraft.content} onChange={(event) => setArtifactDraft((prev) => ({ ...prev, content: event.target.value }))} placeholder="What you want to remember before your next sessions" />
+						</label>
+						<div>
+							<AppButton type="submit" disabled={busyAction !== null || !artifactDraft.title.trim() || !artifactDraft.content.trim()}>{busyAction === "save" ? "Saving…" : "Save prep note"}</AppButton>
+						</div>
+					</form>
+				</section>
+			</div>
 		</div>
 	);
 }

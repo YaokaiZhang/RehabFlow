@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 import { clearAuth, loadAuth, type AuthState } from "@rehab/shared/auth";
 
-import { AppButton, DashboardCard, SectionHeader, StatusBadge } from "../../components/ui";
+import { AppButton } from "../../components/ui";
 import DoctorProfessionalProfileSection from "./DoctorProfessionalProfileSection";
 import PatientMemorySettingsSection from "./PatientMemorySettingsSection";
 
@@ -34,66 +34,51 @@ export default function SettingsPageClient() {
 	};
 
 	if (auth === undefined) {
-		return <p className="text-sm text-slate-500">Loading settings...</p>;
+		return <p className="dashboard-loading">Loading settings...</p>;
 	}
 
 	if (!auth) {
 		return (
-			<section className="settings-page">
-				<DashboardCard className="settings-guest-card max-w-2xl p-5 md:p-6">
-					<SectionHeader
-						eyebrow="Settings"
-						title="Sign in to manage settings"
-						description="Use your RehabFlow account to manage account preferences and patient-owned memory settings."
-						action={<Link className="product-auth-link" href="/login?next=/settings">Login</Link>}
-					/>
-					<div className="mt-4 flex flex-wrap gap-2">
-						<Link className="product-auth-link product-auth-link-secondary" href="/register">Register</Link>
-					</div>
-				</DashboardCard>
+			<section className="dashboard-guest">
+				<div className="card dashboard-guest-card">
+					<h1 className="font-hand">Sign in to manage settings</h1>
+					<Link className="btn-primary" href="/login?next=/settings">Log in</Link>
+				</div>
 			</section>
 		);
 	}
 
 	const role = auth.role;
+	const navClass = (active: boolean) => (active ? "settings-nav-link settings-nav-link-active" : "settings-nav-link");
 
 	return (
 		<div className="settings-page">
-			<section className="settings-intro">
-				<div>
-					<h1>Settings</h1>
-					<p>{role === "patient" ? "Your account, and what RehabFlow remembers about you." : "Your account and the profile patients see when they choose a doctor."}</p>
-				</div>
-			</section>
+			<header className="page-header">
+				<h1>Settings</h1>
+			</header>
 
 			<div className="settings-layout">
-				<aside className="settings-sidebar">
-					<nav className="settings-nav" aria-label="Settings sections">
-						<a className={showAccount ? "settings-nav-link settings-nav-link-active" : "settings-nav-link"} href="/settings">Account</a>
-						{role === "patient" ? <a className={showPatientMemory ? "settings-nav-link settings-nav-link-active" : "settings-nav-link"} href="/settings?section=patient-memory">Patient Memory</a> : null}
-						{role === "doctor" ? <a className={showProfessionalProfile ? "settings-nav-link settings-nav-link-active" : "settings-nav-link"} href="/settings?section=professional-profile">Professional Profile</a> : null}
-					</nav>
-				</aside>
+				<nav className="settings-nav" aria-label="Settings sections">
+					<a className={navClass(showAccount)} href="/settings" aria-current={showAccount ? "page" : undefined}><span className="session-dot" aria-hidden="true" />Account</a>
+					{role === "patient" ? <a className={navClass(showPatientMemory)} data-tone="lilac" href="/settings?section=patient-memory" aria-current={showPatientMemory ? "page" : undefined}><span className="session-dot" aria-hidden="true" />Patient memory</a> : null}
+					{role === "doctor" ? <a className={navClass(showProfessionalProfile)} data-tone="sky" href="/settings?section=professional-profile" aria-current={showProfessionalProfile ? "page" : undefined}><span className="session-dot" aria-hidden="true" />Professional profile</a> : null}
+				</nav>
 
 				<div className="settings-content">
 					{showAccount ? (
-						<DashboardCard className="settings-content-card p-5 md:p-6">
-							<SectionHeader title="Account" />
-							<dl className="settings-detail-grid mt-4 grid gap-3 text-sm sm:grid-cols-2">
-								<div className="settings-detail-item rounded-control border border-line p-3">
-									<dt className="font-semibold text-slate-600">Username</dt>
-									<dd className="mt-1 break-all text-slate-950">{auth.username}</dd>
-								</div>
-								<div className="settings-detail-item rounded-control border border-line p-3">
-									<dt className="font-semibold text-slate-600">Account type</dt>
-									<dd className="mt-1 capitalize text-slate-950">{auth.role}</dd>
-								</div>
-							</dl>
-							<div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
-								<p className="text-sm text-slate-600">Signing out removes your login from this browser.</p>
+						<section className="card settings-card" aria-labelledby="settings-account-title">
+							<h2 className="sr-only" id="settings-account-title">Account</h2>
+							<div className="settings-account" data-tone={role === "patient" ? "mint" : "sky"}>
+								<span className="settings-avatar" aria-hidden="true">{auth.username.slice(0, 1).toUpperCase()}</span>
+								<dl className="settings-account-details">
+									<dt>Username</dt>
+									<dd className="settings-account-name">{auth.username}</dd>
+									<dt>Account type</dt>
+									<dd><span className="tag">{role === "patient" ? "Patient" : "Doctor"}</span></dd>
+								</dl>
 								<AppButton variant="secondary" onClick={signOut}>Sign out</AppButton>
 							</div>
-						</DashboardCard>
+						</section>
 					) : null}
 
 					{role === "patient" && showPatientMemory ? <PatientMemorySettingsSection /> : null}

@@ -1,0 +1,678 @@
+/* Area styles: episodes list and settings. Plain CSS (no @layer); tokens live in app/globals.css. */
+
+.dashboard-page,
+.settings-page {
+	width: min(100%, 1120px);
+	margin: 0 auto;
+}
+
+/* ---------- Episodes list ---------- */
+
+.dashboard-header {
+	position: relative;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	column-gap: 18px;
+	row-gap: 12px;
+}
+
+.dashboard-header-note {
+	margin: 0 0 4px;
+	transform: rotate(-2deg);
+}
+
+.dashboard-counts {
+	display: flex;
+	flex-basis: 100%;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 6px 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.dashboard-loading {
+	color: var(--rf-ink-soft);
+	font-size: 0.9375rem;
+}
+
+.dashboard-episode-section {
+	display: grid;
+	gap: 16px;
+}
+
+.dashboard-episode-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+	gap: 32px 28px;
+	margin: 0;
+	padding: 8px 4px 24px;
+	list-style: none;
+}
+
+.dashboard-episode-card {
+	position: relative;
+	display: flex;
+	min-height: 280px;
+	flex-direction: column;
+	padding: 22px 24px 20px;
+}
+
+.dashboard-episode-card:hover,
+.dashboard-episode-card:focus-within {
+	transform: rotate(0deg) translateY(-4px);
+	box-shadow: var(--rf-shadow-lift);
+}
+
+.dashboard-episode-top {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.dashboard-episode-tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.dashboard-tag-plain {
+	background: rgba(255, 255, 255, 0.7);
+	color: var(--rf-ink-muted);
+}
+
+/* Sits above the stretched card link so it stays its own target. */
+.dashboard-delete-button {
+	position: relative;
+	z-index: 2;
+	display: inline-flex;
+	height: 34px;
+	width: 34px;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: center;
+	margin: -4px -6px 0 0;
+	border-radius: 999px;
+	color: var(--tone-deep, var(--rf-ink-muted));
+	opacity: 0.55;
+	transition: background-color 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+.dashboard-episode-card:hover .dashboard-delete-button,
+.dashboard-delete-button:focus-visible {
+	opacity: 1;
+}
+
+.dashboard-delete-button:hover:not(:disabled) {
+	background: var(--rf-rose);
+	color: var(--rf-rose-deep);
+	opacity: 1;
+}
+
+.dashboard-delete-button:disabled {
+	cursor: progress;
+}
+
+.dashboard-delete-busy {
+	height: 14px;
+	width: 14px;
+	border: 2px solid currentColor;
+	border-right-color: transparent;
+	border-radius: 999px;
+	animation: dashboard-spin 0.8s linear infinite;
+}
+
+@keyframes dashboard-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.dashboard-episode-area {
+	margin: 22px 0 0;
+	color: var(--tone-deep, var(--rf-ink-muted));
+	font-size: 0.875rem;
+	font-weight: 650;
+}
+
+.dashboard-episode-title {
+	margin: 2px 0 0;
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 2rem;
+	font-weight: 700;
+	letter-spacing: -0.01em;
+	line-height: 0.98;
+	overflow-wrap: anywhere;
+}
+
+/* The title link covers the whole sticker. */
+.dashboard-episode-link {
+	color: inherit;
+}
+
+.dashboard-episode-link::after {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	border-radius: inherit;
+	content: "";
+}
+
+.dashboard-episode-link:focus-visible {
+	outline: none;
+}
+
+.dashboard-episode-card:has(.dashboard-episode-link:focus-visible) {
+	outline: 3px solid var(--rf-ink);
+	outline-offset: 4px;
+}
+
+.dashboard-episode-goal {
+	display: -webkit-box;
+	margin: 10px 0 0;
+	overflow: hidden;
+	color: var(--rf-ink-muted);
+	font-size: 0.9375rem;
+	line-height: 1.45;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+}
+
+.dashboard-episode-progress {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 6px;
+	margin-top: auto;
+	padding-top: 22px;
+}
+
+.dashboard-step {
+	height: 8px;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.75);
+}
+
+.dashboard-step-done {
+	background: var(--tone-stroke);
+}
+
+.dashboard-episode-foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 14px;
+	color: var(--rf-ink-muted);
+	font-size: 0.8125rem;
+	font-weight: 600;
+}
+
+.dashboard-episode-go {
+	display: inline-flex;
+	height: 34px;
+	width: 34px;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	background: var(--rf-ink);
+	color: #ffffff;
+	transition: transform 300ms var(--rf-ease);
+}
+
+.dashboard-episode-card:hover .dashboard-episode-go {
+	transform: translateX(3px);
+}
+
+/* The "new episode" tile: a blank sticker with a big plus. */
+.dashboard-new-card {
+	display: flex;
+	min-height: 280px;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	border: 2px dashed var(--rf-line-strong);
+	box-shadow: none;
+	text-align: center;
+}
+
+.dashboard-new-card:hover,
+.dashboard-new-card:focus-within {
+	transform: rotate(0deg);
+	border-color: var(--rf-ink-soft);
+}
+
+.dashboard-new-plus {
+	display: inline-flex;
+	height: 64px;
+	width: 64px;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	background: var(--rf-fill);
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 3rem;
+	font-weight: 700;
+	line-height: 1;
+}
+
+.dashboard-new-title {
+	margin: 0 0 6px;
+	font-size: 1.75rem;
+	line-height: 1;
+}
+
+.dashboard-new-manual {
+	color: var(--rf-ink-muted);
+	font-size: 0.875rem;
+	font-weight: 600;
+	text-decoration: underline;
+	text-decoration-color: var(--rf-line-strong);
+	text-underline-offset: 4px;
+}
+
+.dashboard-new-manual:hover {
+	color: var(--rf-ink);
+	text-decoration-color: currentColor;
+}
+
+/* Signed-out state, shared with settings. */
+.dashboard-guest {
+	display: grid;
+	place-items: start center;
+	padding-top: clamp(8px, 6vh, 64px);
+}
+
+.dashboard-guest-card {
+	display: grid;
+	width: min(100%, 460px);
+	justify-items: center;
+	gap: 22px;
+	padding: 40px 28px;
+	text-align: center;
+}
+
+.dashboard-guest-card h1 {
+	margin: 0;
+	font-size: clamp(2rem, 5vw, 2.5rem);
+	line-height: 1;
+}
+
+/* ---------- Settings ---------- */
+
+.settings-layout {
+	display: grid;
+	grid-template-columns: 200px minmax(0, 1fr);
+	align-items: start;
+	gap: 40px;
+}
+
+.settings-nav {
+	position: sticky;
+	top: calc(var(--rf-topbar-height) + 16px);
+	display: grid;
+	gap: 6px;
+}
+
+.settings-nav-link {
+	display: flex;
+	min-height: 44px;
+	align-items: center;
+	gap: 10px;
+	border-radius: var(--rf-radius-control);
+	padding: 8px 16px;
+	color: var(--rf-ink-muted);
+	font-size: 0.9375rem;
+	font-weight: 650;
+	transition: background-color 140ms ease, color 140ms ease;
+}
+
+.settings-nav-link:hover {
+	background: var(--rf-fill);
+	color: var(--rf-ink);
+}
+
+.settings-nav-link-active,
+.settings-nav-link-active:hover {
+	background: var(--tone-label, var(--rf-fill-strong));
+	color: var(--rf-ink);
+}
+
+.settings-nav-link .session-dot {
+	background: var(--rf-ink);
+}
+
+.settings-nav-link[data-tone] .session-dot {
+	background: var(--tone-stroke);
+}
+
+.settings-content {
+	display: grid;
+	max-width: 760px;
+	min-width: 0;
+	gap: 20px;
+}
+
+.settings-card {
+	padding: 28px;
+}
+
+.settings-card-title {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 0;
+	font-size: 1.25rem;
+	font-weight: 700;
+	line-height: 1.25;
+}
+
+.settings-card-title-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px 16px;
+}
+
+.settings-meta {
+	color: var(--rf-ink-soft);
+	font-size: 0.8125rem;
+	font-weight: 600;
+}
+
+/* Account */
+.settings-account {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 20px;
+}
+
+.settings-avatar {
+	display: inline-flex;
+	height: 72px;
+	width: 72px;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	background: var(--tone-label, var(--rf-fill));
+	color: var(--tone-deep, var(--rf-ink));
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 2.5rem;
+	font-weight: 700;
+	line-height: 1;
+	transform: rotate(-4deg);
+}
+
+.settings-account-details {
+	display: grid;
+	flex: 1 1 200px;
+	min-width: 0;
+	gap: 6px;
+	margin: 0;
+}
+
+.settings-account-details dt {
+	position: absolute;
+	height: 1px;
+	width: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+.settings-account-details dd {
+	margin: 0;
+}
+
+.settings-account-name {
+	font-size: 1.375rem;
+	font-weight: 700;
+	line-height: 1.2;
+	overflow-wrap: anywhere;
+}
+
+/* Patient memory (lilac) */
+.settings-memory-summary {
+	padding: 28px;
+}
+
+.settings-memory-summary .settings-card-title {
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 2rem;
+	line-height: 1;
+}
+
+.settings-memory-text {
+	margin: 16px 0 0;
+	white-space: pre-wrap;
+	color: var(--rf-ink);
+	font-size: 0.9375rem;
+	line-height: 1.65;
+}
+
+.settings-empty {
+	margin: 14px 0 0;
+	color: var(--rf-ink-muted);
+	font-family: var(--rf-font-hand), "Comic Sans MS", cursive;
+	font-size: 1.375rem;
+	font-weight: 400;
+	line-height: 1.2;
+}
+
+.settings-form {
+	display: grid;
+	gap: 4px;
+}
+
+.settings-card > .settings-form {
+	margin-top: 16px;
+}
+
+.settings-form .field-label:first-child {
+	margin-top: 0;
+}
+
+.settings-form-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 18px;
+}
+
+.settings-memory-list {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	gap: 16px;
+	margin: 14px 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.settings-memory-item {
+	display: flex;
+	flex-direction: column;
+	padding: 20px 22px;
+}
+
+.settings-memory-item-editing {
+	grid-column: 1 / -1;
+}
+
+.settings-memory-item h4 {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+	font-size: 1rem;
+	font-weight: 700;
+	line-height: 1.3;
+	overflow-wrap: anywhere;
+}
+
+.settings-memory-item p {
+	flex: 1;
+	margin: 8px 0 0;
+	white-space: pre-wrap;
+	color: var(--rf-ink-muted);
+	font-size: 0.9375rem;
+	line-height: 1.55;
+	overflow-wrap: anywhere;
+}
+
+.settings-item-actions {
+	display: flex;
+	gap: 4px;
+	margin: 14px 0 0 -10px;
+}
+
+.settings-text-button {
+	min-height: 36px;
+	border-radius: 999px;
+	padding: 6px 12px;
+	color: var(--rf-ink-muted);
+	font-size: 0.875rem;
+	font-weight: 650;
+	transition: background-color 140ms ease, color 140ms ease;
+}
+
+.settings-text-button:hover:not(:disabled) {
+	background: var(--rf-fill);
+	color: var(--rf-ink);
+}
+
+.settings-text-button-danger:hover:not(:disabled) {
+	background: var(--rf-rose);
+	color: var(--rf-rose-deep);
+}
+
+.settings-text-button:disabled {
+	cursor: not-allowed;
+	opacity: 0.4;
+}
+
+.settings-section-label {
+	margin: 8px 0 0;
+	color: var(--rf-ink);
+	font-size: 1.125rem;
+	font-weight: 700;
+}
+
+/* Professional profile (sky) */
+.settings-profile-identity {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	margin-top: 18px;
+	border-radius: 22px;
+	padding: 18px 20px;
+}
+
+.settings-profile-name {
+	margin: 0;
+	font-size: 1.125rem;
+	font-weight: 700;
+	overflow-wrap: anywhere;
+}
+
+.settings-tag-row {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.settings-tag-row .input {
+	margin-top: 0;
+}
+
+.settings-hint {
+	margin: 8px 0 0;
+	color: var(--rf-ink-soft);
+	font-size: 0.8125rem;
+}
+
+.settings-tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.settings-tags .tag {
+	padding-right: 4px;
+}
+
+.settings-tag-remove {
+	display: inline-flex;
+	height: 22px;
+	width: 22px;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	color: inherit;
+	font-size: 1rem;
+	line-height: 1;
+}
+
+.settings-tag-remove:hover {
+	background: rgba(255, 255, 255, 0.7);
+}
+
+@media (min-width: 640px) {
+	.settings-tag-row {
+		flex-direction: row;
+	}
+}
+
+@media (max-width: 860px) {
+	.settings-layout {
+		grid-template-columns: 1fr;
+		gap: 20px;
+	}
+
+	.settings-nav {
+		position: static;
+		display: flex;
+		flex-wrap: wrap;
+	}
+}
+
+@media (max-width: 640px) {
+	.dashboard-episode-grid {
+		grid-template-columns: 1fr;
+		gap: 22px;
+		padding-inline: 6px;
+	}
+
+	.dashboard-episode-card,
+	.dashboard-new-card {
+		min-height: 0;
+	}
+
+	.dashboard-new-card {
+		padding-block: 28px;
+	}
+
+	.dashboard-episode-grid > .tilt-l {
+		transform: rotate(-1deg);
+	}
+
+	.dashboard-episode-grid > .tilt-r {
+		transform: rotate(1deg);
+	}
+
+	.settings-card,
+	.settings-memory-summary {
+		padding: 22px 20px;
+	}
+}
+
+.settings-tags .settings-empty {
+	margin: 0;
+	font-size: 1.25rem;
+}

@@ -55,10 +55,10 @@ function chatHref(session: AiChatSessionSummary) {
 }
 
 const workflowSessions = [
-	{ id: "triage", label: "AI Triage Intake" },
-	{ id: "rehab", label: "AI Daily Rehab" },
-	{ id: "professional-care", label: "Professional Care" },
-	{ id: "history", label: "History" },
+	{ id: "triage", label: "AI Triage Intake", tone: "peach" },
+	{ id: "rehab", label: "AI Daily Rehab", tone: "mint" },
+	{ id: "professional-care", label: "Professional Care", tone: "sky" },
+	{ id: "history", label: "History", tone: "lilac" },
 ];
 
 function ChatSessionRow({
@@ -97,7 +97,7 @@ function ChatSessionRow({
 				aria-current={active ? "page" : undefined}
 			>
 				<span className="episode-chat-title">{chatLabel(session)}</span>
-				<span className="episode-chat-meta">{episodeName} - {formatChatDate(session.last_message_at || session.updated_at)}</span>
+				<span className="episode-chat-meta" title={episodeName}>{formatChatDate(session.last_message_at || session.updated_at)}</span>
 			</Link>
 			<button
 				type="button"
@@ -254,12 +254,12 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 			</button>
 			<div className="episode-rail-body" id="episode-rail-body">
 			<div className="episode-rail-heading">
-				<span className="episode-rail-heading-title">Episodes</span>
+				<span className="episode-rail-heading-title">my episodes</span>
 				<Link href="/episodes" className="episode-rail-all">View all</Link>
 			</div>
 			<div className="episode-rail-actions">
-				<Link href="/episodes/new" className="episode-rail-new">New episode</Link>
-				<Link href="/" className="episode-rail-new episode-rail-new-chat">New chat</Link>
+				<Link href="/episodes/new" className="episode-rail-new">+ Episode</Link>
+				<Link href="/" className="episode-rail-new episode-rail-new-chat">+ Chat</Link>
 			</div>
 
 			<div className="episode-rail-list">
@@ -271,7 +271,7 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 				) : null}
 				{loading ? <p className="episode-rail-loading">Loading your episodes...</p> : null}
 				{!loading && !error && episodes.length === 0 ? (
-					<p className="episode-rail-empty">No episodes yet. Start with a new concern.</p>
+					<p className="episode-rail-empty">nothing here yet</p>
 				) : null}
 				{episodes.map((episode) => {
 					const isActive = episode.care_episode_id === activeEpisodeId;
@@ -286,7 +286,7 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 								<span className="episode-folder-marker" aria-hidden="true" />
 								<span>
 									<span className="episode-folder-title">{episodeLabel(episode)}</span>
-									<span className="episode-folder-meta">{episode.body_area || "Care episode"}</span>
+									{episode.body_area ? <span className="episode-folder-meta">{episode.body_area}</span> : null}
 								</span>
 							</Link>
 							{isActive ? (
@@ -301,6 +301,7 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 										{workflowSessions.map((session) => (
 											<Link
 												key={session.id}
+												data-tone={session.tone}
 												href={`/episodes/${episode.care_episode_id}/${session.id}`}
 												className={`episode-session-link ${sessionIsActive(pathname, episode.care_episode_id, session.id) ? "episode-session-link-active" : ""}`}
 											>
@@ -313,12 +314,13 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 										aria-labelledby={`episode-chat-group-${episode.care_episode_id}`}
 									>
 										<div className="episode-chat-group-heading">
-											<h3 id={`episode-chat-group-${episode.care_episode_id}`}>Episode chats</h3>
+											<h3 id={`episode-chat-group-${episode.care_episode_id}`}>Chats</h3>
 											<Link
 												href={`/?episode_id=${episode.care_episode_id}`}
 												className="episode-chat-new"
+												aria-label="New chat in this episode"
 											>
-												New chat
+												+ New
 											</Link>
 										</div>
 										{chatLoading ? <p className="episode-chat-feedback">Loading chats...</p> : null}
@@ -337,7 +339,7 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 												onConfirmDelete={confirmDelete}
 											/>
 										)) : null}
-										{!chatLoading && !chatError && !episodeChatsForEpisode.length ? <p className="episode-chat-feedback">No chats in this episode yet.</p> : null}
+										
 									</section>
 								</>
 							) : null}
@@ -346,9 +348,10 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 				})}
 			</div>
 
+			{unassignedChats.length || chatError ? (
 			<section className="episode-chat-directory" aria-labelledby="episode-chat-directory-title">
 				<div className="episode-chat-directory-heading">
-					<h2 id="episode-chat-directory-title">Unassigned chats</h2>
+					<h2 id="episode-chat-directory-title">Loose chats</h2>
 					{unassignedChats.length ? <span>{unassignedChats.length}</span> : null}
 				</div>
 				{chatError ? (
@@ -376,9 +379,10 @@ function EpisodeRailContent({ auth }: EpisodeRailProps) {
 								/>
 							))}
 						</div>
-					) : <p className="episode-chat-feedback">Chats you start without an episode appear here.</p>
+					) : null
 				) : null}
 			</section>
+			) : null}
 			</div>
 		</aside>
 	);

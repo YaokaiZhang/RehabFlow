@@ -4,7 +4,7 @@ import SettingsPageClient from "./SettingsPageClient";
 
 export default function SettingsPage() {
 	return (
-		<Suspense fallback={<p className="text-sm text-slate-500">Loading settings...</p>}>
+		<Suspense fallback={<p className="dashboard-loading">Loading settings...</p>}>
 			<SettingsPageClient />
 		</Suspense>
 	);

@@ -85,9 +85,15 @@ export default function RegisterPage() {
 
 	return (
 		<section className="auth-page">
+			<div className="auth-deco" aria-hidden="true">
+				<span className="sticker tone-peach auth-deco-sticker auth-deco-a">triage</span>
+				<span className="sticker tone-mint auth-deco-sticker auth-deco-b">daily rehab</span>
+				<span className="sticker tone-sky auth-deco-sticker auth-deco-c">your doctor</span>
+				<svg className="auth-deco-scribble" viewBox="0 0 120 60" fill="none"><path d="M6 40c18-26 34-30 40-14s-10 22-6 8 24-24 44-10 22 10 30 2" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
+			</div>
 			<div className="auth-card">
-				<h1>Create your account</h1>
-				<p className="auth-lead">{role === "doctor" ? "Doctors review requests from patients and follow their rehab." : "Patients get AI triage, daily guided rehab, and a doctor when they need one."}</p>
+				<p className="scribble auth-note" aria-hidden="true">takes about a minute</p>
+				<h1>Let&apos;s get you set up</h1>
 				<form onSubmit={onSubmit} className="auth-form">
 					<fieldset className="auth-role">
 						<legend className="sr-only">I am a</legend>
@@ -126,13 +132,13 @@ export default function RegisterPage() {
 							value={password}
 							onChange={(e) => setPassword(e.target.value)}
 						/>
-						<p id="register-password-hint" className="mt-1.5 text-xs text-[var(--rf-ink-soft)]">At least 8 characters.</p>
+						<p id="register-password-hint" className="auth-hint">At least 8 characters.</p>
 					</div>
 
 					{error ? <p className="notice notice-danger" role="alert">{error}</p> : null}
 
 					<AppButton type="submit" className="w-full" disabled={loading}>
-						{loading ? "Creating account" : "Create account"}
+						{loading ? "Creating account" : "Create account"}<span className="btn-arrow"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
 					</AppButton>
 				</form>
 				<p className="auth-switch">Already have an account? <Link href={role === "doctor" ? "/login?role=doctor" : "/login"}>Log in</Link></p>

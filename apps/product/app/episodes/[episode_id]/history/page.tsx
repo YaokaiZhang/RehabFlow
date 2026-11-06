@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
 	getCareEpisodeHistory,
@@ -54,111 +54,110 @@ function formatMemoryValue(value: unknown) {
 	}
 }
 
+function fieldLabel(fieldName: string) {
+	const words = fieldName.replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim().toLowerCase();
+	return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Memory field";
+}
+
+function timeValue(value?: string | null) {
+	if (!value) return Number.NEGATIVE_INFINITY;
+	const time = new Date(value).getTime();
+	return Number.isNaN(time) ? Number.NEGATIVE_INFINITY : time;
+}
+
 function MemorySection({ title, document, emptyCopy }: { title: string; document?: MemoryDocument | null; emptyCopy: string }) {
 	const fields = document ? Object.entries(document.editable_fields || {}) : [];
 	return (
-		<section className="card">
-			<h2 className="section-title">{title}</h2>
+		<section className="sticker tone-lilac ep-memory">
+			<h2>{title}</h2>
 			{document ? (
-				<div className="mt-3 space-y-3 text-sm text-slate-700">
-					<p className="whitespace-pre-line rounded-control border border-line bg-[var(--rf-surface-muted)] p-3">{document.compiled_text || emptyCopy}</p>
+				<>
+					<p className="ep-memory-text">{document.compiled_text || emptyCopy}</p>
 					{fields.length ? (
-						<div className="space-y-2">
-							{fields.map(([fieldName, value]) => (
-								<article key={fieldName} className="rounded-md border border-slate-200 bg-white p-3">
-									<p className="text-sm font-semibold text-slate-500">Memory field</p>
-									<p className="mt-1 font-semibold text-slate-950">{fieldName}</p>
-									<p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{formatMemoryValue(value)}</p>
-								</article>
-							))}
-						</div>
+						fields.map(([fieldName, value]) => (
+							<div key={fieldName} className="ep-memory-field">
+								<span className="ep-memory-field-name">{fieldLabel(fieldName)}</span>
+								<p className="ep-memory-text">{formatMemoryValue(value)}</p>
+							</div>
+						))
 					) : (
-						<p className="text-sm text-slate-500">{emptyCopy}</p>
+						<p className="ep-care-muted">{emptyCopy}</p>
 					)}
-				</div>
+				</>
 			) : (
-				<p className="mt-3 text-sm text-slate-500">{emptyCopy}</p>
+				<p className="ep-care-muted">{emptyCopy}</p>
 			)}
 		</section>
+	);
+}
+
+type TimelineEvent = { key: string; at?: string | null; tone: "peach" | "mint" | "sky"; node: ReactNode };
+
+function TimelineItem({ event }: { event: TimelineEvent }) {
+	return (
+		<li className="ep-tl-item" data-tone={event.tone}>
+			<span className="ep-tl-dot" aria-hidden="true" />
+			{event.node}
+		</li>
 	);
 }
 
 function TriageSummaryCard({ title, summary, badge }: { title: string; summary: SummaryWithContext; badge: string }) {
 	const transcript = summary.source_conversation_transcript?.trim();
 	return (
-		<article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-			<div className="flex flex-wrap items-start justify-between gap-3">
-				<div>
-					<p className="text-sm font-semibold text-slate-500">{badge}</p>
-					<h3 className="mt-1 text-lg font-semibold text-slate-950">{title}</h3>
+		<article className="ep-tl-card">
+			<div className="ep-tl-head">
+				<div className="ep-tl-head-left">
+					<span className="tag">AI Triage Intake · {badge}</span>
+					<h3 className="ep-tl-title">{title}</h3>
 				</div>
-				<p className="text-xs text-slate-500">{formatDateTime(summary.created_at)}</p>
+				<span className="ep-tl-time">{formatDateTime(summary.created_at)}</span>
 			</div>
-			<div className="mt-3 space-y-3 text-sm text-slate-700">
-				<p><span className="font-semibold text-slate-950">Concern:</span> {summary.concern}</p>
-				<p><span className="font-semibold text-slate-950">Recommendation:</span> {summary.recommendation}</p>
-				{summary.relevant_context ? (
-					<div className="rounded-control border border-line bg-[var(--rf-surface-muted)] p-3">
-						<p className="text-sm font-semibold text-slate-500">Triage context summary</p>
-						<p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{summary.relevant_context}</p>
-					</div>
-				) : null}
-				<div className="rounded-control border border-line bg-[var(--rf-surface-muted)] p-3">
-					<p className="text-sm font-semibold text-slate-500">Source transcript snapshot</p>
-					<p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">
-						{transcript || "No source transcript snapshot saved for this older summary."}
-					</p>
-				</div>
-			</div>
+			<p><span className="ep-tl-label">Concern:</span> {summary.concern}</p>
+			<p><span className="ep-tl-label">Recommendation:</span> {summary.recommendation}</p>
+			{summary.relevant_context ? (
+				<details className="ep-disclosure">
+					<summary>Triage context summary</summary>
+					<p className="whitespace-pre-line">{summary.relevant_context}</p>
+				</details>
+			) : null}
+			<details className="ep-disclosure">
+				<summary>Source transcript snapshot</summary>
+				<p className="whitespace-pre-line">{transcript || "No source transcript snapshot saved for this older summary."}</p>
+			</details>
 		</article>
 	);
 }
 
-function RehabSessionsSection({ sessions }: { sessions: EpisodeRehabSession[] }) {
+function RehabSessionCard({ session }: { session: EpisodeRehabSession }) {
 	return (
-		<section className="card">
-			<h2 className="section-title">AI Daily Rehab</h2>
-			{sessions.length ? (
-				<div className="mt-3 space-y-3">
-					{sessions.map((session) => (
-						<article key={session.session_id} className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-700">
-							<div className="flex flex-wrap items-start justify-between gap-3">
-								<p className="font-semibold text-slate-950">{checklistProgress(session)}</p>
-								<p className="text-xs text-slate-500">{formatDateTime(session.created_at)}</p>
-							</div>
-							<p className="mt-2"><span className="font-semibold text-slate-950">Notes:</span> {session.patient_notes || "No patient notes captured."}</p>
-							<p className="mt-2 whitespace-pre-line">{session.session_summary || "No generated session summary yet."}</p>
-						</article>
-					))}
+		<article className="ep-tl-card">
+			<div className="ep-tl-head">
+				<div className="ep-tl-head-left">
+					<span className="tag">AI Daily Rehab</span>
+					<h3 className="ep-tl-title">{checklistProgress(session)}</h3>
 				</div>
-			) : (
-				<p className="mt-3 text-sm text-slate-500">No AI Daily Rehab sessions saved for this episode.</p>
-			)}
-		</section>
+				<span className="ep-tl-time">{formatDateTime(session.created_at)}</span>
+			</div>
+			<p><span className="ep-tl-label">Notes:</span> {session.patient_notes || "No patient notes captured."}</p>
+			<p className="whitespace-pre-line">{session.session_summary || "No generated session summary yet."}</p>
+		</article>
 	);
 }
 
-function CareSummariesSection({ summaries }: { summaries: AICareSummary[] }) {
+function CareSummaryCard({ summary }: { summary: AICareSummary }) {
 	return (
-		<section className="card">
-			<h2 className="section-title">Professional Care</h2>
-			{summaries.length ? (
-				<div className="mt-3 space-y-3">
-					{summaries.map((summary) => (
-						<article key={summary.care_summary_id} className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-700">
-							<div className="flex flex-wrap items-start justify-between gap-3">
-								<p className="font-semibold text-slate-950">AI Care Summary</p>
-								<p className="text-xs text-slate-500">{formatDateTime(summary.created_at)}</p>
-							</div>
-							<p className="mt-2 whitespace-pre-line">{summary.conversation_digest}</p>
-							<p className="mt-2"><span className="font-semibold text-slate-950">Plan:</span> {summary.plan_digest}</p>
-						</article>
-					))}
+		<article className="ep-tl-card">
+			<div className="ep-tl-head">
+				<div className="ep-tl-head-left">
+					<span className="tag">Professional Care</span>
+					<h3 className="ep-tl-title">AI Care Summary</h3>
 				</div>
-			) : (
-				<p className="mt-3 text-sm text-slate-500">No Professional Care AI summaries saved for this episode.</p>
-			)}
-		</section>
+				<span className="ep-tl-time">{formatDateTime(summary.created_at)}</span>
+			</div>
+			<p className="whitespace-pre-line">{summary.conversation_digest}</p>
+			<p><span className="ep-tl-label">Plan:</span> {summary.plan_digest}</p>
+		</article>
 	);
 }
 
@@ -182,7 +181,7 @@ export default function CareEpisodeHistoryPage() {
 			.finally(() => setLoading(false));
 	}, [episodeId]);
 
-	if (loading) return <p className="text-sm text-slate-500">Loading episode history...</p>;
+	if (loading) return <p className="ep-loading">Loading episode history...</p>;
 	if (error && !history) return <section className="page-column-narrow"><p className="notice notice-danger">{error}</p></section>;
 	if (!history) return null;
 
@@ -194,64 +193,83 @@ export default function CareEpisodeHistoryPage() {
 		episodeMemory?.level2_summary ? `Summary: ${episodeMemory.level2_summary}` : null,
 	].filter((detail): detail is string => Boolean(detail));
 
+	const timeline: TimelineEvent[] = [
+		...summaries.map((summary, index) => ({
+			key: `summary-${summary.triage_summary_id}`,
+			at: summary.created_at,
+			tone: "peach" as const,
+			node: <TriageSummaryCard title={`Triage Summary, version ${summary.version || index + 1}`} summary={summary} badge="Saved" />,
+		})),
+		...drafts.map((draft, index) => ({
+			key: `draft-${draft.triage_summary_draft_id}`,
+			at: draft.created_at,
+			tone: "peach" as const,
+			node: <TriageSummaryCard title={`Draft summary ${index + 1}`} summary={draft} badge="Draft" />,
+		})),
+		...rehabSessions.map((session) => ({
+			key: `rehab-${session.session_id}`,
+			at: session.created_at,
+			tone: "mint" as const,
+			node: <RehabSessionCard session={session} />,
+		})),
+		...careSummaries.map((summary) => ({
+			key: `care-${summary.care_summary_id}`,
+			at: summary.created_at,
+			tone: "sky" as const,
+			node: <CareSummaryCard summary={summary} />,
+		})),
+	].sort((a, b) => timeValue(b.at) - timeValue(a.at));
+
 	return (
-		<div className="page-column space-y-6">
-			<section className="page-header">
+		<div className="page-column ep-page">
+			<header className="page-header" data-tone="lilac">
 				<p className="page-header-kicker">History</p>
 				<h1>{episode.issue_title}</h1>
-				<p className="page-header-lead">Everything saved for this episode: triage summaries with their chats, rehab sessions, doctor summaries, and what RehabFlow remembers.</p>
-				<div className="page-header-actions">
-					<Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}`}>Episode Overview</Link>
-					<Link className="btn-secondary" href="/episodes">All Episodes</Link>
+				<div className="ep-header-links">
+					<Link className="btn-secondary" href={`/episodes/${episode.care_episode_id}`}>Episode overview</Link>
 				</div>
-			</section>
+			</header>
 
-			<section className="grid gap-4 lg:grid-cols-3">
-				<div className="card">
-					<h2 className="section-title">Care Episode</h2>
-					<div className="mt-3 space-y-2 text-sm text-slate-700">
-						<p><span className="font-semibold text-slate-950">Body area:</span> {episode.body_area}</p>
-						<p><span className="font-semibold text-slate-950">Goal:</span> {episode.goal}</p>
-						<p className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-950">Safety gate:</span> <StatusBadge tone={safetyTone(episode.safety_gate_status)}>{safetyCopy(episode.safety_gate_status)}</StatusBadge></p>
-						<p><span className="font-semibold text-slate-950">Description:</span> {episode.short_description}</p>
-					</div>
-				</div>
-				<MemorySection title="Patient Memory" document={patientMemory} emptyCopy="Nothing saved about you yet. RehabFlow adds facts here as you chat." />
-				<section className="card">
-					<h2 className="section-title">Episode Memory</h2>
-					<div className="mt-3 space-y-3 text-sm text-slate-700">
-						{compiledMemoryContext ? <p className="whitespace-pre-line rounded-control border border-line bg-[var(--rf-surface-muted)] p-3">{compiledMemoryContext}</p> : null}
-						{episodeMemoryDetails.length ? (
-							<div className="space-y-2">
-								{episodeMemoryDetails.map((detail) => (
-									<p key={detail} className="whitespace-pre-line rounded-control border border-line bg-white p-3">{detail}</p>
-								))}
-							</div>
-						) : null}
-						{!compiledMemoryContext && !episodeMemoryDetails.length ? <p className="text-sm text-slate-500">Nothing remembered for this episode yet.</p> : null}
-					</div>
+			<section className="ep-history-top">
+				<section className="card" aria-labelledby="ep-history-episode">
+					<h2 id="ep-history-episode" className="section-title">Care Episode</h2>
+					<dl className="ep-facts">
+						<div><dt>Body area</dt><dd>{episode.body_area}</dd></div>
+						<div><dt>Goal</dt><dd>{episode.goal}</dd></div>
+						<div><dt>Safety gate</dt><dd><StatusBadge tone={safetyTone(episode.safety_gate_status)}>{safetyCopy(episode.safety_gate_status)}</StatusBadge></dd></div>
+						<div><dt>Description</dt><dd>{episode.short_description}</dd></div>
+					</dl>
+				</section>
+				<MemorySection title="Patient memory" document={patientMemory} emptyCopy="Nothing saved about you yet. RehabFlow adds facts here as you chat." />
+				<section className="sticker tone-lilac ep-memory" aria-labelledby="ep-history-memory">
+					<h2 id="ep-history-memory">Episode memory</h2>
+					{compiledMemoryContext ? <p className="ep-memory-text">{compiledMemoryContext}</p> : null}
+					{episodeMemoryDetails.map((detail) => (
+						<p key={detail} className="ep-memory-text">{detail}</p>
+					))}
+					{!compiledMemoryContext && !episodeMemoryDetails.length ? <p className="ep-care-muted">Nothing remembered for this episode yet.</p> : null}
 				</section>
 			</section>
 
-			<section className="space-y-3">
-				<div className="flex flex-wrap items-center justify-between gap-3">
-					<h2 className="section-title">Triage Source History</h2>
-					<p className="text-sm text-slate-500">Each summary keeps a copy of the chat it came from.</p>
+			<section aria-labelledby="ep-timeline-title" className="grid gap-5">
+				<div className="ep-section-head">
+					<h2 id="ep-timeline-title" className="section-title flex items-center gap-2"><span className="session-dot" data-tone="lilac" />Timeline</h2>
+					{timeline.length ? <ul className="ep-legend" aria-label="Legend">
+						<li data-tone="peach"><span className="session-dot" />AI Triage Intake</li>
+						<li data-tone="mint"><span className="session-dot" />AI Daily Rehab</li>
+						<li data-tone="sky"><span className="session-dot" />Professional Care</li>
+					</ul> : null}
 				</div>
-				{summaries.length === 0 && drafts.length === 0 ? (
-					<section className="card text-sm text-slate-500">No triage summaries yet. They appear here after you save one from AI Triage Intake.</section>
-				) : null}
-				{summaries.map((summary, index) => (
-					<TriageSummaryCard key={summary.triage_summary_id} title={`Triage Summary, version ${summary.version || index + 1}`} summary={summary} badge="Saved" />
-				))}
-				{drafts.map((draft, index) => (
-					<TriageSummaryCard key={draft.triage_summary_draft_id} title={`Draft summary ${index + 1}`} summary={draft} badge="Draft" />
-				))}
-			</section>
-
-			<section className="grid gap-4 lg:grid-cols-2">
-				<RehabSessionsSection sessions={rehabSessions} />
-				<CareSummariesSection summaries={careSummaries} />
+				{timeline.length ? (
+					<ol className="ep-timeline">
+						{timeline.map((event) => <TimelineItem key={event.key} event={event} />)}
+					</ol>
+				) : (
+					<div className="card">
+						<p className="ep-empty">nothing saved yet</p>
+						<p className="mt-2 text-sm text-[var(--rf-ink-muted)]">Triage summaries, rehab sessions and doctor summaries appear here as you save them.</p>
+					</div>
+				)}
 			</section>
 		</div>
 	);
