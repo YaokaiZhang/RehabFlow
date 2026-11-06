@@ -76,6 +76,7 @@ export default function PatientDashboardPage() {
 		try {
 			await deleteCareEpisode(episode.care_episode_id, auth.access_token);
 			setEpisodes((current) => current.filter((item) => item.care_episode_id !== episode.care_episode_id));
+			window.dispatchEvent(new Event("rehab-ai-chat-changed"));
 			setStatusMessage("Care Episode deleted.");
 		} catch (err) {
 			setError((err as Error).message);

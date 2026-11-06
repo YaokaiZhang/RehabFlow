@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -371,11 +371,23 @@ def get_care_episode(
 @router.delete("/{care_episode_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_care_episode(
 	care_episode_id: UUID,
+	http_request: Request,
 	principal: dict = Depends(get_current_principal),
 	db: Session = Depends(get_db),
 ) -> Response:
 	patient_id = _current_patient_id(principal, db)
 	episode = _patient_episode(care_episode_id, patient_id, db)
+	chats = db.scalars(
+		select(AISession).where(AISession.care_episode_id == episode.care_episode_id, AISession.patient_id == patient_id)
+	).all()
+	delete_thread = getattr(getattr(http_request.app.state, "agent_runtime", None), "delete_thread", None)
+	for chat in chats:
+		if callable(delete_thread):
+			try:
+				delete_thread(str(chat.session_id))
+			except Exception as exc:
+				raise HTTPException(status_code=503, detail="Episode chats could not be deleted.") from exc
+		db.delete(chat)
 	db.delete(episode)
 	db.commit()
 	return Response(status_code=status.HTTP_204_NO_CONTENT)
