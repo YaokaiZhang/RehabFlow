@@ -10,7 +10,7 @@ from typing import Any, Mapping, Sequence
 from evals.longitudinal.contract import RUBRIC_DIMENSIONS
 
 REPORT_VERSION = "combined-v2"
-RUBRIC_VERSION = "v2"
+RUBRIC_VERSION = "v3"
 REPORT_DISCLAIMER = (
     "Engineering diagnostic only; not clinical validation and not a clinical outcome."
 )

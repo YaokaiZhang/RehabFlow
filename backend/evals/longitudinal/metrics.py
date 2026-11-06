@@ -1,11 +1,43 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, Mapping
+import unicodedata
 
 from evals.longitudinal.result import LongitudinalResult
 from evals.longitudinal.runtime_metrics import runtime_metrics_from_turns
 from evals.longitudinal.contract import ScenarioV2
+
+
+_QUOTE_TRANSLATION = str.maketrans({
+    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'", "\u2032": "'", "\u00b4": "'", "`": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"', "\u2033": '"',
+})
+# Hyphen and dash variants (and the ASCII hyphen) compare as a word break, so
+# "low-intensity", "low\u2011intensity" and "low intensity" match each other.
+_DASH_RE = re.compile(r"[-\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]")
+_WHITESPACE_RE = re.compile(r"\s+")
+_TRAILING_PUNCTUATION = ".,;:!?\u2026"
+
+
+def normalize_match_text(text: object) -> str:
+    """Canonical form for substring oracles against live model text.
+
+    Case-insensitive; folds curly/straight quotes and hyphen/dash variants,
+    collapses whitespace, and drops trailing punctuation. Still a plain
+    substring comparison: no fuzzy or semantic matching.
+    """
+    value = unicodedata.normalize("NFKC", str(text or "")).translate(_QUOTE_TRANSLATION)
+    value = _DASH_RE.sub(" ", value).casefold()
+    value = _WHITESPACE_RE.sub(" ", value).strip()
+    return value.rstrip(_TRAILING_PUNCTUATION + " ")
+
+
+def response_contains_phrase(response: object, phrase: object) -> bool:
+    """True when the normalized phrase occurs in the normalized response."""
+    needle = normalize_match_text(phrase)
+    return bool(needle) and needle in normalize_match_text(response)
 
 
 @dataclass(frozen=True)
@@ -325,18 +357,18 @@ def score_scenario(result: LongitudinalResult, scenario: ScenarioV2) -> Determin
     response_contains = [str(item) for item in oracle.get("expected_response_contains", [])]
     response_omits = [str(item) for item in oracle.get("expected_response_omits", [])]
     response_contains_correct = (
-        all(item in response for item in response_contains)
+        all(response_contains_phrase(response, item) for item in response_contains)
         if response_contains
         else None
     )
     response_omits_correct = (
-        all(item not in response for item in response_omits)
+        not any(response_contains_phrase(response, item) for item in response_omits)
         if response_omits
         else None
     )
     expected_actions = [str(item) for item in oracle.get("expected_actions", [])]
     action_quality_correct = (
-        all(item in response for item in expected_actions)
+        all(response_contains_phrase(response, item) for item in expected_actions)
         if expected_actions
         else None
     )

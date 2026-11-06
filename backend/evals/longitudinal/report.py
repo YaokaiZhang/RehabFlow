@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Mapping
 
 from evals.longitudinal.contract import RUBRIC_DIMENSIONS
+from evals.longitudinal.rubric import RUBRIC_VERSION
 from evals.trace import append_judge_events, redact_trace_value
 
 if TYPE_CHECKING:
@@ -504,7 +505,7 @@ def build_report(
     return LongitudinalReport(
         generated_at=report_generated_at,
         report_version=REPORT_VERSION,
-        rubric_version="v2",
+        rubric_version=RUBRIC_VERSION,
         rubric_dimensions=RUBRIC_DIMENSIONS,
         cases=tuple(cases),
     )
