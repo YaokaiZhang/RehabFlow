@@ -96,12 +96,18 @@ def upload(label: str) -> None:
         raise SystemExit("Uploading needs the langfuse package: pip install langfuse")
 
     client = Langfuse(public_key=public_key, secret_key=secret_key, base_url=base_url)
+    rejected = (
+        f"Langfuse at {base_url} rejected the keys ({public_key}). Copy a key pair from that "
+        "Langfuse's UI (project Settings > API Keys) into LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY."
+    )
     try:
         authorized = client.auth_check()
     except Exception as exc:
+        if getattr(exc, "status_code", None) in (401, 403):
+            raise SystemExit(rejected)
         raise SystemExit(f"Cannot reach Langfuse at {base_url}: {type(exc).__name__}: {exc}")
     if not authorized:
-        raise SystemExit(f"Langfuse at {base_url} rejected the keys.")
+        raise SystemExit(rejected)
     for name, default in DEFAULT_PROMPTS.items():
         created = client.create_prompt(
             name=name,
