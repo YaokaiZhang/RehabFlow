@@ -39,6 +39,7 @@ from app.ai.workflow_policy import WorkflowPolicy
 from app.ai.workflow_state import RehabGraphState
 from app.core.config import evaluator_mode_enabled
 from app.db.models import AISession, CareEpisode
+from app.services.catalog_exercise_suggestions import suggestions_from_search_documents
 from app.ai.fallback import unsafe_fallback_agent
 from app.ai.graph_prompt_context import (
     _history_messages,
@@ -132,6 +133,7 @@ CONSULTANT_ENUM_DOMAINS = {
 
 # Frozen delivery: one injected Consultant decision loop.
 _CONSULTANT_MAX_DECISION_STEPS = 4
+_CATALOG_SUGGESTION_LIMIT = 10
 
 
 class ConsultantRetrievalArguments(BaseModel):
@@ -500,6 +502,7 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
     web_sources: list[Mapping[str, str]] = []
     rendered_tool_results: list[str] = []
     catalog_suggestions: list[dict[str, Any]] = []
+    catalog_search_docs: list[dict[str, Any]] = []
     retrieval_status: dict[str, str] = {}
     # Compatibility keeps legacy ok_empty/ok_nonempty values; this parallel
     # projection exposes the frozen failed|empty|substantive contract.
@@ -834,6 +837,8 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
                 required_level3_session_id = ""
             internal_events.append(internal_event)
             retrieved_docs.extend(docs)
+            if name == "rehab_exercise_kb_search":
+                catalog_search_docs.extend(docs)
             web_sources.extend(refs)
             tool_names.append(name)
             safe_request = _safe_tool_call_request(arguments)
@@ -920,6 +925,13 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
             seen_web_urls.add(url)
             unique_web_sources.append(dict(source))
     web_sources = unique_web_sources
+    # Only catalog-validated rows become suggestions; raw KB payloads are never trusted.
+    catalog_suggestions = [
+        suggestion.to_state_dict()
+        for suggestion in suggestions_from_search_documents(
+            catalog_search_docs, limit=_CATALOG_SUGGESTION_LIMIT
+        )
+    ]
     consultant_visible_messages = [
         message
         for message in messages

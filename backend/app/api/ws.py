@@ -27,6 +27,7 @@ from app.services.ai_chat_access import (
     AuthorizedAIChat,
     authorize_ai_chat,
 )
+from app.services.ai_chat_presentation import presentation_from_result, safe_exercise_cards, safe_next_step
 from app.services.ai_turn_persistence import safe_chat_sources
 from app.services.dtw_service import score_motion
 from app.services.stream_tickets import StreamTicketError
@@ -188,6 +189,9 @@ def _build_ai_chat_response(current_session_id: str | None, result: dict, includ
     response["routing_decision"] = result.get("routing_decision")
     response["needs_more_info"] = result.get("needs_more_info")
     response["safety_passed"] = result.get("safety_passed")
+    presentation = presentation_from_result(result)
+    response["next_step"] = presentation["next_step"]
+    response["exercise_cards"] = presentation["exercise_cards"]
     originating_event_id = result.get("evidence_turn_id") or result.get("trace_turn_id")
     if originating_event_id:
         response["originating_event_id"] = str(originating_event_id)
@@ -471,6 +475,12 @@ def _chat_message_dict(message: AIMessage, fallback_sources: object = None) -> d
     }
     if sources:
         payload["sources"] = sources
+    if message.sender_role == "assistant":
+        next_step = safe_next_step(metadata.get("next_step"))
+        payload["next_step"] = next_step
+        payload["exercise_cards"] = (
+            safe_exercise_cards(metadata.get("exercise_cards")) if next_step == "ready" else []
+        )
     return payload
 
 

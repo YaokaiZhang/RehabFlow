@@ -43,6 +43,7 @@ from app.ai.consultant_tools import _consultant_tool_names_for_level1, _episode_
 from app.core.config import evaluator_fault_profile
 from app.db.models import AIChatTurnReceipt, AISession, CareEpisode
 from app.db.session import SessionLocal
+from app.services.ai_chat_presentation import chat_turn_presentation
 from app.services.ai_chat_access import AuthorizedAIChat
 from app.services.ai_turn_persistence import (
     AIChatTurnPersistence,
@@ -989,6 +990,7 @@ class AIChatTurnService:
                 output["workflow_version"] = workflow_version
             elif output.get("status") != "failed":
                 output["status"] = "completed"
+            output.update(chat_turn_presentation(output))
             output_internal_events = list(output.get("internal_log_events", []) or [])
             if context_event not in output_internal_events:
                 output_internal_events.insert(0, context_event)
@@ -1046,6 +1048,8 @@ class AIChatTurnService:
                 logger.warning("[db:error] failure_category=conversation_persistence_failed")
                 output["status"] = "failed"
                 output["final_response"] = "I encountered an issue saving our conversation, so this turn is currently unavailable. Please try again."
+                output["next_step"] = None
+                output["exercise_cards"] = []
                 return output
             if output.get("status") == "completed":
                 self._cleanup_completed_checkpoint(access.session_id)

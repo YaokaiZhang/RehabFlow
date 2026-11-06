@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from sqlalchemy import Integer, func, select, text
 
 from app.db.models import AIChatTurnReceipt, AIInternalMessage, AIMessage
+from app.services.ai_chat_presentation import presentation_from_result
 from app.observability.agent_trace import is_safe_trace_source_id
 
 logger = logging.getLogger(__name__)
@@ -596,6 +597,7 @@ class AIChatTurnPersistence:
             if key in output
         }
         payload.setdefault("session_id", session_id)
+        payload.update(cls._json_safe(presentation_from_result(output)))
         return payload
 
     def persist_turn(
@@ -630,6 +632,9 @@ class AIChatTurnPersistence:
                         safe_sources = safe_chat_sources(sources)
                         if safe_sources:
                             message_metadata["sources"] = safe_sources
+                        presentation = presentation_from_result(output)
+                        message_metadata["next_step"] = presentation["next_step"]
+                        message_metadata["exercise_cards"] = presentation["exercise_cards"]
                     self.db.add(
                         AIMessage(
                             session_id=session_id,

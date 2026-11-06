@@ -38,6 +38,19 @@ class CatalogExerciseSuggestion:
     source_url: str
     score: float | None
 
+    def to_state_dict(self) -> dict[str, Any]:
+        """Catalog-validated fields carried in graph state for reviewers and UI cards."""
+        return {
+            "exercise_id": self.exercise_id,
+            "title": self.title,
+            "introduction": self.introduction,
+            "structures_involved": list(self.structures_involved),
+            "related_conditions": list(self.related_conditions),
+            "video_url": self.video_url,
+            "source_url": self.source_url,
+            "score": self.score,
+        }
+
     def to_prompt_dict(self) -> dict[str, Any]:
         return {
             "exercise_id": self.exercise_id,
@@ -164,9 +177,36 @@ def suggest_catalog_exercises(
             f"Catalog exercise search was unavailable: {exc}"
         ) from exc
 
+    suggestions = suggestions_from_search_documents(
+        raw_documents if isinstance(raw_documents, list) else [],
+        limit=limit,
+    )
+    if not suggestions:
+        return _empty_result()
+    return CatalogExerciseSuggestionResult(suggestions=suggestions, empty_reason=None)
+
+
+def suggestions_from_search_documents(
+    raw_documents: object,
+    *,
+    limit: int = 5,
+) -> list[CatalogExerciseSuggestion]:
+    """Validate raw vector-search documents against the Exercise Catalog.
+
+    Keeps only ``rehab_exercise`` documents whose IDs resolve to catalog rows,
+    preserving rank order and deduping by exercise ID. Fails closed (returns no
+    suggestions) when the catalog itself cannot be read.
+    """
+    if limit <= 0 or isinstance(raw_documents, (str, bytes)):
+        return []
+    try:
+        documents = list(raw_documents or ())
+    except TypeError:
+        return []
+
     seen: set[str] = set()
     suggestions: list[CatalogExerciseSuggestion] = []
-    for raw_document in raw_documents if isinstance(raw_documents, list) else []:
+    for raw_document in documents:
         document = parse_search_document(raw_document)
         if document is None:
             continue
@@ -178,7 +218,7 @@ def suggest_catalog_exercises(
         try:
             entry = get_exercise(document.exercise_id)
         except Exception:
-            return _empty_result()
+            return []
         if entry is None:
             continue
 
@@ -186,7 +226,4 @@ def suggest_catalog_exercises(
         suggestions.append(_suggestion_from_entry(entry, score=document.score))
         if len(suggestions) >= limit:
             break
-
-    if not suggestions:
-        return _empty_result()
-    return CatalogExerciseSuggestionResult(suggestions=suggestions, empty_reason=None)
+    return suggestions

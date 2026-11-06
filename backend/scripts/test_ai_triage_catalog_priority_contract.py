@@ -59,28 +59,42 @@ class EmptySuggestionDirectPromptLLM:
 
 
 class ToolCallingLLM:
-    def __init__(self) -> None:
-        self.prompts: list[str] = []
+    """Scripted planner/answer model for the structured retrieval-plan loop."""
 
-    def bind_tools(self, _tools):
+    def __init__(self, answer: str | None = None) -> None:
+        self.prompts: list[str] = []
+        self.plans = 0
+        self.answer = answer or f"Use {CATALOG_EXERCISE.title} because it is database-backed."
+
+    def bind_tools(self, _tools, **_kwargs):
         return self
 
     def invoke(self, messages):
         prompt = "\n".join(str(getattr(message, "content", message)) for message in messages)
         self.prompts.append(prompt)
-        if len(self.prompts) == 1:
+        last = str(getattr(messages[-1], "content", "")) if messages else ""
+        if last.startswith("Plan the next retrieval step"):
+            self.plans += 1
+            if self.plans == 1:
+                plan = {
+                    "action": "retrieve",
+                    "reason": "Catalog lookup for exercise selection.",
+                    "calls": [
+                        {
+                            "tool_name": "rehab_exercise_kb_search",
+                            "arguments": {"query": "ankle mobility", "queries": [], "limit": 5, "session_id": ""},
+                            "reason": "Find catalog exercises.",
+                        }
+                    ],
+                }
+            else:
+                plan = {"action": "none", "reason": "Enough evidence.", "calls": []}
             return FakeMessage(
-                tool_calls=[
-                    {
-                        "id": "tool-call-1",
-                        "name": "rehab_exercise_kb_search",
-                        "args": {"query": "ankle mobility", "limit": 5},
-                    }
-                ]
+                tool_calls=[{"id": f"plan-{self.plans}", "name": "consultant_retrieval_plan", "args": plan}]
             )
         assert "Catalog-backed exercise suggestions" not in prompt
         assert "Do not invent exercise names" not in prompt
-        return FakeMessage(f"Use {CATALOG_EXERCISE.title} because it is database-backed.")
+        return FakeMessage(self.answer)
 
 
 def _docs() -> list[dict]:
@@ -202,14 +216,54 @@ def test_bound_tool_consultant_uses_model_visible_search_without_catalog_prefetc
     )
     assert callback_calls == []
     assert result["retrieved_docs"] == _docs()
-    assert result["catalog_exercise_suggestions"] == []
+    # Only rehab_exercise documents whose IDs resolve to catalog rows become
+    # suggestions, and their content comes from the catalog row, not the payload.
+    suggestions = result["catalog_exercise_suggestions"]
+    assert [item["exercise_id"] for item in suggestions] == [CATALOG_EXERCISE.exercise_id]
+    assert suggestions[0]["title"] == CATALOG_EXERCISE.title
+    assert suggestions[0]["introduction"] == CATALOG_EXERCISE.introduction
+    assert suggestions[0]["structures_involved"] == CATALOG_EXERCISE.structures_involved
+    assert result["allowed_catalog_ids"] == [CATALOG_EXERCISE.exercise_id]
     assert CATALOG_EXERCISE.title in result["consult_response"]
+
+
+def test_bound_tool_consultant_suggestions_pass_policy_gate_catalog_check() -> None:
+    from app.ai.policy_gate import evaluate_policy_gate
+
+    state = _state()
+    result = consultant_invocation.consultant_agent(
+        state=state,
+        deps=_deps(ToolCallingLLM(), use_tool_calling=True),
+    )
+    catalog_ids = tuple(item["exercise_id"] for item in result["catalog_exercise_suggestions"])
+    gate = evaluate_policy_gate(
+        {"catalog_ids": catalog_ids, "allowed_catalog_ids": result["allowed_catalog_ids"]},
+        policy=workflow_policy.WorkflowPolicy(),
+    )
+    assert catalog_ids
+    assert "catalog_id_forbidden" not in gate.reason_codes
+
+
+def test_bound_tool_consultant_fails_closed_when_catalog_unreadable() -> None:
+    def broken_catalog(_exercise_id):
+        raise RuntimeError("catalog unavailable")
+
+    with patch("app.services.catalog_exercise_suggestions.get_exercise", broken_catalog):
+        result = consultant_invocation.consultant_agent(
+            state=_state(),
+            deps=_deps(ToolCallingLLM(), use_tool_calling=True),
+        )
+    assert result["catalog_exercise_suggestions"] == []
+    assert result["allowed_catalog_ids"] == []
+    assert result["consult_response"]
 
 
 def main() -> None:
     test_direct_consultant_does_not_inject_catalog_suggestions()
     test_direct_consultant_keeps_empty_catalog_policy_fields()
     test_bound_tool_consultant_uses_model_visible_search_without_catalog_prefetch()
+    test_bound_tool_consultant_suggestions_pass_policy_gate_catalog_check()
+    test_bound_tool_consultant_fails_closed_when_catalog_unreadable()
     print("ai triage catalog priority contract ok")
 
 
