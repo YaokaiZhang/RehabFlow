@@ -217,6 +217,13 @@ CONSULTANT_CONTEXT_PLANNER_UNAVAILABLE = (
     "exercise protocol."
 )
 
+CONSULTANT_TOOL_MARKUP_RETRY = (
+    "Your previous reply was written as tool-call markup, so nothing was run and the patient "
+    "would have seen the markup. No tool can be called in this step. Write the patient-facing "
+    "answer now, in plain text, using only the context and tool results above. If a fact you "
+    "wanted is not in that context, say what you can and do not claim to have checked it."
+)
+
 CONSULTANT_RETRIEVAL_PLAN = (
     "Plan the next retrieval step before drafting any patient-facing answer. Return "
     "action=retrieve with every independent authorized call in one calls list when evidence is "
@@ -331,9 +338,14 @@ GROUNDING_REVIEWER = (
     "to the patient's affected side, restating a catalog dose, and leaving out catalog detail "
     "are fine. Reject only a claim that could change what the patient does, or what they believe "
     "about their condition, beyond what the evidence supports. Do not ask the draft to add "
-    "disclaimers about where evidence came from or what the sources do not say. When rejecting, "
-    "name only the specific clauses to delete or qualify, in at most three short sentences. "
-    "Return only the requested structured result with concise natural-language feedback."
+    "disclaimers about where evidence came from or what the sources do not say. A short "
+    "reference back to something the context does contain, such as 'the two stretches we "
+    "discussed', is not a placeholder. First write brief feedback checking the material claims. "
+    "Then list in unsupported_clauses each clause that lacks support, quoted exactly from the "
+    "draft, with whether to delete or how to qualify it. If you cannot quote a clause that is "
+    "wrong, the list is empty and the draft passes; uncertainty about wording or style is not "
+    "a reason to list a clause. Set grounding_passed to true exactly when the list is empty. "
+    "Return only the requested structured result."
 )
 
 EPISODE_MEMORY = (
@@ -344,8 +356,16 @@ EPISODE_MEMORY = (
     "write a short substantive summary containing material facts and qualifiers. Set "
     "detail_state=substantive and never make the summary only a pointer to another session. You "
     "decide what to remember; do not use a deterministic extractor. Preserve uncertainty and do "
-    "not invent facts. Return no_op=true when no change is warranted. Do not read or request "
-    "tools."
+    "not invent facts. Attribute every symptom answer to the message it came from. Record what "
+    "the patient reported only from a message with role user, close to their own words; an "
+    "assistant question, explanation, or exercise stop-instruction (for example 'stop if pain "
+    "spreads into your leg') is never the patient's answer. When a short reply such as 'yes' or "
+    "'no' follows a question that asks about several things, record it only for the part it "
+    "clearly answers and write 'not clearly answered' for the rest. Keep symptoms the patient "
+    "reported or denied apart from warning signs and advice the assistant gave. When "
+    "current_session_ai_messages contradict previous_episode_memory, the messages are the "
+    "source of truth: correct the memory rather than carrying the old statement forward. "
+    "Return no_op=true when no change is warranted. Do not read or request tools."
 )
 
 PATIENT_MEMORY = (
@@ -437,6 +457,11 @@ DEFAULT_PROMPTS: dict[str, PromptDefault] = {
         name="rehab-consultant-context-planner-unavailable",
         text=CONSULTANT_CONTEXT_PLANNER_UNAVAILABLE,
         description="Appended to the consultant context when the context planner failed.",
+    ),
+    "rehab-consultant-tool-markup-retry": PromptDefault(
+        name="rehab-consultant-tool-markup-retry",
+        text=CONSULTANT_TOOL_MARKUP_RETRY,
+        description="Sent when the consultant wrote tool-call markup as its answer.",
     ),
     "rehab-consultant-retrieval-plan": PromptDefault(
         name="rehab-consultant-retrieval-plan",

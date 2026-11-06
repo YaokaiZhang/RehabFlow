@@ -12,6 +12,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 import uuid
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import replace
@@ -134,6 +135,77 @@ CONSULTANT_ENUM_DOMAINS = {
 # Frozen delivery: one injected Consultant decision loop.
 _CONSULTANT_MAX_DECISION_STEPS = 4
 _CATALOG_SUGGESTION_LIMIT = 10
+
+# A model with no tools bound sometimes writes the call it wanted as text,
+# e.g. "<invoke:read_episode_memory_level_2><parameter name=...>". That text
+# must never be treated as the patient-facing answer.
+_TOOL_MARKUP_PATTERN = re.compile(
+    r"</?\s*(?:[a-z_]+:)?(?:invoke|function_calls|tool_use|tool_call|parameter)\b"
+    r"|<invoke:[\w-]+",
+    re.IGNORECASE,
+)
+_TOOL_MARKUP_BLOCK_PATTERN = re.compile(
+    r"<\s*(?:[a-z_]+:)?(?:function_calls|invoke|tool_use|tool_call)\b.*?"
+    r"(?:</\s*(?:[a-z_]+:)?(?:function_calls|invoke|tool_use|tool_call)\s*>|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _looks_like_tool_markup(text: str) -> bool:
+    return bool(_TOOL_MARKUP_PATTERN.search(text or ""))
+
+
+def _strip_tool_markup(text: str) -> str:
+    stripped = _TOOL_MARKUP_BLOCK_PATTERN.sub("", text or "")
+    stripped = re.sub(r"</?\s*(?:[a-z_]+:)?parameter\b[^>]*>", "", stripped, flags=re.IGNORECASE)
+    return stripped.strip()
+
+
+def _tool_calls_from_markup(
+    text: str,
+    tool_schemas: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    *,
+    step: int,
+) -> list[dict[str, Any]]:
+    """Recover calls to authorized tools whose required arguments are all written out."""
+    calls: list[dict[str, Any]] = []
+    for schema in tool_schemas:
+        function = schema.get("function") or {}
+        name = str(function.get("name") or "")
+        if not name or not re.search(rf"\b{re.escape(name)}\b", text):
+            continue
+        parameters = function.get("parameters") or {}
+        properties = parameters.get("properties") or {}
+        arguments: dict[str, Any] = {}
+        for argument in properties:
+            match = re.search(
+                rf"<\s*(?:[a-z_]+:)?parameter\s+name\s*=\s*[\"']{re.escape(argument)}[\"']\s*>"
+                rf"(.*?)</\s*(?:[a-z_]+:)?parameter\s*>",
+                text,
+                re.IGNORECASE | re.DOTALL,
+            ) or re.search(
+                rf"[\"']{re.escape(argument)}[\"']\s*:\s*[\"']([^\"']*)[\"']",
+                text,
+            )
+            if not match or not match.group(1).strip():
+                continue
+            value: Any = match.group(1).strip()
+            if (properties.get(argument) or {}).get("type") == "array":
+                try:
+                    parsed = json.loads(value)
+                except ValueError:
+                    parsed = [value]
+                value = parsed if isinstance(parsed, list) else [str(parsed)]
+            arguments[argument] = value
+        if all(required in arguments for required in parameters.get("required") or ()):
+            calls.append(
+                {
+                    "id": f"consultant-markup-{step}-{len(calls) + 1}",
+                    "name": name,
+                    "args": arguments,
+                }
+            )
+    return calls[:_CONSULTANT_MAX_TOOL_CALLS]
 
 
 class ConsultantRetrievalArguments(BaseModel):
@@ -424,6 +496,7 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
     estimated_input_tokens = 0
     required_level3_session_id = ""
     failed_call_identities: set[str] = set()
+    markup_retry_message: HumanMessage | None = None
 
     for step in range(1, _CONSULTANT_MAX_DECISION_STEPS + 1):
         _require_invocation_admission(
@@ -604,7 +677,40 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
                 estimated_input_tokens=estimated_input_tokens,
             )
         )
-        messages.append(response)
+        if (
+            response_is_model_output
+            and not tool_calls
+            and _looks_like_tool_markup(response_content)
+        ):
+            recovered_calls = (
+                _tool_calls_from_markup(response_content, tool_schemas, step=step)
+                if deps.use_tool_calling
+                else []
+            )
+            internal_events.append(
+                _make_internal_event(
+                    "consultant",
+                    "tool_markup",
+                    "The Consultant wrote tool-call markup instead of an answer.",
+                    attempt=attempt,
+                    decision_step=step,
+                    action="run_recovered_calls" if recovered_calls else "request_plain_answer",
+                    tool_calls=[call["name"] for call in recovered_calls],
+                )
+            )
+            response_content = ""
+            if recovered_calls:
+                response = LangChainAIMessage(content="", tool_calls=recovered_calls)
+                tool_calls = list(recovered_calls)
+            else:
+                markup_retry_message = HumanMessage(
+                    content=prompt_text("rehab-consultant-tool-markup-retry")
+                )
+                # Keep the markup out of the transcript reviewers see; only the
+                # retry instruction goes to the final synthesis call.
+                response = None
+        if response is not None:
+            messages.append(response)
 
         fresh_tool_calls: list[object] = []
         for call in tool_calls:
@@ -770,9 +876,23 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
             _require_invocation_admission(
                 state, usage, policy=deps.policy or WorkflowPolicy(), invocation="model"
             )
-            synthesis = answer_model.invoke(messages)
+            synthesis = answer_model.invoke(
+                [*messages, markup_retry_message] if markup_retry_message is not None else messages
+            )
             usage.record_model_response(synthesis)
             response_content = _message_content(synthesis).strip()
+            if _looks_like_tool_markup(response_content):
+                response_content = _strip_tool_markup(response_content)
+                internal_events.append(
+                    _make_internal_event(
+                        "consultant",
+                        "tool_markup",
+                        "The Consultant's final synthesis contained tool-call markup; it was removed.",
+                        attempt=attempt,
+                        action="strip_markup",
+                    )
+                )
+                synthesis = LangChainAIMessage(content=response_content)
             messages.append(synthesis)
         except _RuntimeAdmissionBlocked as blocked:
             blocked_updates = _blocked_invocation_updates(state, usage, blocked)

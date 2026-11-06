@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.ai.structured_output import UsageReportingOutput
 from app.ai.active_turn_context import active_consultant_snapshot, active_triaged_context, active_tool_records
-from app.ai.grounding_reviewer import GroundingReviewerOutput
+from app.ai.grounding_reviewer import GroundingReviewerOutput, grounding_verdict
 from app.ai.prompt_registry import ResolvedPrompt, get_prompt, link_prompt
 from app.ai.model_input_budget import (
     assert_model_messages_within_limit,
@@ -584,6 +584,7 @@ async def _run_reviewer(
     input_tokens: int | None = None
     output_tokens: int | None = None
     error_type = ""
+    flag_disagreed = False
     try:
         calls = 1
         schema: type[BaseModel]
@@ -605,8 +606,8 @@ async def _run_reviewer(
             passed = result.safety_passed is True
             feedback = result.safety_feedback.strip()
         else:
-            passed = result.grounding_passed is True
-            feedback = result.grounding_feedback.strip()
+            passed, feedback = grounding_verdict(result)
+            flag_disagreed = (result.grounding_passed is True) != passed
         if not feedback:
             raise ValueError("reviewer feedback is blank")
         status = ReviewStatus.APPROVE if passed else ReviewStatus.REJECT
@@ -665,6 +666,7 @@ async def _run_reviewer(
             "sequence": trace_sequence,
             "error_type": error_type,
             "retry": calls > 1,
+            "grounding_flag_disagreed": flag_disagreed,
         },
     }
     decision = _decision(

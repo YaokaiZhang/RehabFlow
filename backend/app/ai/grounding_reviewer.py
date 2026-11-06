@@ -18,8 +18,39 @@ class GroundingReviewerOutput(UsageReportingOutput):
 
     model_config = ConfigDict(extra="forbid")
 
-    grounding_passed: bool = Field(description="Whether the draft is grounded in authorized evidence.")
-    grounding_feedback: str = Field(description="Natural-language grounding feedback.")
+    # Field order is generation order: reason first, then name the clauses,
+    # and only then the flag. The verdict comes from the clauses, so a model
+    # that sets the flag to false while finding nothing wrong does not force a
+    # repair it cannot act on.
+    grounding_feedback: str = Field(
+        description=(
+            "Write this first. In a few short sentences, check the draft's material claims "
+            "against the authorized evidence."
+        )
+    )
+    unsupported_clauses: list[str] = Field(
+        description=(
+            "Each clause of the draft that the evidence does not support, quoted exactly, "
+            "followed by ' -> delete' or ' -> qualify: <how>'. Leave empty when every "
+            "material claim is supported; the draft then passes."
+        ),
+    )
+    grounding_passed: bool = Field(description="True exactly when unsupported_clauses is empty.")
+
+
+def grounding_verdict(result: GroundingReviewerOutput) -> tuple[bool, str]:
+    """Return (passed, feedback), deciding from the named unsupported clauses.
+
+    A rejection must name something to delete or qualify. When the model names
+    no clause the draft passes, whatever the flag says; when it names one, the
+    draft is rejected even if the flag says it passed.
+    """
+    feedback = result.grounding_feedback.strip()
+    clauses = [clause.strip() for clause in result.unsupported_clauses if clause and clause.strip()]
+    if not clauses:
+        return True, feedback
+    listed = "Unsupported clauses:\n" + "\n".join(f"- {clause}" for clause in clauses)
+    return False, f"{feedback}\n{listed}" if feedback else listed
 
 
 _SYSTEM_PROMPT = """You are RehabFlow's grounding reviewer.
@@ -35,7 +66,8 @@ When an authorized source pairs an allowance with a restriction or deferral, tre
 Preserve the latest timing, symptom, goal, allowance, restriction, and lifecycle state in authorized context. Do not approve inactive memory as current evidence or infer a broader treatment rule from a narrow fact.
 Regardless of packet availability, reject invented patient facts, diagnoses, nonexistent exercise IDs, citations to unavailable sources, deleted or archived memory content reused as current, and certainty stronger than the evidence supports.
 Clinical meaning and grounding are your judgment. An empty evidence packet is valid, not a grounding failure by itself.
-Do not reject a draft solely because evidence is absent when it is bounded general education. If a draft mixes scopes, identify only the unsupported patient-specific clauses in grounding_feedback and allow the clearly framed general-education remainder to survive repair. Return only the requested structured result with concise natural-language feedback."""
+Do not reject a draft solely because evidence is absent when it is bounded general education. If a draft mixes scopes, list only the unsupported patient-specific clauses in unsupported_clauses and allow the clearly framed general-education remainder to survive repair.
+First write brief grounding_feedback. Then quote each unsupported clause exactly in unsupported_clauses with whether to delete or how to qualify it. If you cannot quote a clause that is wrong, leave the list empty and the draft passes. Set grounding_passed to true exactly when the list is empty. Return only the requested structured result."""
 
 
 def _text(value: object) -> str:
@@ -161,10 +193,9 @@ def grounding_reviewer_agent(
             if isinstance(raw_result, GroundingReviewerOutput)
             else GroundingReviewerOutput.model_validate(raw_result)
         )
-        feedback = result.grounding_feedback.strip()
+        passed, feedback = grounding_verdict(result)
         if not feedback:
             raise ValueError("grounding reviewer feedback is blank")
-        passed = result.grounding_passed is True
         status = ReviewStatus.APPROVE if passed else ReviewStatus.REJECT
     except Exception as exc:
         feedback = f"Grounding review failed ({type(exc).__name__}); approval is not available."

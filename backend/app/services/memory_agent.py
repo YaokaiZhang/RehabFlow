@@ -546,7 +546,9 @@ def _agent_messages(kind: str, snapshot: dict[str, Any], previous_error: str) ->
                 "Use only this immutable snapshot. It intentionally excludes triage summaries, "
                 "internal events, tool calls, hidden reasoning, rehab records, and Professional "
                 "Care notes.\n\n"
-                f"{json.dumps(_agent_snapshot(kind, snapshot), ensure_ascii=False, sort_keys=True)}\n"
+                # Insertion order keeps each message's role ahead of its content,
+                # so the model reads who spoke before what was said.
+                f"{json.dumps(_agent_snapshot(kind, snapshot), ensure_ascii=False)}\n"
                 f"{retry}"
             )
         ),

@@ -1,0 +1,1 @@
+Your previous reply was written as tool-call markup, so nothing was run and the patient would have seen the markup. No tool can be called in this step. Write the patient-facing answer now, in plain text, using only the context and tool results above. If a fact you wanted is not in that context, say what you can and do not claim to have checked it.

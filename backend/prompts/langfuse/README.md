@@ -15,6 +15,7 @@ exactly the listed `{{variables}}`, or the app ignores it and uses the default.
 | `rehab-router-checkpoint` | `{{checkpoint_json}}`, `{{remaining_fields_json}}` | Appended to the router input when resuming an answered clarification. |
 | `rehab-consultant` | `{{patient_response_style}}` | Consultant system prompt. |
 | `rehab-consultant-context-planner-unavailable` | `{{planner_error}}` | Appended to the consultant context when the context planner failed. |
+| `rehab-consultant-tool-markup-retry` | none | Sent when the consultant wrote tool-call markup as its answer. |
 | `rehab-consultant-retrieval-plan` | `{{authorized_tools}}` | Retrieval-planning instruction sent before each consultant tool round. |
 | `rehab-consultant-retrieval-plan-level3` | `{{session_id}}` | Appended to the retrieval plan when a Level 3 search is required. |
 | `rehab-consultant-retrieval-plan-catalog` | none | Appended to the retrieval plan for exercise-selection requests. |
