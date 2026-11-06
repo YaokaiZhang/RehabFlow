@@ -1,0 +1,1 @@
+The Router marked this conversation as an exercise-selection request. Include rehab_exercise_kb_search in this retrieval plan before drafting, using the supplied conversation context as its query; the catalog call is mandatory.

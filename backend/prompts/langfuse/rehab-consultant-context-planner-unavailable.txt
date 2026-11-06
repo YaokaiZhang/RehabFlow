@@ -1,0 +1,1 @@
+Context assembly used deterministic source order because the planner was unavailable ({{planner_error}}). Preserve authorized goals and preferences, but do not invent an exercise protocol.

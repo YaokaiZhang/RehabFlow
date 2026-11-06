@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.ai.response_style import PATIENT_RESPONSE_STYLE
+from app.ai.prompt_registry import get_prompt, link_prompt, prompt_text
 from app.ai.policy_gate import GateResult, GateSeverity, evaluate_invocation_admission
 from app.ai.runtime_dependencies import with_responses_provider_retry
 from app.ai.workflow_policy import WorkflowPolicy
@@ -116,12 +116,10 @@ def build_repair_instruction(
     )
     if not feedback_text:
         feedback_text = "The reviewers did not approve the draft; reassess it conservatively."
-    return (
-        "Revise the consultant answer below into a new standalone rehabilitation response. "
-        "Address the reviewer feedback directly, use only the authorized context already supplied, "
-        "and keep the answer safe, appropriately uncertain, and natural language. "
-        f"Previous consultant answer: {draft_text or 'none'}. "
-        f"Reviewer feedback: {feedback_text}"
+    return prompt_text(
+        "rehab-consultant-repair-request",
+        draft=draft_text or "none",
+        feedback=feedback_text,
     )[:MAX_REPAIR_INSTRUCTION_CHARS]
 
 
@@ -563,42 +561,17 @@ def consultant_repair_node(state: Mapping[str, Any], deps: Any) -> dict[str, Any
             "preserve their evidence boundary during repair:\n"
             f"{returned_tool_results}"
         )
+    repair_prompt = get_prompt(
+        "rehab-consultant-repair",
+        patient_response_style=prompt_text("rehab-patient-response-style"),
+    )
     repair_messages = [
-        SystemMessage(
-            content=(
-                "You are the RehabFlow consultant repair action. Return only a revised "
-                "natural-language rehabilitation response. Do not return JSON, issue codes, "
-                "or a typed review list. Revise against the current reviewer feedback using "
-                "only the frozen authorized context and returned tool results supplied in the "
-                "repair request. Preserve supported patient facts and material qualifiers. "
-                "Revise clause by clause: retain every supported fact and narrow next step, and "
-                "delete or qualify only the clauses identified as unsupported. Treat feedback as "
-                "a deletion or qualification constraint, not an invitation to add new clinical "
-                "content. Do not introduce a new diagnosis, rationale, action, dose, progression, "
-                "or escalation criterion during repair. Never replace a supported narrow boundary "
-                "with broader generic care advice. If evidence required for personalized "
-                "guidance is missing, state the limitation and ask only for the information or "
-                "existing care plan needed to answer; clearly labeled general education may remain high-level and non-individualized. If reviewer feedback identifies unsupported patient-specific clauses in a mixed-scope draft, retain the clearly labeled general-education content and remove or qualify only those clauses. Preserve material restrictions or deferrals identified in reviewer feedback when retaining the associated allowance, and remove unrelated scope drift rather than replacing the supported draft. Conditional deference to the user's clinician "
-                "or therapist is allowed only without inventing their instructions. "
-                "If an authorized durable goal or bounded preference is present and the reviewer rejected unsupported "
-                "protocol detail, preserve a direct restatement of that goal or preference and its "
-                "narrow focus or constraint instead of replacing it with generic inability. Do not "
-                "claim that an exercise is already approved or already in the user's plan unless "
-                "that wording is explicitly supported by the frozen context. If exact exercise "
-                "selection or dosing is unavailable, say only that it cannot be provided from the "
-                "current evidence. "
-                "If an authorized capability is unavailable, do not simulate its output. Respect active memory "
-                "lifecycle state. Make the smallest edits that address the feedback and keep the "
-                "rest of the answer as written; do not add disclaimers about where evidence came "
-                "from. "
-                + PATIENT_RESPONSE_STYLE
-            )
-        ),
+        SystemMessage(content=repair_prompt.text),
         HumanMessage(content=instruction),
     ]
     repair_started = perf_counter()
     try:
-        repair_model = with_responses_provider_retry(deps.consultant_model)
+        repair_model = link_prompt(with_responses_provider_retry(deps.consultant_model), repair_prompt)
         response = repair_model.invoke(repair_messages)
         repaired_draft = _response_content(response)
         if not repaired_draft:

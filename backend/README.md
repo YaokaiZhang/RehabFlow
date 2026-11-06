@@ -299,6 +299,37 @@ Privacy rules:
 Tracing never blocks a turn: a missing package, bad configuration or an
 unreachable Langfuse server only logs a warning.
 
+### Prompt management in Langfuse
+
+Every prompt the graph sends (router, consultant, retrieval planner, repair,
+safety and grounding reviewers, memory agents, session compaction and triage
+summary) is registered in `app/ai/prompt_defaults.py` under a Langfuse prompt
+name and resolved through `app/ai/prompt_registry.py`.
+
+1. Export the current prompts: `python scripts/export_langfuse_prompts.py`
+   writes `backend/prompts/langfuse/<name>.txt` and an index README listing
+   each prompt's `{{variables}}`.
+2. Create each prompt in Langfuse as a **text** prompt with that name (paste
+   the file), or upload them all as new versions with
+   `python scripts/export_langfuse_prompts.py --upload --label staging`.
+3. Set `LANGFUSE_PROMPTS_ENABLED=true`. The backend serves the version that
+   carries `LANGFUSE_PROMPT_LABEL` (default `production`), cached for
+   `LANGFUSE_PROMPT_CACHE_TTL_SECONDS` (default 60). Promote or roll back by
+   moving that label to another version in Langfuse.
+
+The in-code default is used whenever prompt management is off, Langfuse is
+unreachable, the prompt or label does not exist, or a Langfuse version's
+`{{variables}}` differ from the default's (a dropped variable would lose request
+data, an unknown one would reach the model as literal braces). Missing prompts
+are retried after the cache TTL, so prompts can be moved over one at a time.
+Generations from the router, consultant, retrieval planner, repair, reviewers
+and triage summary are linked to the prompt version in Langfuse traces.
+
+These prompts decide clinical safety behaviour. Edit under a non-production
+label, run the evals against it (`LANGFUSE_PROMPT_LABEL=staging`), then move
+`production`. When you change a default in code, rerun the export script;
+`scripts/test_prompt_registry_contract.py` fails if the exported files are stale.
+
 The offline video pose-extraction scripts (`scripts/extract_video_poses.py`,
 `scripts/extract_demo_video_pose_set.py`) need mediapipe, whose protobuf pin
 conflicts with Langfuse's OpenTelemetry exporter. Install them into a separate

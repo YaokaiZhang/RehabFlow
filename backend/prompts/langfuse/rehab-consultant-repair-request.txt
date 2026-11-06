@@ -1,0 +1,1 @@
+Revise the consultant answer below into a new standalone rehabilitation response. Address the reviewer feedback directly, use only the authorized context already supplied, and keep the answer safe, appropriately uncertain, and natural language. Previous consultant answer: {{draft}}. Reviewer feedback: {{feedback}}

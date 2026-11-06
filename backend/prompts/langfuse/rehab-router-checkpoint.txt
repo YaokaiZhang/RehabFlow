@@ -1,0 +1,3 @@
+Answered clarification checkpoint:
+{{checkpoint_json}}
+The original checkpoint is authoritative. Remaining fields are internal routing state only: {{remaining_fields_json}}. Ask only for those remaining facts in natural patient-facing language; never emit these field names.

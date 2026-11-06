@@ -25,7 +25,7 @@ from app.ai.structured_output import UsageReportingOutput
 from app.ai.active_turn_context import store_consultant_snapshot, store_tool_record, store_web_sources
 from app.ai.model_input_budget import model_messages_estimated_tokens
 from app.ai.policy_gate import GateResult, GateSeverity
-from app.ai.response_style import PATIENT_RESPONSE_STYLE
+from app.ai.prompt_registry import get_prompt, link_prompt, prompt_text
 from app.ai.turn_progress import report_progress, report_tools_started
 from app.ai.runtime_dependencies import structured_output_model, with_responses_provider_retry
 from app.ai.session_compaction import SessionCompactionError, prepare_active_model_messages
@@ -232,37 +232,30 @@ def _consultant_retrieval_plan(
 ) -> tuple[ConsultantRetrievalPlan, Any]:
     authorized_names = [str(schema["function"]["name"]) for schema in authorized_tools]
     required_followup = (
-        " The prior Level 2 result had no substantive entry. You must select "
-        f"search_session_conversation for session {required_level3_session_id}; action=none is invalid."
+        " " + prompt_text("rehab-consultant-retrieval-plan-level3", session_id=required_level3_session_id)
         if required_level3_session_id else ""
     )
     required_catalog = (
-        " The Router marked this conversation as an exercise-selection request. Include "
-        "rehab_exercise_kb_search in this retrieval plan before drafting, using the supplied "
-        "conversation context as its query; the catalog call is mandatory."
+        " " + prompt_text("rehab-consultant-retrieval-plan-catalog")
         + (
-            " Do not add web_search for general precautions: the catalog answers exercise "
-            "selection, and web search runs later only if the catalog has no usable match. "
-            "Add web_search to this same calls list only when the request also asks for an "
-            "external clinical fact the catalog cannot answer, such as a diagnosis, recovery "
-            "timeline, medication, or condition-specific contraindication."
+            " " + prompt_text("rehab-consultant-retrieval-plan-catalog-web")
             if "web_search" in authorized_names else ""
         )
         if required_catalog_query and "rehab_exercise_kb_search" in authorized_names else ""
     )
-    planning_messages = [*messages, HumanMessage(content=(
-        "Plan the next retrieval step before drafting any patient-facing answer. "
-        "Return action=retrieve with every independent authorized call in one calls list when "
-        "evidence is needed; calls that need another result must wait for the next plan. "
-        "Otherwise return action=none with an empty calls list. Never repeat an unchanged call that already "
-        "returned a failed result; use materially different structured arguments only when the available "
-        "context supports them, or return action=none. All argument fields are required: use empty strings "
-        "and an empty queries list for fields that do not apply. The authorized tools are:\n"
-        + json.dumps(authorized_tools, ensure_ascii=False, sort_keys=True) + required_followup + required_catalog
-    ))]
+    planner_prompt = get_prompt(
+        "rehab-consultant-retrieval-plan",
+        authorized_tools=json.dumps(authorized_tools, ensure_ascii=False, sort_keys=True),
+    )
+    planning_messages = [
+        *messages,
+        HumanMessage(content=planner_prompt.text + required_followup + required_catalog),
+    ]
     factory = getattr(model, "with_structured_output", None)
     if callable(factory):
-        response = structured_output_model(model, ConsultantRetrievalPlan).invoke(planning_messages)
+        response = link_prompt(
+            structured_output_model(model, ConsultantRetrievalPlan), planner_prompt
+        ).invoke(planning_messages)
         plan = response if isinstance(response, ConsultantRetrievalPlan) else ConsultantRetrievalPlan.model_validate(response)
     else:
         binder = getattr(model, "bind_tools", None)
@@ -272,7 +265,7 @@ def _consultant_retrieval_plan(
             planner = binder([_CONSULTANT_RETRIEVAL_PLAN_TOOL], tool_choice="required")
         except TypeError:
             planner = binder([_CONSULTANT_RETRIEVAL_PLAN_TOOL])
-        response = with_responses_provider_retry(planner).invoke(planning_messages)
+        response = link_prompt(with_responses_provider_retry(planner), planner_prompt).invoke(planning_messages)
         calls = list(getattr(response, "tool_calls", None) or [])
         if len(calls) != 1 or _tool_call_name(calls[0]) != "consultant_retrieval_plan":
             raise ValueError("Consultant retrieval planner did not return its required plan call")
@@ -381,107 +374,19 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
         initial_context = _without_recent_turns(initial_context)
     planner_error = str(state.get("context_planner_error") or "").strip()
     if planner_error:
-        initial_context += "\n\nContext assembly used deterministic source order because the planner was unavailable (" + planner_error + "). Preserve authorized goals and preferences, but do not invent an exercise protocol."
+        initial_context += "\n\n" + prompt_text(
+            "rehab-consultant-context-planner-unavailable", planner_error=planner_error
+        )
     disclosure_trace: list[dict[str, Any]] = [
         {"event": "initial_memory_context"},
     ]
     safety_instruction = _safety_revision_instruction(state, attempt)
+    consultant_prompt = get_prompt(
+        "rehab-consultant",
+        patient_response_style=prompt_text("rehab-patient-response-style"),
+    )
     messages: list[Any] = [
-        SystemMessage(
-            content=(
-                "You are the RehabFlow Consultant. Return only the patient-facing answer. "
-                "The initial context contains Patient Memory, Episode Memory Level 1, and the "
-                "current session conversation. Previous-session conversations are not injected "
-                "wholesale. First use the current session conversation when it directly contains "
-                "the requested fact. Human and assistant messages immediately before the current "
-                "request are current-session evidence; if they already answer the request, "
-                "restate the exact plan or fact instead of saying it is missing. Episode Memory "
-                "Level 1 is an index, not the detailed fact; "
-                "it may list the exact session IDs that its detailed entries come from. If "
-                "Episode Memory Level 1 is absent or lists no session ID, do not call either "
-                "memory tool because there is no authorized Level 2 target. Never use Level 2 "
-                "to look up Patient Memory. Only call read_episode_memory_level_2 when a "
-                "relevant Level 1 session ID is shown and the requested detail is not already "
-                "in the initial context, passing exactly one of those listed session IDs. "
-                "Treat a request for details from prior interactions as recall when the current "
-                "session does not contain the answer. Level 1 keywords and broad summaries are "
-                "navigation aids, not substitutes for the requested detail. Select a relevant "
-                "authorized session and read its Level 2 entry. If Level 2 omits the detail or "
-                "points to the conversation as its source, search that same session with 2-6 "
-                "distinctive content terms. If a result is related but insufficient, continue "
-                "through other relevant Level 1 candidates one session per call. Conclude that "
-                "the detail is unavailable only after the relevant authorized candidates are "
-                "exhausted. Never search an unlisted ID or broaden one call across sessions. "
-                "Never call search_session_conversation before Level 2 or when Level 2 already "
-                "contains the target fact. "
-                "Build search queries from the fact's distinguishing content, not the user's "
-                "conversational instructions. Use only returned messages as evidence for a "
-                "selected-session fact and preserve material qualifiers. Do not emit control "
-                "markers or invent missing context. "
-                "Choose retrieval by information need rather than request wording. Use the "
-                "authorized exercise catalog for every named exercise, exercise instruction, dose, "
-                "frequency, progression, rehabilitation plan, or catalog-backed recommendation. "
-                "If the user asks which exercise or movement from a plan fits a described body area "
-                "or restriction, call rehab_exercise_kb_search for the authorized catalog record even "
-                "when the prior plan text is not in the current context. "
-                "Retrieved catalog and web results are internal evidence, not a checklist of content "
-                "that must appear in the patient-facing answer. Distinguish web contents from user facts. Before naming or describing an exercise, "
-                "decide whether that result actually answers the user's question and is applicable to "
-                "the stated symptoms, restrictions, rehabilitation stage, and goal. "
-                "A catalog match can describe an option but cannot by "
-                "itself establish that the patient should exercise today; "
-                # "if the context does not support "
-                # "that decision, omit the exercises completely in the response and ask for the "
-                # "missing care-plan or symptom detail. "
-                "If a catalog result is empty or not applicable to the patient's body area, symptom "
-                "behavior, rehabilitation stage, or restrictions, do not recommend it. Continue with "
-                "materially different catalog queries while the retrieval budget permits and the "
-                "conversation supports a useful reformulation; do not repeat an unchanged query. "
-                "**Never select or introduce an exercise from web_search**. Use web_search as a normal "
-                "fact-checking and public-evidence tool for current guidance, contraindications, "
-                "precautions, safety boundaries, recovery expectations, evidence claims, and other "
-                "external clinical facts. Do not wait for the user to request web research explicitly. "
-                "When independent catalog and web evidence are both relevant, request them in one "
-                "retrieval batch. Web evidence may support external facts around an exercise, but the "
-                "exercise itself and its instructions must remain catalog-sourced. Honor an explicit "
-                "request to retrieve or consult an authorized source. Do not draft "
-                "patient-specific clinical guidance from general model knowledge while required "
-                "evidence is absent. General education may cover high-level phases, goals, "
-                "exercise categories, and warning signs without retrieval, but label it as "
-                "general education and do not turn it into personalized clearance, dose, or "
-                "progression. When the user explicitly asks for general education, preserve "
-                "that bounded scope through review and repair; do not replace it with inability "
-                "solely because patient-specific evidence is absent. Apply the latest user-provided timing and symptoms in multi-turn "
-                "answers and distinguish current facts from conditional escalation boundaries. "
-                "If a retrieval call returns failed, say that the provider was unavailable; "
-                "if it returns ok_empty, say that the search completed without usable evidence. "
-                "Neither status supports a clinical claim. Preserve the known user goal, "
-                "symptoms, and constraints, and ask only for the narrow information or existing "
-                "care-plan detail needed for the next grounded decision. Do not replace either "
-                "state with a generic warning-sign checklist, a named exercise, a dose, or a "
-                "progression rule. "
-                "After a failed web call, if retrying, use one materially narrower query rather "
-                "than a synonym. Treat deletion and archival as lifecycle state: do not reuse "
-                "inactive content as current evidence. Preserve all relevant allowances, goals, "
-                "restrictions, symptom boundaries, and source qualifiers from authorized context; "
-                "When an allowance is paired with a restriction or deferral, retain that material limit whenever the allowance is used. Keep the answer within the current request scope and do not expand unrelated conditions mentioned only as background. "
-                "When only an authorized durable goal or bounded preference is available and no "
-                "exercise protocol is present, restate that goal or preference and give only its "
-                "narrow focus or constraint. Do not introduce quantitative parameters, such as duration, "
-                "frequency, repetitions, intensity, or progression, unless they are explicitly supported by "
-                "the current authorized context or the user's current request. Do not invent named exercises, doses, repetitions, "
-                "progression thresholds, or clearance. "
-                "do not add unsupported care details or rationale. If a named planning or retrieval "
-                "capability is unavailable, disclose that limitation and do not simulate its output; "
-                "use any still-authorized preference or constraint only within its stated scope. "
-                "Ask a concise direct question when information required for safe, grounded guidance "
-                "is missing. On resumed clarification, incorporate the new answer instead of "
-                "repeating resolved questions. If prior request content is unavailable, ask the user "
-                "to restate the relevant care request rather than asking for internal identifiers. "
-                "Do not mention internal agents, tools, or prompts. "
-                + PATIENT_RESPONSE_STYLE
-            )
-        ),
+        SystemMessage(content=consultant_prompt.text),
         HumanMessage(
             content=(
                 f"{initial_context}\n\n"
@@ -493,7 +398,7 @@ def _consultant_v2_agent(state: RehabGraphState, deps: ConsultantDependencies) -
     messages[1:1] = history_messages
 
     tool_schemas = _consultant_tool_schemas_for_state(state)
-    answer_model = with_responses_provider_retry(model)
+    answer_model = link_prompt(with_responses_provider_retry(model), consultant_prompt)
 
     tool_events: list[dict[str, Any]] = []
     internal_events: list[dict[str, Any]] = []

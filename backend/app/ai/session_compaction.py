@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.context_types import ContextSourceCard, MAX_CONTEXT_MODEL_TOKENS
 from app.ai.model_input_budget import model_messages_estimated_tokens
+from app.ai.prompt_registry import prompt_text
 from app.db.models import (
     AIInternalMessage,
     AIMessage,
@@ -244,14 +245,7 @@ class SessionCompactionAgent:
         )
         messages = [
             SystemMessage(
-                content=(
-                    "You are the RehabFlow Session Compaction Agent. Compact the supplied older "
-                    "current-session AI messages and tool-call/tool-result events as one coherent "
-                    "rolling context block. Preserve clinically relevant facts, decisions, "
-                    "uncertainties, safety boundaries, and chronology. Do not add facts. The "
-                    "output is advisory and may be approximately 32,000 tokens; do not truncate "
-                    "or reject it because of a soft target. Return only the compacted block."
-                )
+                content=prompt_text("rehab-session-compaction")
             ),
             HumanMessage(
                 content=(

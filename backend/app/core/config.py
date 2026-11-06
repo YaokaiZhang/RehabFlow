@@ -360,6 +360,24 @@ class Settings(BaseSettings):
 		default=None,
 		validation_alias=AliasChoices("LANGFUSE_TRACE_TAGS", "langfuse_trace_tags"),
 	)
+	# Read graph prompts from Langfuse prompt management (requires the Langfuse
+	# client above). Missing or invalid prompts fall back to app/ai/prompt_defaults.py.
+	langfuse_prompts_enabled: bool = Field(
+		default=False,
+		validation_alias=AliasChoices("LANGFUSE_PROMPTS_ENABLED", "langfuse_prompts_enabled"),
+	)
+	langfuse_prompt_label: str = Field(
+		default="production",
+		validation_alias=AliasChoices("LANGFUSE_PROMPT_LABEL", "langfuse_prompt_label"),
+	)
+	langfuse_prompt_cache_ttl_seconds: int = Field(
+		default=60,
+		ge=0,
+		validation_alias=AliasChoices(
+			"LANGFUSE_PROMPT_CACHE_TTL_SECONDS",
+			"langfuse_prompt_cache_ttl_seconds",
+		),
+	)
 
 	model_config = SettingsConfigDict(
 		env_file=_DEFAULT_ENV_FILES,

@@ -1,0 +1,1 @@
+Do not add web_search for general precautions: the catalog answers exercise selection, and web search runs later only if the catalog has no usable match. Add web_search to this same calls list only when the request also asks for an external clinical fact the catalog cannot answer, such as a diagnosis, recovery timeline, medication, or condition-specific contraindication.

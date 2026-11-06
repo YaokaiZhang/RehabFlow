@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.ai.structured_output import UsageReportingOutput
 from app.ai.active_turn_context import active_consultant_snapshot, active_triaged_context, active_tool_records
 from app.ai.grounding_reviewer import GroundingReviewerOutput
+from app.ai.prompt_registry import ResolvedPrompt, get_prompt, link_prompt
 from app.ai.model_input_budget import (
     assert_model_messages_within_limit,
 )
@@ -307,65 +308,16 @@ def _manifest_prompt(manifest: EvidenceManifest) -> str:
     return "\n".join(lines)
 
 
-def _messages(review_input: ReviewInput, reviewer: Literal["safety", "grounding"]) -> list[object]:
-    if reviewer == "safety":
-        system = (
-            "You are RehabFlow's Safety Reviewer. Assess contraindications, "
-            "escalation, unsafe advice, and clinical caution. Judge safety only; "
-            "evaluate the draft against the visible patient context and evidence. Do not "
-            "reject a deliberately high-level, bounded response merely because it omits "
-            "specificity that the evidence does not support. Reject advice that conflicts "
-            "with an explicit restriction, misses escalation required by the visible facts, "
-            "or introduces a harmful action. Return only the requested structured result "
-            "with concise natural-language feedback."
-        )
-    else:
-        system = (
-            "You are RehabFlow's Grounding Reviewer. Review the draft against only the frozen "
-            "Consultant-visible context and returned tool results. Require direct semantic support "
-            "for every material patient fact, diagnosis, exercise choice, exercise instruction, dose, "
-            "progression, clearance, treatment action, causal claim, and comparative claim. Reject "
-            "invented facts, unsupported clinical inferences, invalid exercise selections, "
-            "unavailable citations, and certainty stronger than the evidence. Common "
-            "knowledge, plausibility, generic titles, placeholders, and unstated clinical "
-            "equivalence are not evidence. Human-readable titles from validated catalog "
-            "results are authorized without requiring internal IDs in patient-facing prose. "
-            "A concise, non-diagnostic safety-net boundary does not need to repeat source wording "
-            "verbatim. It may conditionally tell the patient to pause or stop if symptoms materially "
-            "worsen, or to seek care for a severe or new concerning change relevant to the visible "
-            "presentation. Treat this as a boundary on the advice, not as evidence of a diagnosis or "
-            "as an unsupported treatment claim. Reject specific unsupported thresholds, treatment "
-            "details, and unrelated warning checklists. Allow clearly labeled general "
-            "education without evidence only when it stays non-individualized and high-level; "
-            "do not approve personalized clearance, exact dosing, named exercise selection, "
-            "or progression thresholds under that exception. Preserve material qualifiers. "
-            "An authorized durable goal or bounded preference may be restated as a goal, "
-            "focus, or constraint without requiring an exercise, dose, progression, or "
-            "clearance. Do not reject that bounded restatement merely because it does not "
-            "provide a complete protocol; reject only unsupported protocol details. "
-            "Preserve the latest timing, symptom, goal, allowance, restriction, and lifecycle "
-            "state in authorized context. Inactive memory is not current evidence. Do not "
-            "infer broader treatment rules from narrow facts. "
-            "An exercise selection is supported when a validated catalog result matches the "
-            "patient's body area and the purpose they asked about (for example knee mobility for "
-            "a stiff knee); the catalog entry does not need to name the patient's exact condition. "
-            "Content that only makes the advice more cautious is an acceptable boundary without "
-            "citation: common-sense cues (move within a comfortable range, hold support for "
-            "balance, stop if pain increases), activity restrictions (avoid twisting, jumping, or "
-            "returning to sport until it settles or a clinician clears it), suggesting a "
-            "physiotherapist or clinician assessment, and widely recognized "
-            "warning signs for the affected body part (such as swelling, locking, giving way, "
-            "inability to bear weight, numbness or tingling, bone tenderness, or worsening pain). "
-            "Still reject numeric pain, time, or load thresholds that the evidence does not give. "
-            "Judge materiality: paraphrase, applying a catalog instruction to the patient's "
-            "affected side, restating a catalog dose, and leaving out catalog detail are fine. "
-            "Reject only a claim that could change what the patient does, or what they believe "
-            "about their condition, beyond what the evidence supports. "
-            "Do not ask the draft to "
-            "add disclaimers about where evidence came from or what the sources do not say. "
-            "When rejecting, name only the specific clauses to delete or qualify, in at most "
-            "three short sentences. Return only the requested structured result with concise natural-language feedback."
-        )
+def _reviewer_prompt(reviewer: Literal["safety", "grounding"]) -> ResolvedPrompt:
+    return get_prompt("rehab-safety-reviewer" if reviewer == "safety" else "rehab-grounding-reviewer")
+
+
+def _messages(
+    review_input: ReviewInput,
+    reviewer: Literal["safety", "grounding"],
+    prompt: ResolvedPrompt | None = None,
+) -> list[object]:
+    system = (prompt or _reviewer_prompt(reviewer)).text
     context_snapshot = review_input.context_snapshot.strip() or "none"
     tool_transcript = "\n\n".join(review_input.tool_results).strip() or "none"
     return [
@@ -407,6 +359,7 @@ async def _invoke_with_timeout_counted(
     schema: type[BaseModel],
     messages: list[object],
     runtime: ReviewerRuntimeConfig,
+    prompt: ResolvedPrompt | None = None,
 ) -> tuple[object, int]:
     if runtime.max_calls < 1:
         raise _CallBudgetExceeded("reviewer call budget is exhausted")
@@ -415,6 +368,8 @@ async def _invoke_with_timeout_counted(
 
     async def invoke_once() -> object:
         structured_model = structured_output_model(model, schema)
+        if prompt is not None:
+            structured_model = link_prompt(structured_model, prompt)
         sync_invoke = getattr(structured_model, "invoke", None)
         if limiter is not None and callable(sync_invoke):
             return await asyncio.wait_for(
@@ -620,7 +575,8 @@ async def _run_reviewer(
     calls = 0
     token_count: int | None = None
     raw_result: object | None = None
-    review_messages = _messages(review_input, reviewer)
+    reviewer_prompt = _reviewer_prompt(reviewer)
+    review_messages = _messages(review_input, reviewer, reviewer_prompt)
     estimated_input_tokens = assert_model_messages_within_limit(review_messages)
     trace_sequence = state.get("trace_sequence")
     if not isinstance(trace_sequence, int) or isinstance(trace_sequence, bool):
@@ -640,6 +596,7 @@ async def _run_reviewer(
             schema,
             review_messages,
             runtime,
+            reviewer_prompt,
         )
         input_tokens, output_tokens, total_tokens = _response_usage(raw_result)
         token_count = total_tokens

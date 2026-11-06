@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.ai.runtime_dependencies import OpenAIProviderFactory, structured_output_model
 from app.ai.session_compaction import _after_watermark, _latest_protected_rows, _watermark_value
 from app.ai.model_input_budget import estimated_text_tokens
+from app.ai.prompt_registry import prompt_text
 from app.core.config import get_settings
 from app.db.models import (
     AIMessage,
@@ -534,37 +535,9 @@ def _agent_snapshot(kind: str, snapshot: dict[str, Any]) -> dict[str, Any]:
 
 def _agent_messages(kind: str, snapshot: dict[str, Any], previous_error: str) -> list[Any]:
     if kind == "episode":
-        instructions = (
-            "You are the RehabFlow Episode Memory Agent. Decide what is worth remembering from "
-            "the previous Episode Memory and this session's AI-message conversation. Generate "
-            "Episode Level 1 keywords, one description sentence, relevant session IDs, and a "
-            "session-addressable Level 2 entry for every Level 1 session ID. Include only relevant sessions for which you can write a short substantive summary containing material facts and qualifiers. Set detail_state=substantive and never make the summary only a pointer to another session. "
-            "You decide what to remember; do not use a deterministic extractor. Preserve uncertainty and do not invent facts. Return no_op=true when no "
-            "change is warranted. Do not read or request tools."
-        )
+        instructions = prompt_text("rehab-episode-memory")
     else:
-        instructions = (
-            "You are the RehabFlow Patient Memory Agent. Decide what is worth remembering from "
-            "the previous Patient Memory, its authoritative editable fields, and this session's "
-            "AI-message conversation. This summary is patient-wide and is injected into future "
-            "Care Episodes. Keep only stable cross-episode identity, long-running constraints, "
-            "preferences, clinician relationships, or recurring patterns. Facts explicitly "
-            "limited to the current Care Episode, current symptoms, current triage session, "
-            "current rehab event, or current issue belong in Episode Memory and must be omitted "
-            "from Patient Memory, even if the conversation says to remember them. If the previous "
-            "Patient Memory contains an entry qualified as episode-specific or care-episode-only, "
-            "remove it from the replacement summary rather than repeating it or its qualification. "
-            "Return one very concise Patient summary, normally below "
-            "1,000 tokens. Editable fields are authoritative and must not be overwritten. Be "
-            "cautious, but decide based on the conversation rather than a deterministic extractor. "
-            "For a patient_edit trigger, treat patient_change_set.current as the complete "
-            "authoritative editable-field state. If a key appears in changed_keys but is absent "
-            "from current, the patient explicitly deleted it: remove that field's old value from "
-            "the replacement summary and never infer it from previous_patient_memory. If "
-            "patient_change_set.deleted_fields is present, each entry is an explicit user "
-            "deletion command; do not mention its key or prior value in the replacement summary. "
-            "Preserve unrelated facts from the previous summary. Do not read or request tools."
-        )
+        instructions = prompt_text("rehab-patient-memory")
     retry = f"\nThe previous attempt failed with this error:\n{previous_error}\n" if previous_error else ""
     return [
         SystemMessage(content=instructions),

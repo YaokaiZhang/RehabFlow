@@ -386,24 +386,19 @@ def _try_build_ai_summary(
 			raise TriageSummaryGenerationFailed("LLM_KEY is not configured for Triage Summary generation")
 		llm = build_chat_model()
 		structured = llm.with_structured_output(AgentOutput)
-		prompt = (
-			"Create a concise patient-facing Triage Summary from the episode and triage chat. "
-			"Use a two-to-six-word concern such as 'Shoulder stiffness'. "
-			"Write relevant_context as one to three sentences centered on the main complaint, rehab stage, "
-			"functional impact, and what changes the symptom. Safety negatives may appear only as a brief secondary clause; "
-			"never make a denial checklist the main narrative. "
-			"Keep missing information and safety signals in their structured fields for internal review. "
-			"Prefer partial summaries over failure. Do not invent facts. "
-			"Treat explicit patient denials such as no pain, no swelling, no bruising, no numbness, or no surgery as answered facts. "
-			"Do not mark assistant questions as patient-reported symptoms, and do not list denied symptoms as safety signals.\n\n"
-			f"Episode issue: {episode.issue_title}\n"
-			f"Body area: {episode.body_area}\n"
-			f"Goal: {episode.goal}\n"
-			f"Description: {episode.short_description}\n"
-			f"Additional context: {additional_context or 'None provided.'}\n"
-			f"Latest saved rehab session:\n{rehab_context or 'None provided.'}\n"
-			f"AI triage transcript:\n{conversation_context or 'None provided.'}"
+		from app.ai.prompt_registry import get_prompt, link_prompt, prompt_text
+
+		summary_prompt = get_prompt(
+			"rehab-triage-summary",
+			issue_title=str(episode.issue_title),
+			body_area=str(episode.body_area),
+			goal=str(episode.goal),
+			description=str(episode.short_description),
+			additional_context=additional_context or "None provided.",
+			rehab_context=rehab_context or "None provided.",
+			transcript=conversation_context or "None provided.",
 		)
+		structured = link_prompt(structured, summary_prompt)
 		from app.observability.langfuse_tracing import (
 			langfuse_trace_attributes,
 			with_langfuse_callbacks,
@@ -412,8 +407,8 @@ def _try_build_ai_summary(
 		with langfuse_trace_attributes(trace_name="triage_summary"):
 			output = structured.invoke(
 				[
-					SystemMessage(content="You are RehabFlow's backend triage-summary agent."),
-					HumanMessage(content=prompt),
+					SystemMessage(content=prompt_text("rehab-triage-summary-system")),
+					HumanMessage(content=summary_prompt.text),
 				],
 				config=with_langfuse_callbacks({"run_name": "triage_summary"}),
 			)

@@ -158,6 +158,9 @@ services:
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-rehabflow-dev}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-rehabflow-dev}
+      LANGFUSE_PROMPTS_ENABLED: ${LANGFUSE_PROMPTS_ENABLED:-false}
+      LANGFUSE_PROMPT_LABEL: ${LANGFUSE_PROMPT_LABEL:-production}
+      LANGFUSE_PROMPT_CACHE_TTL_SECONDS: ${LANGFUSE_PROMPT_CACHE_TTL_SECONDS:-60}
 
 volumes:
   langfuse_postgres_data:
