@@ -1,6 +1,7 @@
 """Primary evaluator path for conversations against the real RehabFlow service."""
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import re
@@ -22,7 +23,7 @@ from evals.combined.tool_metrics import (
 from evals.longitudinal.result import LongitudinalResult
 from evals.longitudinal.contract import RUBRIC_DIMENSIONS, ScenarioV2
 from evals.longitudinal.report import build_case_report, observed_evidence_manifest
-from evals.longitudinal.metrics import response_contains_phrase
+from evals.longitudinal.compaction_judge import judge_compaction_fact
 from evals.longitudinal.judge import evaluate_with_repair
 from evals.real_model.run import _tokens
 
@@ -404,28 +405,24 @@ _MAX_COMPACTION_RATIO = 0.25
 
 def _compaction_observations(
     persisted_messages: Mapping[str, Any],
-    expected_phrases: list[str],
 ) -> tuple[tuple[dict[str, Any], ...], list[str]]:
-    """Fidelity checks on live session compaction, from the persisted state.
+    """Structural checks on live session compaction, from the persisted state.
 
     Returns one observation per compacted session (no block text) and the
-    failure codes for compaction that did not fold the critical fact, did
-    not shrink the folded history, or dropped an expected phrase.
+    failure codes for compaction that did not fold the critical fact or did
+    not shrink the folded history. Whether the fact survived is decided later
+    by the compaction judge (see ``_apply_compaction_fact_judge``).
     """
     evidence = persisted_messages.get("compaction_evidence", [])
-    blocks = persisted_messages.get("compaction_blocks", {})
-    blocks = blocks if isinstance(blocks, Mapping) else {}
     observations: list[dict[str, Any]] = []
     failures: list[str] = []
     for item in evidence if isinstance(evidence, (list, tuple)) else ():
         if not isinstance(item, Mapping) or item.get("compacted") is not True:
             continue
         session = str(item.get("session") or "session")
-        block = str(blocks.get(session) or "")
-        block_length = int(item.get("rolling_block_length") or len(block))
+        block_length = int(item.get("rolling_block_length") or 0)
         folded_chars = int(item.get("folded_message_chars") or 0)
         ratio = round(block_length / folded_chars, 4) if folded_chars else None
-        phrases = {phrase: response_contains_phrase(block, phrase) for phrase in expected_phrases}
         observation = {
             "session": session,
             "folded_message_count": int(item.get("folded_message_count") or 0),
@@ -435,7 +432,8 @@ def _compaction_observations(
             "reductive": ratio is not None and ratio <= _MAX_COMPACTION_RATIO,
             "critical_fact_sequence": item.get("critical_fact_sequence"),
             "critical_fact_folded": item.get("critical_fact_folded") is True,
-            "block_phrases": phrases,
+            "fact_preserved": None,
+            "fact_judge": None,
             "attempts": int(item.get("attempts") or 0),
         }
         observations.append(observation)
@@ -443,12 +441,98 @@ def _compaction_observations(
             failures.append(f"compaction_critical_fact_not_folded:{session}")
         if not observation["reductive"]:
             failures.append(f"compaction_not_reductive:{session}")
-        failures.extend(
-            f"compaction_dropped_phrase:{session}:{phrase}"
-            for phrase, present in phrases.items()
-            if not present
-        )
     return tuple(observations), failures
+
+
+def _scenario_critical_facts(scenario: ScenarioV2) -> dict[str, str]:
+    facts: dict[str, str] = {}
+    for session in scenario.initial_state.get("sessions", []) or []:
+        if not isinstance(session, Mapping):
+            continue
+        generated = session.get("generated_context")
+        if isinstance(generated, Mapping) and str(generated.get("critical_fact") or "").strip():
+            facts[str(session.get("id") or "")] = str(generated["critical_fact"]).strip()
+    return facts
+
+
+def _apply_compaction_fact_judge(
+    result: LongitudinalResult,
+    *,
+    scenario: ScenarioV2,
+    blocks: Mapping[str, Any] | None,
+    invoke: Callable[[str], object] | None,
+) -> LongitudinalResult:
+    """Ask the judge whether each folded critical fact survived in its block.
+
+    Adds ``compaction_fact_lost`` when the judge says no and
+    ``compaction_fact_judge_error`` when it cannot give a verdict.
+    """
+    facts = _scenario_critical_facts(scenario)
+    if not facts or not result.compaction_observations or invoke is None:
+        return result
+    blocks = blocks if isinstance(blocks, Mapping) else {}
+    observations: list[dict[str, Any]] = []
+    failures = list(result.failures)
+    for raw in result.compaction_observations:
+        observation = dict(raw)
+        session = str(observation.get("session") or "")
+        fact = facts.get(session) or (next(iter(facts.values())) if len(facts) == 1 else "")
+        block = str(blocks.get(session) or "")
+        if fact and observation.get("critical_fact_sequence") is not None:
+            if not block.strip():
+                verdict_dict = {"preserved": None, "error": "rolling_block_unavailable"}
+            else:
+                verdict_dict = judge_compaction_fact(
+                    critical_fact=fact,
+                    rolling_block=block,
+                    invoke=invoke,
+                ).to_dict()
+            observation["fact_preserved"] = verdict_dict.get("preserved")
+            observation["fact_judge"] = verdict_dict
+            if verdict_dict.get("preserved") is False:
+                failures.append(f"compaction_fact_lost:{session}")
+            elif verdict_dict.get("preserved") is None:
+                failures.append(f"compaction_fact_judge_error:{session}")
+        observations.append(observation)
+    return dataclasses.replace(
+        result,
+        compaction_observations=tuple(observations),
+        failures=tuple(failures),
+    )
+
+
+_CASE_FAILING_PREFIXES = (
+    "session_compaction_not_observed",
+    "compaction_critical_fact_not_folded",
+    "compaction_not_reductive",
+    "compaction_fact_lost",
+)
+
+
+def _case_failed_by_checks(failures: object) -> bool:
+    """True when a deterministic compaction check failed, whatever the rubric says."""
+    return any(
+        str(failure).startswith(_CASE_FAILING_PREFIXES)
+        for failure in (failures if isinstance(failures, (list, tuple)) else ())
+    )
+
+
+def _status_after_compaction_checks(case_status: str, failures: object) -> str:
+    if _case_failed_by_checks(failures):
+        return "failed"
+    judge_errors = any(
+        str(failure).startswith("compaction_fact_judge_error")
+        for failure in (failures if isinstance(failures, (list, tuple)) else ())
+    )
+    if judge_errors and case_status == "passed":
+        return "completed_with_judge_error"
+    return case_status
+
+
+def _drop_private_fields(payload: dict[str, Any]) -> None:
+    """Remove in-memory handoff fields that must never reach a report."""
+    payload.pop("_service_result", None)
+    payload.pop("_compaction_blocks", None)
 
 
 def _persisted_message_report_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -1723,10 +1807,7 @@ class ServiceCaseRunner:
             for item in evidence_items
         ):
             failures.append("session_compaction_not_observed")
-        compaction_observations, compaction_failures = _compaction_observations(
-            persisted_messages,
-            [str(item) for item in scenario.oracles.get("expected_compaction_contains", []) or []],
-        )
+        compaction_observations, compaction_failures = _compaction_observations(persisted_messages)
         failures.extend(compaction_failures)
         runtime_events = _runtime_events_from_live_trace(scenario.scenario_id, persisted_messages, records, identity)
         persisted_response = _persisted_assistant_response(
@@ -1850,6 +1931,14 @@ class ServiceCaseRunner:
                 "authorized_evidence_manifest": observed_evidence_manifest(runtime_events)
             },
         )
+        compaction_blocks = persisted_messages.get("compaction_blocks")
+        if judge is not None:
+            result = _apply_compaction_fact_judge(
+                result,
+                scenario=scenario,
+                blocks=compaction_blocks,
+                invoke=lambda prompt: judge.invoke(prompt, model=judge_model),
+            )
         applicable = any(level != "not_applicable" for level in scenario.rubric_applicability.values())
         case = build_case_report(
             scenario,
@@ -1874,10 +1963,10 @@ class ServiceCaseRunner:
                 else "completed_with_judge_error" if judge_status == "error"
                 else "passed" if judge_status == "passed" else "failed"
             )
-        if "session_compaction_not_observed" in result.failures:
-            case_status = "failed"
+        case_status = _status_after_compaction_checks(case_status, result.failures)
         payload.update({
             "suite": "longitudinal",
+            "compaction_observations": [dict(item) for item in result.compaction_observations],
             "execution_mode": "real-backend-service",
             "provider_free": False,
             "status": case_status,
@@ -1908,6 +1997,8 @@ class ServiceCaseRunner:
         })
         if judge is None:
             payload["_service_result"] = result.to_dict()
+            if isinstance(compaction_blocks, Mapping) and compaction_blocks:
+                payload["_compaction_blocks"] = dict(compaction_blocks)
         return payload
 
 
@@ -1949,7 +2040,7 @@ def _judge_real_model_service_result(
     judge_model: str,
 ) -> dict[str, Any]:
     payload = dict(service_result)
-    payload.pop("_service_result", None)
+    _drop_private_fields(payload)
     if payload.get("judge_status") == "not_attempted":
         return payload
 
@@ -2075,6 +2166,7 @@ _LONGITUDINAL_TUPLE_FIELDS = frozenset(
         "raw_visited_nodes",
         "raw_reviewer_outcomes",
         "runtime_events",
+        "compaction_observations",
     }
 )
 
@@ -2134,8 +2226,15 @@ def _judge_longitudinal_service_result(
 ) -> dict[str, Any]:
     payload = dict(service_result)
     result = _longitudinal_result_from_service_payload(payload)
+    if result is not None:
+        result = _apply_compaction_fact_judge(
+            result,
+            scenario=scenario,
+            blocks=payload.get("_compaction_blocks"),
+            invoke=lambda prompt: judge.invoke(prompt, model=judge_model),
+        )
     if result is None:
-        payload.pop("_service_result", None)
+        _drop_private_fields(payload)
         payload.setdefault("judge_status", "error")
         payload.setdefault("judge_error", "service_result_missing")
         payload.setdefault("status", "completed_with_judge_error")
@@ -2179,9 +2278,11 @@ def _judge_longitudinal_service_result(
             if judge_status == "passed"
             else "failed"
         )
+    case_status = _status_after_compaction_checks(case_status, result.failures)
     payload.update(
         {
             "suite": "longitudinal",
+            "compaction_observations": [dict(item) for item in result.compaction_observations],
             "execution_mode": "real-backend-service",
             "provider_free": False,
             "status": case_status,
@@ -2202,7 +2303,7 @@ def _judge_longitudinal_service_result(
             ),
         }
     )
-    payload.pop("_service_result", None)
+    _drop_private_fields(payload)
     return payload
 
 
@@ -2217,7 +2318,7 @@ def judge_service_result(
     """Apply judge/report work after a service case releases its worker."""
     payload = dict(service_result)
     if payload.get("judge_status") == "not_attempted" or judge is None:
-        payload.pop("_service_result", None)
+        _drop_private_fields(payload)
         return payload
     if case is not None:
         return _judge_real_model_service_result(
@@ -2233,7 +2334,7 @@ def judge_service_result(
             judge=judge,
             judge_model=judge_model,
         )
-    payload.pop("_service_result", None)
+    _drop_private_fields(payload)
     return payload
 
 

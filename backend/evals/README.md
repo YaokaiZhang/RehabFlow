@@ -113,9 +113,14 @@ compaction, Exercise Catalog, authorized web, and selected-session compaction
 recall. All interactions are synthetic patient-style engineering fixtures.
 
 Current-session compaction is checked against the persisted compaction state,
-not only the answer: the message carrying the critical fact must sit at or below
-the rolling block's watermark (so the answer cannot come from raw history), the
-block must be at most a quarter of the folded message text, and every
-`expected_compaction_contains` phrase must appear in the block. Failures are
-reported as `compaction_critical_fact_not_folded`, `compaction_not_reductive`
-and `compaction_dropped_phrase`; the block text itself stays out of reports.
+not only the answer. The message carrying the seeded `generated_context.critical_fact`
+must sit at or below the rolling block's watermark, so the answer cannot come
+from raw history (`compaction_critical_fact_not_folded`). The block must be at
+most a quarter of the folded message text (`compaction_not_reductive`). The
+judge model then compares the critical fact with the persisted block and decides
+whether every material element survived with the same meaning, so a faithful
+paraphrase passes and an omitted or altered element fails (`compaction_fact_lost`;
+`compaction_fact_judge_error` when it cannot give a verdict). A "preserved"
+verdict must quote a span that is verbatim in the block. The block text is
+handed to the judge in memory and never written to reports; the verdict and
+quote appear under `compaction_observations`.

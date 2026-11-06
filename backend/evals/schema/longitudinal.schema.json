@@ -831,14 +831,6 @@
           "items": {
             "type": "string"
           }
-        },
-        "expected_compaction_contains": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
         }
       }
     },

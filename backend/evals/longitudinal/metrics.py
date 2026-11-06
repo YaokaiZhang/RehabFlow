@@ -330,22 +330,29 @@ def score_scenario(result: LongitudinalResult, scenario: ScenarioV2) -> Determin
         if expected_persistence
         else None
     )
-    expected_compaction_phrases = [
-        str(item) for item in oracle.get("expected_compaction_contains", []) or []
-    ]
-    context_compaction_compliant = (
-        any(
-            observation.get("critical_fact_folded") is True
-            and observation.get("reductive") is True
-            and all(
-                (observation.get("block_phrases") or {}).get(phrase) is True
-                for phrase in expected_compaction_phrases
-            )
-            for observation in result.compaction_observations
-        )
-        if expected_compaction_phrases
-        else None
+    compaction_expected = any(
+        isinstance(session, Mapping)
+        and isinstance(session.get("generated_context"), Mapping)
+        and bool(str(session["generated_context"].get("critical_fact") or "").strip())
+        for session in scenario.initial_state.get("sessions", []) or []
     )
+    context_compaction_compliant: bool | None
+    if not compaction_expected:
+        context_compaction_compliant = None
+    elif not result.compaction_observations:
+        context_compaction_compliant = False
+    elif any(
+        observation.get("critical_fact_folded") is not True
+        or observation.get("reductive") is not True
+        or observation.get("fact_preserved") is False
+        for observation in result.compaction_observations
+    ):
+        context_compaction_compliant = False
+    elif all(observation.get("fact_preserved") is True for observation in result.compaction_observations):
+        context_compaction_compliant = True
+    else:
+        # Structure passed but the fact judge has not given a verdict.
+        context_compaction_compliant = None
     expected_planner_failure = oracle.get("planner_failure")
     planner_fallback_correct = (
         result.planner_fallback_used is True
