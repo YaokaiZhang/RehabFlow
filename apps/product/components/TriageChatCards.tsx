@@ -4,6 +4,8 @@ import Link from "next/link";
 
 import type { AiChatExerciseCard, AiChatNextStep, TriageSummaryDraft } from "@rehab/shared/api";
 
+import { realSafetySignals } from "./safetyStatus";
+
 export type WrapUp =
 	| { stage: "offer" }
 	| { stage: "writing" }
@@ -73,9 +75,9 @@ export function WrapUpCard({
 		return (
 			<section className="sticker tone-peach wrapup-summary" aria-label="Your summary">
 				<h2 className="wrapup-title">{draft.concern}</h2>
-				{draft.safety_signals.length ? (
+				{realSafetySignals(draft.safety_signals).length ? (
 					<div className="wrapup-signals">
-						{draft.safety_signals.map((signal) => <span key={signal} className="tag" data-tone="rose">{signal}</span>)}
+						{realSafetySignals(draft.safety_signals).map((signal) => <span key={signal} className="tag" data-tone="rose">{signal}</span>)}
 					</div>
 				) : null}
 				<dl className="wrapup-blocks">

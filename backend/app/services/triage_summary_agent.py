@@ -246,8 +246,6 @@ def _build_fallback_summary(
 		safety_signals.append("Swelling is present or recently reported.")
 	if positive_surgery:
 		safety_signals.append("Post-operative context may require clinician restrictions.")
-	if not safety_signals:
-		safety_signals.append("No explicit red-flag symptoms were captured in the available episode context.")
 
 	limitations = [
 		"This summary is generated from the currently saved episode details and patient-provided triage context.",
@@ -427,12 +425,14 @@ def _try_build_ai_summary(
 			version=version,
 			concern=summary_concern,
 			relevant_context=relevant_context,
-			safety_signals=output.safety_signals or ["No explicit safety signals were returned by the summary agent."],
+			safety_signals=[signal for signal in output.safety_signals if signal.strip()],
 			limitations=output.limitations or ["Generated from available episode and triage context."],
 			recommendation=output.recommendation,
 			missing_information=output.missing_information,
 			unresolved_questions=output.unresolved_questions,
-			clinician_review_needed=output.clinician_review_needed or bool(output.missing_information),
+			# Missing details are asked for in unresolved_questions; on their own they
+			# are not a reason to send the patient to a clinician.
+			clinician_review_needed=output.clinician_review_needed,
 			additional_context=additional_context,
 		)
 	except TriageSummaryGenerationFailed:

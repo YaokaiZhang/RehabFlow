@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 
 import { AccordionSection } from "../../components/AccordionSection";
 import { CareEpisodeBrief } from "../../components/CareEpisodeBrief";
+import { realSafetySignals } from "../../components/safetyStatus";
 import { AppButton } from "../../components/ui";
 import { useDoctorCareWorklist } from "./useDoctorCareWorklist";
 
@@ -180,7 +181,7 @@ export default function DoctorPage() {
 											<dl className="doctor-facts">
 												<div><dt>Concern</dt><dd>{selectedTriage.concern}</dd></div>
 												<div><dt>Relevant context</dt><dd>{selectedTriage.relevant_context || "None captured."}</dd></div>
-												<div><dt>Safety signals</dt><dd>{listText(selectedTriage.safety_signals, "None captured.")}</dd></div>
+												<div><dt>Safety signals</dt><dd>{listText(realSafetySignals(selectedTriage.safety_signals), "None captured.")}</dd></div>
 												<div><dt>Limitations</dt><dd>{listText(selectedTriage.limitations, "None captured.")}</dd></div>
 												<div><dt>Missing information</dt><dd>{listText(selectedTriage.missing_information, "None captured.")}</dd></div>
 												<div><dt>Unresolved questions</dt><dd>{listText(selectedTriage.unresolved_questions, "None captured.")}</dd></div>

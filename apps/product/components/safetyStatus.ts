@@ -20,3 +20,9 @@ export function safetyStatus(status: string | null | undefined): { label: string
 	if (status === "triage_complete") return { label: "Cleared by AI triage", tone: "success" };
 	return { label: "Clinician check needed", tone: "risk" };
 }
+
+// Older summaries stored a "No explicit safety signals..." note as if it were a
+// signal. Drop those so a clean triage is not shown as a red flag.
+export function realSafetySignals(signals: string[] | null | undefined): string[] {
+	return (signals || []).filter((signal) => signal && signal.trim() && !/^no explicit (safety signals|red-flag symptoms)\b/i.test(signal.trim()));
+}

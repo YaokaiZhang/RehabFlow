@@ -1,5 +1,7 @@
 import type { CareEpisodeWorkspaceSummary, TriageSummaryArtifact } from "@rehab/shared/api";
 
+import { realSafetySignals } from "./safetyStatus";
+
 type Props = {
 	workspace: CareEpisodeWorkspaceSummary;
 	role: "patient" | "doctor";
@@ -26,13 +28,14 @@ function listText(items: string[] | undefined, fallback: string) {
 function summaryRisk(summary: TriageSummaryArtifact | null | undefined) {
 	if (!summary) return "Not triaged yet";
 	if (summary.clinician_review_needed) return "Clinician review recommended";
-	if (summary.safety_signals.length) return summary.safety_signals.join(" ");
+	const signals = realSafetySignals(summary.safety_signals);
+	if (signals.length) return signals.join(" ");
 	return "No major safety signals captured.";
 }
 
 function riskTone(summary: TriageSummaryArtifact | null | undefined) {
 	if (!summary) return "peach";
-	if (summary.clinician_review_needed || summary.safety_signals.length) return "rose";
+	if (summary.clinician_review_needed || realSafetySignals(summary.safety_signals).length) return "rose";
 	return "mint";
 }
 

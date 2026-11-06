@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { CareEpisode, CareEpisodeWorkspaceSummary, EpisodeRehabSession, TriageSummaryArtifact } from "@rehab/shared/api";
 
 import { ArrowIcon } from "./CareEpisodeBrief";
-import { needsClinicianReview } from "./safetyStatus";
+import { needsClinicianReview, realSafetySignals } from "./safetyStatus";
 
 export type NextStepTone = "rose" | "peach" | "mint" | "sky" | "lilac";
 
@@ -44,13 +44,14 @@ export function rehabSessionHref(session: EpisodeRehabSession) {
 }
 
 function riskStep(episode: CareEpisode, triage: TriageSummaryArtifact | null | undefined, base: string, doctorName?: string | null, hasDoctor = false): NextStepInfo | null {
-	const flagged = Boolean(triage && (triage.clinician_review_needed || triage.safety_signals?.length));
+	const signals = realSafetySignals(triage?.safety_signals);
+	const flagged = Boolean(triage && (triage.clinician_review_needed || signals.length));
 	if (!flagged && !needsClinicianReview(episode.safety_gate_status)) return null;
 	return {
 		kind: "risk",
 		tone: "rose",
 		title: "Get this checked first",
-		chips: (triage?.safety_signals || []).filter(Boolean).slice(0, 4),
+		chips: signals.slice(0, 4),
 		action: hasDoctor
 			? { label: doctorName ? `Message ${doctorName}` : "Message your doctor", href: `${base}/professional-care` }
 			: { label: "Find a clinician", href: `${base}/professional-care` },
