@@ -14,6 +14,11 @@ default; any current model via ``ANTHROPIC_MODEL``):
 * Responses are normalised to plain-text ``AIMessage.content`` (thinking and
   fallback blocks dropped) so callers that treat content as a string keep
   working.
+* Prompt caching: breakpoints go on the static system prompt, on the end of
+  the replayed history (the turn before the per-request user message), and on
+  a trailing ``tool_result`` turn so each tool-loop iteration reads the
+  previous one. The unique per-request tail is left unmarked, so it never pays
+  the cache-write premium.
 * Server-side refusal fallbacks are enabled for models that support them
   (not Haiku). A refused turn raises ``ModelRefusalError`` so the graph's existing
   failure handling takes over instead of releasing an empty answer.
@@ -34,6 +39,9 @@ from app.ai.structured_output import attach_usage
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+CACHE_CONTROL = {"type": "ephemeral"}
+# Block types that accept ``cache_control`` (thinking blocks do not).
+_CACHEABLE_BLOCKS = frozenset({"text", "image", "document", "tool_use", "tool_result"})
 
 
 class ModelRefusalError(RuntimeError):
@@ -60,6 +68,76 @@ def message_text(message: Any) -> str:
     return "" if content is None else str(content)
 
 
+def _as_blocks(content: Any) -> list[Any]:
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}] if content else []
+    return list(content or [])
+
+
+def _mark_last_cacheable(content: Any) -> tuple[Any, bool]:
+    """Return ``content`` as blocks with ``cache_control`` on the last eligible block."""
+    blocks = _as_blocks(content)
+    for index in range(len(blocks) - 1, -1, -1):
+        block = blocks[index]
+        if isinstance(block, Mapping) and block.get("type") in _CACHEABLE_BLOCKS:
+            if block.get("type") == "text" and not block.get("text"):
+                continue
+            blocks[index] = {**block, "cache_control": dict(CACHE_CONTROL)}
+            return blocks, True
+    return content, False
+
+
+def _is_tool_result_turn(message: Mapping[str, Any]) -> bool:
+    content = message.get("content")
+    return (
+        message.get("role") == "user"
+        and isinstance(content, list)
+        and any(isinstance(b, Mapping) and b.get("type") == "tool_result" for b in content)
+    )
+
+
+def apply_cache_breakpoints(payload: dict[str, Any]) -> dict[str, Any]:
+    """Place prompt-cache breakpoints at the payload's stability boundaries.
+
+    Prompts are built as static system prompt, replayed history, then one
+    per-request user message (context and question). Caching that last
+    message would write bytes no later request reads, so the breakpoints sit
+    on the system prompt and on the turn before the final message. In a tool
+    loop the final message is a ``tool_result`` turn the next iteration
+    replays, so it is marked too. At most three of the four allowed
+    breakpoints are used.
+    """
+    if any(
+        isinstance(block, Mapping) and "cache_control" in block
+        for message in payload.get("messages") or ()
+        if isinstance(message, Mapping) and isinstance(message.get("content"), list)
+        for block in message["content"]
+    ):
+        return payload  # Caller placed its own breakpoints.
+
+    system = payload.get("system")
+    if system:
+        marked, ok = _mark_last_cacheable(system)
+        if ok:
+            payload["system"] = marked
+
+    messages = [dict(m) if isinstance(m, Mapping) else m for m in payload.get("messages") or ()]
+    targets: list[int] = []
+    if len(messages) >= 2:
+        targets.append(len(messages) - 2)
+    if messages and isinstance(messages[-1], Mapping) and _is_tool_result_turn(messages[-1]):
+        targets.append(len(messages) - 1)
+    for index in targets:
+        message = messages[index]
+        if isinstance(message, dict):
+            marked, ok = _mark_last_cacheable(message.get("content"))
+            if ok:
+                message["content"] = marked
+    if messages:
+        payload["messages"] = messages
+    return payload
+
+
 def _schema_for(schema: type[BaseModel] | Mapping[str, Any]) -> tuple[dict[str, Any], str]:
     from anthropic import transform_schema
 
@@ -84,6 +162,7 @@ class RehabChatAnthropic(ChatAnthropic):
     """``ChatAnthropic`` adapted to current Claude models (see module docstring)."""
 
     effort: str | None = None
+    prompt_caching: bool = True
 
     def _effort_config(self) -> dict[str, Any]:
         return {"effort": self.effort} if self.effort else {}
@@ -97,6 +176,8 @@ class RehabChatAnthropic(ChatAnthropic):
         output_config.update(payload.get("output_config") or {})
         if output_config:
             payload["output_config"] = output_config
+        if self.prompt_caching:
+            apply_cache_breakpoints(payload)
         return payload
 
     def _format_output(self, data: Any, **kwargs: Any) -> ChatResult:

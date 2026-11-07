@@ -216,3 +216,69 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def _cache_marks(payload) -> list[str]:
+    marks: list[str] = []
+    system = payload.get("system")
+    if isinstance(system, list) and any("cache_control" in b for b in system):
+        marks.append("system")
+    for index, message in enumerate(payload["messages"]):
+        content = message["content"]
+        if isinstance(content, list) and any(
+            isinstance(b, dict) and "cache_control" in b for b in content
+        ):
+            marks.append(f"{message['role']}[{index}]")
+    return marks
+
+
+def test_cache_breakpoints_cover_system_and_history_not_unique_tail() -> None:
+    from langchain_core.messages import AIMessage, SystemMessage
+
+    payload = _model()._get_request_payload(
+        [
+            SystemMessage(content="static instructions"),
+            HumanMessage(content="earlier question"),
+            AIMessage(content="earlier answer"),
+            HumanMessage(content="context + current question"),
+        ]
+    )
+    assert _cache_marks(payload) == ["system", "assistant[1]"]
+    assert payload["system"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert payload["messages"][-1]["content"] == "context + current question"
+
+
+def test_single_turn_caches_system_only() -> None:
+    from langchain_core.messages import SystemMessage
+
+    payload = _model()._get_request_payload(
+        [SystemMessage(content="static instructions"), HumanMessage(content="question")]
+    )
+    assert _cache_marks(payload) == ["system"]
+
+
+def test_tool_loop_caches_trailing_tool_result() -> None:
+    from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+
+    payload = _model()._get_request_payload(
+        [
+            SystemMessage(content="static instructions"),
+            HumanMessage(content="question"),
+            AIMessage(
+                content="",
+                tool_calls=[{"id": "toolu_1", "name": "search", "args": {"q": "knee"}}],
+            ),
+            ToolMessage(content="result", tool_call_id="toolu_1"),
+        ]
+    )
+    assert _cache_marks(payload) == ["system", "assistant[1]", "user[2]"]
+    assert len(_cache_marks(payload)) <= 4
+
+
+def test_prompt_caching_can_be_disabled() -> None:
+    from langchain_core.messages import SystemMessage
+
+    payload = _model(prompt_caching=False)._get_request_payload(
+        [SystemMessage(content="static instructions"), HumanMessage(content="question")]
+    )
+    assert _cache_marks(payload) == []
