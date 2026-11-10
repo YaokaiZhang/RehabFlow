@@ -10,37 +10,32 @@ Care Episode per rehabilitation concern.
 ## Initial problems: serious gaps between rehabilitation demand and resources
 
 **The demand for rehabilitation is enormous.** About **2.4 billion people** live with a condition that
-may benefit from rehabilitation ([WHO](https://www.who.int/news-room/fact-sheets/detail/rehabilitation)).
+may benefit from rehabilitation, reported by WHO.
 The Global Burden of Disease estimate is 2.41 billion in 2019, up 63% since 1990.
 **1.71 billion** of those (about 71%) are musculoskeletal, and low back pain alone
-affects 568 million ([Cieza et al., *The Lancet* 2020](https://pubmed.ncbi.nlm.nih.gov/33275908/)).
-"Need" means people who may benefit at some point, not everyone at once.
+affects 568 million.
 
 ![The demand](docs/media/slide-02.png)
 
 **The supply is thin and unevenly spread.**
 
 - Rehabilitation workforce density ranges from under 0.01 to about 25 per 10,000
-  people across reporting countries
-  ([workforce review, 2017](https://link.springer.com/doi/10.1186/s12960-017-0182-7)).
+  people across reporting countries.
   WHO reports fewer than 10 skilled practitioners per million people in many
   low- and middle-income settings.
 - In some low- and middle-income countries, **more than half** of the people who
-  need rehabilitation do not receive it ([WHO](https://www.who.int/news-room/fact-sheets/detail/rehabilitation)).
+  need rehabilitation do not receive it.
 - Geography matters even in rich countries. US rural areas have roughly half the
-  physical therapists per 10,000 residents of urban areas
-  ([HRSA data via Univ. of Kentucky](https://medicine.uky.edu/sites/default/files/inline-files/2024%20Kentucky%20Physical%20Therapy%20Workforce%20Report.pdf)),
+  physical therapists per 10,000 residents of urban areas,
   and availability clusters locally rather than following a clean urban/rural
-  line ([JMIR Formative Research, 2025](https://formative.jmir.org/2025/1/e85025)).
+  line.
 
 ![The supply](docs/media/slide-03.png)
 
 **The price adds a second barrier.** Typical US uninsured prices are **$75-350 per
 session** (about $150 is commonly quoted). A 6-12 week course at 2-3 visits a week is
 quoted at **$500-4,000+**, and in-home visits run **$100-350**. These are directional
-figures from clinic and price-comparison guides, not claims data
-([example](https://www.orthobethesda.com/blog/how-much-does-physical-therapy-cost/),
-[example](https://valuepenguin.com/physical-therapy-cost-health-insurance)).
+figures from clinic and price-comparison guides, not claims data.
 Insured co-pays are usually far lower.
 
 ![The price](docs/media/slide-04.png)
@@ -50,14 +45,9 @@ Insured co-pays are usually far lower.
 A week has 168 hours. Even three one-hour clinic visits only cover about **2%** of it. The
 other ~98% is where recovery actually happens, usually alone and without feedback.
 
-- Adherence to physio-prescribed home exercise can be as low as **50%**
-  ([review of RCTs](https://pmc.ncbi.nlm.nih.gov/articles/PMC9527092), citing Argent
-  et al.). Some reviews of unsupervised programmes report non-adherence up to 70%.
+- Adherence to physio-prescribed home exercise can be as low as **50%**. Some reviews of unsupervised programmes report non-adherence up to 70%.
 - Telerehabilitation gives **comparable outcomes** to in-person care for
-  musculoskeletal problems, with fewer clinic visits and less travel
-  ([meta-analysis](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11911901/),
-  [umbrella review](https://pubmed.ncbi.nlm.nih.gov/38306156/); most included
-  reviews were rated low quality, so treat this as encouraging, not settled).
+  musculoskeletal problems, with fewer clinic visits and less travel.
 
 The opportunity is **daily domestic and community rehabilitation, with professionals
 keeping track of patients online**, not one more waiting list. That is what RehabFlow
@@ -130,7 +120,7 @@ streamed to the doctor you are linked to.
 
 > *"Visual feedback in rehab is very important, because some patients cannot feel the
 > body part as normal people do."*
-> **Insights from rehab experts**
+> ** -- Insights from rehab experts**
 
 ![AI Daily Rehab](docs/media/slide-09.png)
 ![AI Daily Rehab](docs/media/J3-AI-Daily-Rehab.gif)
